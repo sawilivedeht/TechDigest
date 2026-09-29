@@ -1,0 +1,2 @@
+[console_scripts]
+techdigest = techdigest.main:run

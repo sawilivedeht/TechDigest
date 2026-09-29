@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "techdigest"
+version = "0.1.0"
+description = "Pipeline diário de curadoria de notícias de tecnologia e politica brasileira com IA"
+requires-python = ">=3.11"
+dependencies = [
+    "feedparser>=6.0",
+    "trafilatura>=1.8",
+    "edge-tts>=6.1",
+    "pydantic-settings>=2.0",
+    "ollama>=0.3",
+    "requests>=2.32",
+    "openai>=1.40",
+]
+
+[project.scripts]
+techdigest = "techdigest.main:run"
+
+[tool.setuptools.packages.find]
+where = ["src"]

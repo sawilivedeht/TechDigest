@@ -1,0 +1,20 @@
+# ── Segredos (CRÍTICO) ──
+.env
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# ── Estado de runtime (gerados, nunca versionados) ──
+data/
+raw_response.txt
+raw_noformat.txt
+
+# ── Duplicado (fonte única = pyproject.toml) ──
+requirements.txt
+
+# ── IDE ──
+.vscode/
+.idea/
