@@ -1,7 +1,7 @@
 from techdigest.pipeline import run
 from techdigest.logging_setup import setup_logging
 import logging
-logger = logging.getLogger("techdigest.<submódulo>")
+logger = logging.getLogger("techdigest.main")
 
 if __name__ == "__main__":
     log = setup_logging()

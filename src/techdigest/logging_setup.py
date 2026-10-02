@@ -3,11 +3,12 @@ import logging
 import logging.handlers
 from pathlib import Path
 
-from techdigest.config import settings
+from techdigest.config import Settings
 
 NIVEL_FORMATO = "%(asctime)s │ %(levelname)-8s │ %(name)s │ %(message)s"
 FORMATO = logging.Formatter(NIVEL_FORMATO, datefmt="%d/%m %H:%M:%S")
 
+settings = Settings()
 
 def setup_logging() -> logging.Logger:
     """Configura handlers (console + arquivo rotativo) e retorna o logger raiz do projeto."""

@@ -1,5 +1,4 @@
-import logging
-logger = logging.getLogger("techdigest.<submódulo>")
+
 
 PROMPT_SISTEMA = """Você é o editor sênior dos boletins diários "TechDigest" (tecnologia) \
 e "PulsoBR" (política brasileira), ambos escritos em português do Brasil.

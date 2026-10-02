@@ -1,7 +1,7 @@
 import sqlite3, hashlib
 
 import logging
-logger = logging.getLogger("techdigest.<submódulo>")
+logger = logging.getLogger("techdigest.storage.dedup")
 
 class SeenStore:
     def __init__(self, db_path: str):

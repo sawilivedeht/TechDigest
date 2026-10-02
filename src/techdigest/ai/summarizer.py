@@ -7,7 +7,7 @@ from techdigest.ai.prompt import PROMPT_REVISOR, PROMPT_SISTEMA
 from techdigest.ai.qa import problemas
 from techdigest.config import Settings
 import logging
-logger = logging.getLogger("techdigest.<submódulo>")
+logger = logging.getLogger("techdigest.ai.summarizer")
 
 settings = Settings()
 
@@ -69,7 +69,7 @@ class Summarizer:
             corrigido = self.provider.chat_json(PROMPT_REVISOR, entrada)
             probs2 = problemas(corrigido)
             if not probs2:
-                print("✅ Revisão aprovada pelo QA.")
+                print(" Revisão aprovada pelo QA.")
                 return corrigido
             print(f"Revisão ainda com pendências: {probs2} — usando a melhor versão.")
         except Exception as e:

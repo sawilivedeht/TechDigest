@@ -1,7 +1,7 @@
 import trafilatura
 
 import logging
-logger = logging.getLogger("techdigest.<submódulo>")
+logger = logging.getLogger("techdigest.processing.extractor")
 
 def extract_full_text(url: str, fallback: str = "") -> str:
     html = trafilatura.fetch_url(url)

@@ -7,7 +7,7 @@ from pathlib import Path
 import edge_tts
 
 import logging
-logger = logging.getLogger("techdigest.<submódulo>")
+logger = logging.getLogger("techdigest.audio.tts")
 
 VOZ_FIXA = {"Helena": "pt-BR-FranciscaNeural"}   # apresentadora = marca sonora fixa
 VOZES_DIVERSIDADE = [

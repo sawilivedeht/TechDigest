@@ -4,7 +4,7 @@ from techdigest.config import Settings
 settings = Settings()
 
 import logging
-logger = logging.getLogger("techdigest.<submódulo>")
+logger = logging.getLogger("techdigest.delivery.__init__")
 
 
 def deliver(items: list[dict], audios: list[str]) -> str:

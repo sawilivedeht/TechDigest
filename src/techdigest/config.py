@@ -1,12 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
-import logging
-logger = logging.getLogger("techdigest.<submódulo>")
 
-
-
-BASE_DIR = Path(__file__).resolve().parents[2]   # src/techdigest/config.py → raiz do projeto
-
+BASE_DIR = Path(__file__).resolve().parents[2]
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -24,13 +19,20 @@ class Settings(BaseSettings):
     llm_provider: str = "ollama"
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "gemma4:26b"
+    ollama_num_ctx: int = 8192              
+    ollama_num_predict: int = 4096          
+    ollama_temperature: float = 0.5         
+    ollama_keep_alive: str = "30m" 
     openai_model: str = ""
     openai_api_key: str = ""
-    llm_max_tokens: int = 10240        
-    llm_max_prompt_chars: int = 12288 
+    openai_base_url: str = ""          #ex.: https://api.groq.com/openai/v1
+    openai_reasoning_effort: str = ""  #ex.: "low"/"medium"/"high" p/ modelos reasoning
+    llm_max_tokens: int = 8192
+    llm_max_prompt_chars: int = 4096
+    
 
     #Telegram
-    delivery_channel: str = "telegram"    # "telegram" | "email"
+    delivery_channel: str = "telegram"    
     telegram_token: str = ""
     telegram_chat_id: str = ""
 
@@ -42,7 +44,7 @@ class Settings(BaseSettings):
     email_to: str = ""
 
     # Pipeline
-    max_news: int = 12
+    max_news: int = 20
     db_path: str = str(BASE_DIR / "data" / "digest.db")    
     audio_dir: str = str(BASE_DIR / "data" / "audio") 
 

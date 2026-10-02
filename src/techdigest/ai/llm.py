@@ -1,10 +1,11 @@
+"""Providers de LLM — Ollama (local) e qualquer endpoint compatível com OpenAI."""
 import json
+import logging
 import re
 from abc import ABC, abstractmethod
 
-from trafilatura import settings
-import logging
-logger = logging.getLogger("techdigest.<submódulo>")
+logger = logging.getLogger("techdigest.ai.llm")
+
 
 # ---------------------------------------------------------------- helpers
 
@@ -79,17 +80,20 @@ REQUIRED_KEYS = set(SCHEMA["required"])
 # ---------------------------------------------------------------- providers
 
 class LLMProvider(ABC):
+    """Contrato comum: toda chamada devolve o dict editorial validado."""
+
     @abstractmethod
     def chat_json(self, system: str, user: str) -> dict: ...
 
 
 class OllamaProvider(LLMProvider):
-    """Local — reservado para tarefas curtas (futuro editor de pauta, ranking)."""
+    """Local — todos os parâmetros vêm do .env via settings."""
 
-    def __init__(self, model: str, host: str):
+    def __init__(self, model: str, host: str, settings):
         from ollama import Client
         self.client = Client(host=host)
         self.model = model
+        self.s = settings
 
     def chat_json(self, system: str, user: str) -> dict:
         resp = self.client.chat(
@@ -99,49 +103,49 @@ class OllamaProvider(LLMProvider):
                 {"role": "user", "content": user},
             ],
             format="json",
-            keep_alive="30m",
-            options={"num_ctx": 12288, "num_predict": 10240, "temperature": 0.5},
+            keep_alive=self.s.ollama_keep_alive,
+            options={
+                "num_ctx": self.s.ollama_num_ctx,
+                "num_predict": self.s.ollama_num_predict,
+                "temperature": self.s.ollama_temperature,
+            },
         )
         if getattr(resp, "done_reason", None) == "length":
             raise ValueError(
                 f"Saída truncada (done_reason=length): gerou {resp.eval_count} tokens. "
-                f"Aumente num_predict ou reduza o teto do roteiro."
+                f"Aumente OLLAMA_NUM_PREDICT ({self.s.ollama_num_predict}) no .env, "
+                f"ou reduza o tamanho do roteiro."
             )
         return parse_json(resp.message.content)
 
 
 class OpenAIProvider(LLMProvider):
-    """Protocolo OpenAI — cobre OpenAI e compatíveis (Groq, OpenRouter...)."""
+    """Protocolo OpenAI — cobre OpenAI, Groq, OpenRouter (base_url decide)."""
 
     def __init__(self, model: str, api_key: str,
-                 base_url: str | None = None, max_tokens: int = 4096,
+                 base_url: str | None = None, max_tokens: int = 8192,
                  reasoning_effort: str | None = None,
-                 max_prompt_chars: int = 8000):                    # ⬅️ NOVO
+                 max_prompt_chars: int = 8000):
         from openai import OpenAI
         self.client = OpenAI(api_key=_ascii(api_key, "API key do provedor"),
                              base_url=base_url)
         self.model = model
         self.max_tokens = max_tokens
         self.reasoning_effort = reasoning_effort or None
-        self.max_prompt_chars = max_prompt_chars                   # ⬅️ NOVO
+        self.max_prompt_chars = max_prompt_chars
 
     def chat_json(self, system: str, user: str) -> dict:
-        # ─────────────────────────────────────────────────────────────
-        # blindagem de tamanho
+        # blindagem de tamanho (defesa contra 413)
         if len(user) > self.max_prompt_chars:
             user = user[: self.max_prompt_chars] + \
                 "\n\n[TEXTO TRUNCADO POR LIMITE DE REQUISIÇÃO]"
-        # ─────────────────────────────────────────────────────────────
 
-        # ─────────────────────────────────────────────────────────────
-        # mostra o tamanho real do request
         total_chars = len(system) + len(user)
-        print(f" request: {total_chars} chars (~{total_chars // 4} tokens) "
-              f"+ max_tokens={self.max_tokens}")
-        # ─────────────────────────────────────────────────────────────
+        logger.debug("request: %d chars (~%d tokens) + max_tokens=%d",
+                     total_chars, total_chars // 4, self.max_tokens)
 
         tentativas = [
-            {"response_format": {"type": "json_object"}},  # modo estrito (validador Groq)
+            {"response_format": {"type": "json_object"}},  # modo estrito (validador do provedor)
             {},                                            # fallback: geração livre
         ]
         ultimo_erro = None
@@ -166,20 +170,24 @@ class OpenAIProvider(LLMProvider):
             except Exception as e:
                 if "404" in str(e) or "model_not_found" in str(e):
                     raise ValueError(
-                        f"Modelo '{self.model}' não existe. Liste: python groq_models.py"
+                        f"Modelo '{self.model}' não existe neste provedor. "
+                        f"Confira o nome no .env / catálogo do provedor."
                     ) from e
                 ultimo_erro = e
-                print(f"  Tentativa {i} falhou ({type(e).__name__}) — {str(e)[:120]}")
+                logger.warning("Tentativa %d falhou (%s) — %s",
+                               i, type(e).__name__, str(e)[:120])
                 continue
 
             choice = resp.choices[0]
             if choice.finish_reason == "length":
-                raise ValueError("Saída truncada (finish_reason=length): aumente llm_max_tokens.")
+                raise ValueError(
+                    "Saída truncada (finish_reason=length): aumente LLM_MAX_TOKENS no .env."
+                )
             try:
                 return parse_json(choice.message.content)
             except ValueError as e:
                 ultimo_erro = e
-                print(f"  Tentativa {i}: JSON inservível — {str(e)[:120]}")
+                logger.warning("Tentativa %d: JSON inservível — %s", i, str(e)[:120])
 
         raise ValueError(f"Todas as tentativas falharam. Último erro: {ultimo_erro}")
 
@@ -187,17 +195,15 @@ class OpenAIProvider(LLMProvider):
 # ---------------------------------------------------------------- factory
 
 def get_provider(settings) -> LLMProvider:
-    if settings.llm_provider == "groq":
-        return OpenAIProvider(
-            model=settings.groq_model,
-            api_key=settings.groq_api_key,
-            base_url=settings.groq_base_url,
-            max_tokens=settings.llm_max_tokens,
-            reasoning_effort=settings.groq_reasoning_effort,
-            max_prompt_chars=settings.llm_max_prompt_chars,
-        )
-    
     if settings.llm_provider == "ollama":
-        return OllamaProvider(settings.ollama_model, settings.ollama_host)
-    return OpenAIProvider(settings.openai_model, settings.openai_api_key,
-                          max_tokens=settings.llm_max_tokens)
+        return OllamaProvider(settings.ollama_model, settings.ollama_host, settings)
+
+    # "openai" cobre OpenAI E compatíveis (Groq, OpenRouter) via OPENAI_BASE_URL
+    return OpenAIProvider(
+        model=settings.openai_model,
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url or None,
+        max_tokens=settings.llm_max_tokens,
+        reasoning_effort=settings.openai_reasoning_effort or None,
+        max_prompt_chars=settings.llm_max_prompt_chars,
+    )

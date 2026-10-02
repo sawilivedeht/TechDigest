@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 import logging
-logger = logging.getLogger("techdigest.<submódulo>")
+logger = logging.getLogger("techdigest.models")
 
 @dataclass
 class Article:

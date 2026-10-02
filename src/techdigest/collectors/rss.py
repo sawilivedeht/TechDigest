@@ -4,7 +4,7 @@ from techdigest.config import Settings
 from techdigest.models import Article
 
 import logging
-logger = logging.getLogger("techdigest.<submódulo>")
+logger = logging.getLogger("techdigest.collectors.rss")
 
 settings = Settings()
 

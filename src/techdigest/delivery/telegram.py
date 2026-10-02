@@ -5,7 +5,7 @@ from techdigest.config import Settings
 settings = Settings()
 
 import logging
-logger = logging.getLogger("techdigest.<submódulo>")
+logger = logging.getLogger("techdigest.delivery.telegram")
 
 def _post(endpoint: str, data: dict, files: dict | None = None) -> dict:
     url = f"https://api.telegram.org/bot{settings.telegram_token}/{endpoint}"

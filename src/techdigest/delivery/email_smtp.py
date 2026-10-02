@@ -7,7 +7,7 @@ import re, datetime
 settings = Settings()
 
 import logging
-logger = logging.getLogger("techdigest.<submódulo>")
+logger = logging.getLogger("techdigest.delivery.email_smtp")
 
 def send_digest(subject: str, html: str, attachments: list[str] | None = None):
     msg = EmailMessage()

@@ -1,5 +1,5 @@
 import logging
-logger = logging.getLogger("techdigest.<submódulo>")
+logger = logging.getLogger("techdigest.ai.qa")
 
 MIN_POR_PERSONAGEM, MAX_POR_PERSONAGEM = 240, 480
 MIN_TOTAL, MAX_TOTAL = 600, 1300
