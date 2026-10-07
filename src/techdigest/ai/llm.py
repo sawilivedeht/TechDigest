@@ -1,7 +1,9 @@
 """Providers de LLM — Ollama (local) e qualquer endpoint compatível com OpenAI."""
+import glob
 import json
 import logging
 import re
+import subprocess
 from abc import ABC, abstractmethod
 
 logger = logging.getLogger("techdigest.ai.llm")
@@ -38,6 +40,52 @@ def parse_json(text: str) -> dict:
             f"Chaves recebidas: {sorted(data.keys())}. Bruto: {text[:300]!r}"
         )
     return data
+
+
+def _temperatura_cpu() -> float | None:
+    """Temperatura do pacote da CPU via hwmon (coretemp = Intel, k10temp/zenpower = AMD)."""
+    for hw in glob.glob("/sys/class/hwmon/hwmon*"):
+        try:
+            with open(f"{hw}/name") as f:
+                nome = f.read().strip()
+            if nome in ("coretemp", "k10temp", "zenpower"):
+                with open(f"{hw}/temp1_input") as f:
+                    return int(f.read()) / 1000
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def _amostra_sistema() -> str:
+    """RAM disponível, swap em uso e temperaturas no momento: diagnóstico da queda de velocidade.
+
+    Tudo é opcional: o que não estiver disponível nesta máquina simplesmente não aparece.
+    """
+    partes = []
+    try:
+        mem = {}
+        with open("/proc/meminfo") as f:
+            for linha in f:
+                chave, valor = linha.split(":", 1)
+                mem[chave] = int(valor.split()[0])  # kB
+        partes.append(f"RAM disp.={mem['MemAvailable'] / 1048576:.1f} GB")
+        partes.append(f"swap usado={(mem['SwapTotal'] - mem['SwapFree']) / 1048576:.1f} GB")
+    except (OSError, KeyError, ValueError):
+        pass
+    temp = _temperatura_cpu()
+    if temp is not None:
+        partes.append(f"CPU={temp:.0f}°C")
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=temperature.gpu,clocks.sm", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            gpu_temp, gpu_clock = (x.strip() for x in r.stdout.splitlines()[0].split(","))
+            partes.append(f"GPU={gpu_temp}°C/{gpu_clock} MHz")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    return ", ".join(partes)
 
 
 # ---------------------------------------------------------------- schema
@@ -94,6 +142,19 @@ class OllamaProvider(LLMProvider):
         self.client = Client(host=host)
         self.model = model
         self.s = settings
+        self.think = self._parse_think(getattr(settings, "ollama_think", ""))
+        logger.info(
+            "Ollama configurado: modelo=%s, num_ctx=%d, num_predict=%d, think=%s",
+            model, settings.ollama_num_ctx, settings.ollama_num_predict,
+            "padrão do modelo" if self.think is None else self.think,
+        )
+        if settings.ollama_num_predict > settings.ollama_num_ctx:
+            logger.warning(
+                "OLLAMA_NUM_PREDICT (%d) é maior que OLLAMA_NUM_CTX (%d): o limite "
+                "efetivo da geração é a janela de contexto (prompt + saída), não o "
+                "num_predict.",
+                settings.ollama_num_predict, settings.ollama_num_ctx,
+            )
 
     def chat_json(self, system: str, user: str) -> dict:
         resp = self.client.chat(
@@ -109,14 +170,74 @@ class OllamaProvider(LLMProvider):
                 "num_predict": self.s.ollama_num_predict,
                 "temperature": self.s.ollama_temperature,
             },
+            **({} if self.think is None else {"think": self.think}),
         )
-        if getattr(resp, "done_reason", None) == "length":
-            raise ValueError(
-                f"Saída truncada (done_reason=length): gerou {resp.eval_count} tokens. "
-                f"Aumente OLLAMA_NUM_PREDICT ({self.s.ollama_num_predict}) no .env, "
-                f"ou reduza o tamanho do roteiro."
-            )
+        prompt_tok = getattr(resp, "prompt_eval_count", None) or 0
+        saida_tok = getattr(resp, "eval_count", None) or 0
+        done = getattr(resp, "done_reason", None)
+        self._log_metricas(resp, prompt_tok, saida_tok, done)
+        if done == "length":
+            raise ValueError(self._explicar_truncamento(resp, prompt_tok, saida_tok))
         return parse_json(resp.message.content)
+
+    @staticmethod
+    def _parse_think(valor) -> bool | None:
+        """OLLAMA_THINK: vazio = padrão do modelo (não envia); true/false = liga/desliga o raciocínio."""
+        v = str(valor or "").strip().lower()
+        if v in ("", "auto", "default"):
+            return None
+        if v in ("true", "1", "on", "yes", "sim"):
+            return True
+        if v in ("false", "0", "off", "no", "nao", "não"):
+            return False
+        raise ValueError(f"OLLAMA_THINK inválido: {valor!r}. Use true, false ou deixe vazio.")
+
+    def _log_metricas(self, resp, prompt_tok: int, saida_tok: int, done) -> None:
+        """Uma linha por chamada: tokens, velocidade e tempo (base p/ estimar a duração do lote)."""
+        eval_ns = getattr(resp, "eval_duration", None) or 0
+        total_ns = getattr(resp, "total_duration", None) or 0
+        tok_s = saida_tok / (eval_ns / 1e9) if eval_ns else 0.0
+        sistema = _amostra_sistema()
+        logger.info(
+            "Ollama %s: prompt=%d tok, saída=%d tok (%.1f tok/s), total=%.1fs, done=%s%s",
+            self.model, prompt_tok, saida_tok, tok_s, total_ns / 1e9, done,
+            f" | {sistema}" if sistema else "",
+        )
+
+    def _explicar_truncamento(self, resp, prompt_tok: int, saida_tok: int) -> str:
+        """Diz QUAL limite estourou e registra início/fim da saída cortada (nível WARNING)."""
+        num_ctx = self.s.ollama_num_ctx
+        num_predict = self.s.ollama_num_predict
+        if num_predict > 0 and saida_tok >= num_predict:
+            causa = (
+                f"atingiu OLLAMA_NUM_PREDICT ({num_predict}). Aumente-o no .env "
+                f"(a janela total é OLLAMA_NUM_CTX={num_ctx}) ou reduza o roteiro."
+            )
+        else:
+            causa = (
+                f"parou antes de OLLAMA_NUM_PREDICT ({num_predict}): o limite atingido foi "
+                f"a janela de contexto (OLLAMA_NUM_CTX={num_ctx}; prompt+saída="
+                f"{prompt_tok + saida_tok}). Aumentar OLLAMA_NUM_PREDICT NÃO ajuda: "
+                f"suba OLLAMA_NUM_CTX ou investigue por que a saída passa do esperado "
+                f"(raciocínio interno ou repetição — veja o trecho final no log)."
+            )
+        conteudo = resp.message.content or ""
+        pensamento = getattr(resp.message, "thinking", None) or ""
+        logger.warning(
+            "Truncamento: content=%d chars, thinking=%d chars\n"
+            "  início do content: %r\n  fim do content: %r\n  fim do thinking: %r",
+            len(conteudo), len(pensamento), conteudo[:200], conteudo[-300:], pensamento[-300:],
+        )
+        dica = ""
+        if pensamento and self.think is not False:
+            dica = (
+                f" O modelo gastou {len(pensamento)} chars em raciocínio (thinking): "
+                f"defina OLLAMA_THINK=false no .env para desligá-lo."
+            )
+        return (
+            f"Saída truncada (done_reason=length): prompt={prompt_tok} + "
+            f"saída={saida_tok} tokens. A geração {causa}{dica}"
+        )
 
 
 class OpenAIProvider(LLMProvider):

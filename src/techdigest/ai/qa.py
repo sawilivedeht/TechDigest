@@ -1,9 +1,16 @@
 import logging
+
+from techdigest.config import Settings
+
 logger = logging.getLogger("techdigest.ai.qa")
 
-MIN_POR_PERSONAGEM, MAX_POR_PERSONAGEM = 240, 480
-MIN_TOTAL, MAX_TOTAL = 600, 1300
-MIN_FRASES_RESUMO, MAX_FRASES_RESUMO = 7, 10
+settings = Settings()
+
+# Faixas editoriais (regras 2, 3 e 6). Os valores vêm do .env (QA_*); os defaults do
+# config.py são as regras originais do dono.
+MIN_POR_PERSONAGEM, MAX_POR_PERSONAGEM = settings.qa_min_por_personagem, settings.qa_max_por_personagem
+MIN_TOTAL, MAX_TOTAL = settings.qa_min_total, settings.qa_max_total
+MIN_FRASES_RESUMO, MAX_FRASES_RESUMO = settings.qa_min_frases, settings.qa_max_frases
 
 
 def contar_palavras(t: str) -> int:

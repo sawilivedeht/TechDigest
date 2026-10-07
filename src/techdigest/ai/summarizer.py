@@ -1,15 +1,20 @@
 """Summarizer — geração + revisão com QA determinístico."""
 import json
+import logging
 import re
 
 from techdigest.ai.llm import get_provider
 from techdigest.ai.prompt import PROMPT_REVISOR, PROMPT_SISTEMA
 from techdigest.ai.qa import problemas
 from techdigest.config import Settings
-import logging
+
 logger = logging.getLogger("techdigest.ai.summarizer")
 
 settings = Settings()
+
+
+class QAReprovado(ValueError):
+    """Episódio ainda viola as regras editoriais depois da passada de revisão."""
 
 
 def _limpar(texto: str) -> str:
@@ -18,6 +23,14 @@ def _limpar(texto: str) -> str:
     texto = re.sub(r"[ \t]+", " ", texto)
     texto = re.sub(r"\n{3,}", "\n\n", texto)
     return texto.strip()
+
+
+def _qa(result: dict) -> list[str]:
+    """Roda o QA sem deixar um JSON malformado derrubar o fluxo (vira problema, não exceção)."""
+    try:
+        return problemas(result)
+    except (KeyError, TypeError, AttributeError) as e:
+        return [f"estrutura inválida para o QA ({type(e).__name__}: {e})"]
 
 
 class Summarizer:
@@ -54,25 +67,40 @@ class Summarizer:
         return "\n".join(partes)
 
     def process(self, principal: dict, relacionados: list[dict] | None = None) -> dict:
-        result = self.provider.chat_json(PROMPT_SISTEMA, self._montar_entrada(principal, relacionados))
+        """Devolve um episódio que passou no QA; do contrário levanta QAReprovado (item é pulado)."""
+        entrada_artigo = self._montar_entrada(principal, relacionados)
+        logger.info(
+            "Resumindo: %r (fonte: %s, %d caracteres de texto, %d relacionado(s))",
+            str(principal["title"])[:80], principal["source"],
+            len(principal["text"]), len(relacionados or []),
+        )
+        logger.debug("Início da entrada enviada ao LLM: %r", entrada_artigo[:600])
 
-        probs = problemas(result)
+        result = self.provider.chat_json(PROMPT_SISTEMA, entrada_artigo)
+
+        probs = _qa(result)
         if not probs:
             return result
 
-        print(f"  QA reprovou 1ª versão: {probs}\n🔁 Acionando revisão/expansão...")
+        logger.warning("QA reprovou a 1ª versão: %s — acionando revisão", probs)
+        # A revisão recebe o artigo-fonte: sem ele, "expandir" o roteiro vira invenção de fatos.
         entrada = (
-            "PROBLEMAS DETECTADOS:\n- " + "\n- ".join(probs) +
-            "\n\nEPISÓDIO ORIGINAL:\n" + json.dumps(result, ensure_ascii=False)
+            "ARTIGO-FONTE (use somente fatos deste texto; não invente informações):\n"
+            + entrada_artigo
+            + "\n\nPROBLEMAS DETECTADOS:\n- " + "\n- ".join(probs)
+            + "\n\nEPISÓDIO ORIGINAL:\n" + json.dumps(result, ensure_ascii=False)
         )
         try:
             corrigido = self.provider.chat_json(PROMPT_REVISOR, entrada)
-            probs2 = problemas(corrigido)
-            if not probs2:
-                print(" Revisão aprovada pelo QA.")
-                return corrigido
-            print(f"Revisão ainda com pendências: {probs2} — usando a melhor versão.")
         except Exception as e:
-            print(f"Revisão falhou ({e}) — usando versão original.")
+            raise QAReprovado(
+                f"revisão falhou ({type(e).__name__}: {str(e)[:200]}); "
+                f"1ª versão reprovada: {probs}"
+            ) from e
 
-        return result
+        probs2 = _qa(corrigido)
+        if not probs2:
+            logger.info("Revisão aprovada pelo QA.")
+            return corrigido
+
+        raise QAReprovado(f"revisão ainda reprovada pelo QA: {probs2}")

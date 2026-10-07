@@ -1,6 +1,4 @@
-from techdigest.pipeline import run
-import logging
-logger = logging.getLogger("techdigest.__main__")
+from techdigest.main import main
 
 if __name__ == "__main__":
-    run()
+    main()

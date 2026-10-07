@@ -1,10 +1,14 @@
 Metadata-Version: 2.4
 Name: techdigest
 Version: 0.1.0
-Summary: Pipeline diário de curadoria de notícias de tecnologia com IA
+Summary: Pipeline diário de curadoria de notícias de tecnologia e politica brasileira com IA
 Requires-Python: >=3.11
 Requires-Dist: feedparser>=6.0
 Requires-Dist: trafilatura>=1.8
 Requires-Dist: edge-tts>=6.1
 Requires-Dist: pydantic-settings>=2.0
 Requires-Dist: ollama>=0.3
+Requires-Dist: requests>=2.32
+Requires-Dist: openai>=1.40
+Requires-Dist: googlenewsdecoder>=0.1.6
+Requires-Dist: selectolax<1,>=0.4.12
