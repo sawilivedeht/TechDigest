@@ -57,6 +57,17 @@ class Settings(BaseSettings):
     max_runtime_min: int = 180         # não inicia novos itens depois desse tempo (0 = sem limite); o systemd mata em 4h
     max_falhas_entrega: int = 3        # falhas de entrega SEGUIDAS que encerram a execução (canal fora do ar)
 
+    # Extração em lote (extractor.extrair_em_lote)
+    extracao_workers: int = 6          # itens extraídos em paralelo
+    extracao_workers_gnews: int = 2    # no máximo N resolvendo links do Google Notícias ao mesmo tempo (evita bloqueio)
+
+    # Agrupamento de notícias em pautas. Fase 1: só scripts/testar_agrupamento.py usa; o pipeline ainda não agrupa
+    agrup_chars_texto: int = 1500      # caracteres iniciais do texto extraído que entram no TF-IDF
+    agrup_peso_titulo: float = 0.4     # score = peso × título + (1 − peso) × texto
+    agrup_limiar: float = 0.30         # score mínimo para dois artigos entrarem na mesma pauta
+    agrup_limiar_duplicata: float = 0.95   # similaridade de texto a partir da qual é republicação, não outra fonte
+    agrup_max_artigos: int = 3         # artigos por pauta (principal + 2 relacionados, o limite do _montar_entrada)
+
     # QA editorial (regras 2, 3 e 6). Os defaults são as regras originais; ajuste no .env (QA_*)
     qa_min_por_personagem: int = 240
     qa_max_por_personagem: int = 480

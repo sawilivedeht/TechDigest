@@ -12,3 +12,5 @@ Requires-Dist: requests>=2.32
 Requires-Dist: openai>=1.40
 Requires-Dist: googlenewsdecoder>=0.1.6
 Requires-Dist: selectolax<1,>=0.4.12
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"

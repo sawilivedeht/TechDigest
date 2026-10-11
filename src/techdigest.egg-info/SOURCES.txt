@@ -25,6 +25,8 @@ src/techdigest/delivery/__init__.py
 src/techdigest/delivery/email_smtp.py
 src/techdigest/delivery/telegram.py
 src/techdigest/processing/__init__.py
+src/techdigest/processing/agrupamento.py
 src/techdigest/processing/extractor.py
 src/techdigest/storage/__init__.py
 src/techdigest/storage/dedup.py
+tests/test_agrupamento.py

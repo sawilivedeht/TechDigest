@@ -7,3 +7,6 @@ requests>=2.32
 openai>=1.40
 googlenewsdecoder>=0.1.6
 selectolax<1,>=0.4.12
+
+[dev]
+pytest>=8

@@ -19,8 +19,14 @@ dependencies = [
     "selectolax>=0.4.12,<1",  # selectolax 1.0 removeu o backend que o googlenewsdecoder usa
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
 [project.scripts]
 techdigest = "techdigest.main:run"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

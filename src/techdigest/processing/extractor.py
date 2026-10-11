@@ -1,4 +1,8 @@
+import contextlib
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import trafilatura
@@ -44,21 +48,59 @@ def _resolver_google_news(url: str) -> str | None:
     return None
 
 
-def extract_full_text(url: str, fallback: str = "") -> str:
+@dataclass(frozen=True)
+class Extracao:
+    """Resultado da extração de um item."""
+    texto: str            # texto da matéria, ou o fallback quando não foi possível extrair
+    url_resolvida: str    # URL da matéria no veículo; "" se o link do Google Notícias não resolveu
+    extraido: bool        # False = `texto` é o fallback
+
+
+def _extrair(url: str, fallback: str = "", limite_gnews=None) -> Extracao:
+    """Extrai uma matéria. `limite_gnews` é o semáforo do lote para as resoluções no Google Notícias."""
     alvo = url
     if _eh_google(url):
         # Nunca roda o trafilatura em link do Google: ele cai na página de consentimento
         # e devolveria texto de cookies no lugar da matéria.
         if not settings.gnews_resolver:
-            return fallback
-        alvo = _resolver_google_news(url)
+            return Extracao(fallback, "", False)
+        with limite_gnews or contextlib.nullcontext():
+            alvo = _resolver_google_news(url)
         if not alvo or _eh_google(alvo):
-            return fallback
+            return Extracao(fallback, "", False)
         logger.info("Google Notícias → %s", urlparse(alvo).netloc)
 
     html = trafilatura.fetch_url(alvo)
     if html:
         text = trafilatura.extract(html, include_comments=False)
         if text:
-            return text
-    return fallback
+            return Extracao(text, alvo, True)
+    return Extracao(fallback, alvo, False)
+
+
+def extract_full_text(url: str, fallback: str = "") -> str:
+    return _extrair(url, fallback).texto
+
+
+def extrair_em_lote(
+    itens: list[tuple[str, str]], workers: int | None = None, workers_gnews: int | None = None,
+) -> list[Extracao]:
+    """Extrai vários itens em paralelo e devolve, na mesma ordem, o texto e a URL resolvida de cada um.
+
+    `itens` são pares (url, fallback). São até `workers` extrações simultâneas (EXTRACAO_WORKERS),
+    mas no máximo `workers_gnews` (EXTRACAO_WORKERS_GNEWS) resolvendo links do Google Notícias ao
+    mesmo tempo, para não provocar bloqueio. O limite cobre só a resolução: o download da página
+    do veículo acontece fora dele. Um item que falha devolve o fallback e não derruba o lote.
+    """
+    limite_gnews = threading.BoundedSemaphore(max(1, workers_gnews or settings.extracao_workers_gnews))
+
+    def _um(item: tuple[str, str]) -> Extracao:
+        url, fallback = item
+        try:
+            return _extrair(url, fallback, limite_gnews)
+        except Exception as e:
+            logger.warning("Extração falhou (%s: %s): %s", type(e).__name__, str(e)[:120], url)
+            return Extracao(fallback, "", False)
+
+    with ThreadPoolExecutor(max_workers=max(1, workers or settings.extracao_workers)) as pool:
+        return list(pool.map(_um, itens))

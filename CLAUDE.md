@@ -15,9 +15,13 @@ Everything in the codebase is written in Brazilian Portuguese: identifiers, comm
 .venv/bin/techdigest                             # run the pipeline (same as: .venv/bin/python -m techdigest)
 .venv/bin/python scripts/resumo_lotes.py         # per-run summary table parsed from today's log
 .venv/bin/python scripts/resumo_lotes.py 07/10   # same, for a given day (DD/MM)
+.venv/bin/python scripts/testar_agrupamento.py   # grouping diagnostic: no LLM, no Telegram, digest.db opened read-only
+.venv/bin/pip install -e '.[dev]'                # dev extra (pytest)
+.venv/bin/pytest                                 # tests
 ```
 
-- There are no tests, no linter and no formatter configured. `requirements.txt` is empty and gitignored; dependencies live in `pyproject.toml`.
+- `scripts/testar_agrupamento.py` collects the feeds, extracts the texts (about a minute of network I/O), prints the "pautas" it would form and writes the top-scoring pairs to `data/agrupamento/pares_<timestamp>.csv`. Options: `--limiar`, `--peso-titulo`, `--max-candidatos`, `--incluir-vistos`.
+- Tests cover only the pure functions in `processing/agrupamento.py`. There is no linter and no formatter configured. `requirements.txt` is empty and gitignored; dependencies live in `pyproject.toml`.
 - **Running the pipeline has real side effects and there is no dry-run mode**: it calls the LLM, sends messages and audio to the configured Telegram chat, and marks URLs as seen in `data/digest.db`. Do not run it just to check a change; exercise the individual function instead (e.g. `collect_rss()`, `extract_full_text(url)`, `qa.problemas(result)`).
 - Always enter through `techdigest.main` (the console script or `python -m techdigest`). `python -m techdigest.pipeline` skips `setup_logging()`, so nothing reaches the log file.
 - System requirements outside pip: `ffmpeg`/`ffprobe` on PATH (audio concat and duration), network access for Edge-TTS, and an Ollama server at `OLLAMA_HOST` when `LLM_PROVIDER=ollama`.
@@ -95,10 +99,11 @@ The presenter name `Helena` is fixed by the prompt and mapped to a fixed voice i
 ## Unfinished or dormant code
 
 - **Related articles (divergence).** `Summarizer.process(principal, relacionados)` and both prompts support several sources for one story and the divergence discussion, but `pipeline.py` never passes `relacionados`, so every episode is single-source and the divergence rule is never triggered.
+- **News grouping, phase 1 of 4.** `processing/agrupamento.py` (title and text similarity, then grouping into "pautas" of up to `AGRUP_MAX_ARTIGOS` articles about the same fact), `extractor.extrair_em_lote()` and the `AGRUP_*` / `EXTRACAO_*` settings are used only by `scripts/testar_agrupamento.py`. The pipeline does not group yet: LLM confirmation of each pauta, the prompt and QA changes, and the integration behind `AGRUPAMENTO_ATIVO` are the later phases.
 - **E-mail delivery.** `delivery/email_smtp.py` was never finished (it references a nonexistent `settings.recipients`, and `send_digest_email` does nothing). `delivery/__init__.py` raises `NotImplementedError` for any `DELIVERY_CHANNEL` other than `telegram`.
 
 ## Repo notes
 
-- `data/` (SQLite db, audio, logs, lock file) is runtime state and is gitignored.
+- `data/` (SQLite db, audio, logs, lock file, grouping CSVs) is runtime state and is gitignored.
 - `src/techdigest.egg-info/` is committed, so reinstalling the package can produce diffs there.
 - `selectolax` is pinned below 1.0 because `googlenewsdecoder` depends on a backend that 1.0 removed.
