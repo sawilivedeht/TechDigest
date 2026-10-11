@@ -8,13 +8,18 @@ Uso (da raiz do projeto, com o venv ativo):
     python scripts/testar_agrupamento.py                    # só os itens ainda não entregues
     python scripts/testar_agrupamento.py --incluir-vistos   # inclui os já entregues (mais amostras)
     python scripts/testar_agrupamento.py --limiar 0.25 --peso-titulo 0.5 --max-candidatos 60
+    python scripts/testar_agrupamento.py --incluir-vistos --salvar-amostra   # guarda os candidatos extraídos
+    python scripts/testar_agrupamento.py --amostra data/agrupamento/amostra_<data-hora>.json   # sem rede
 
 Grava data/agrupamento/pares_<data-hora>.csv com os pares de maior score. A coluna mesmo_fato
-fica vazia, para marcar à mão e calibrar os limiares.
+fica vazia, para marcar à mão e calibrar os limiares. Cada coleta traz notícias diferentes: para
+repetir a mesma comparação com outros limiares, grave uma amostra e rode de novo com --amostra.
 """
 import argparse
+import calendar
 import csv
 import datetime
+import json
 import logging
 import re
 import sqlite3
@@ -22,7 +27,7 @@ import sys
 import time
 from pathlib import Path
 
-from techdigest.collectors.rss import _baixar_feed, collect_rss
+from techdigest.collectors import rss
 from techdigest.config import Settings
 from techdigest.processing import agrupamento as ag
 from techdigest.processing.extractor import _eh_google, extrair_em_lote
@@ -58,7 +63,15 @@ def _argumentos() -> argparse.Namespace:
                    help="manda à extração só os N primeiros itens (padrão: todos)")
     p.add_argument("--incluir-vistos", action="store_true",
                    help="inclui os itens já entregues, para ter mais amostras")
-    return p.parse_args()
+    amostra = p.add_mutually_exclusive_group()
+    amostra.add_argument("--salvar-amostra", action="store_true",
+                         help="grava os candidatos extraídos em data/agrupamento/amostra_<data-hora>.json")
+    amostra.add_argument("--amostra", metavar="ARQUIVO",
+                         help="usa os candidatos de uma amostra gravada, sem coletar, extrair nem acessar a rede")
+    args = p.parse_args()
+    if args.amostra and (args.incluir_vistos or args.max_candidatos):
+        p.error("--amostra já traz os candidatos: não combina com --incluir-vistos nem com --max-candidatos")
+    return args
 
 
 def _log_no_console() -> None:
@@ -95,6 +108,47 @@ def _rotulo(c: ag.Candidato) -> str:
     return f"{c.veiculo} — {_curto(c.titulo)}"
 
 
+def _pasta() -> Path:
+    pasta = Path(settings.db_path).parent / "agrupamento"
+    pasta.mkdir(parents=True, exist_ok=True)
+    return pasta
+
+
+def _coletar() -> tuple[list, dict[str, list]]:
+    """Chama o collect_rss e devolve também as entradas de cada feed que ele baixou.
+
+    O collect_rss entrega os artigos sem a data de publicação e com a descrição já sem as tags.
+    Para não baixar os feeds duas vezes, o _baixar_feed do coletor é observado durante a chamada:
+    a data e a descrição saem das mesmas entradas que viraram artigos.
+    """
+    feeds: dict[str, list] = {}
+    original = rss._baixar_feed
+
+    def baixar_e_guardar(feed_url: str):
+        parsed = original(feed_url)
+        feeds[feed_url] = parsed.entries
+        return parsed
+
+    rss._baixar_feed = baixar_e_guardar
+    try:
+        return rss.collect_rss(), feeds
+    finally:
+        rss._baixar_feed = original
+
+
+def _datas_de_publicacao(feeds: dict[str, list]) -> dict[str, datetime.datetime]:
+    """Data de cada link (published, senão updated), em UTC: o mesmo critério do filtro de idade do coletor."""
+    datas: dict[str, datetime.datetime] = {}
+    for entradas in feeds.values():
+        for entrada in entradas:
+            t = entrada.get("published_parsed") or entrada.get("updated_parsed")
+            if t and entrada.get("link"):
+                datas.setdefault(
+                    entrada["link"], datetime.datetime.fromtimestamp(calendar.timegm(t), tz=datetime.timezone.utc)
+                )
+    return datas
+
+
 def _separar_vistos(artigos: list) -> tuple[list, int]:
     """Devolve (itens ainda não entregues, quantos já foram), consultando o SeenStore sem escrever."""
     try:
@@ -117,6 +171,83 @@ def _sem_repetir(itens: list, chave) -> list:
     for item in itens:
         unicos.setdefault(chave(item), item)
     return list(unicos.values())
+
+
+def _coletar_candidatos(args: argparse.Namespace) -> tuple[list[ag.Candidato], list, dict[str, list]]:
+    """Coleta, filtra e extrai. Devolve (candidatos, a data de publicação de cada um, entradas dos feeds)."""
+    (artigos, feeds), segundos = _cronometrar(_coletar)
+    _linha("coletados", len(artigos), segundos=segundos)
+
+    novos, ja_vistos = _separar_vistos(artigos)
+    if args.incluir_vistos:
+        _linha("já vistos", ja_vistos, "mantidos (--incluir-vistos)")
+    else:
+        _linha("já vistos", ja_vistos, "ignorados (--incluir-vistos mantém)")
+        artigos = novos
+
+    unicos = _sem_repetir(artigos, lambda a: a.url)
+    _linha("duplicados (link)", len(artigos) - len(unicos), "o collect_rss já descarta links repetidos entre feeds")
+    artigos = unicos
+    if args.max_candidatos and len(artigos) > args.max_candidatos:
+        _linha("fora do --max-candidatos", len(artigos) - args.max_candidatos)
+        artigos = artigos[:args.max_candidatos]
+
+    print(f"  extraindo {len(artigos)} itens: até {settings.extracao_workers} em paralelo, "
+          f"{settings.extracao_workers_gnews} no Google Notícias...", flush=True)
+    extracoes, segundos = _cronometrar(extrair_em_lote, [(a.url, a.summary) for a in artigos])
+    extraidos = sum(e.extraido for e in extracoes)
+    _linha("extraídos", extraidos, f"sem extração (ficam com o resumo do feed): {len(artigos) - extraidos}", segundos)
+
+    itens = list(zip(artigos, extracoes))
+    unicos = _sem_repetir(itens, lambda item: ag.url_canonica(item[1].url_resolvida or item[0].url))
+    _linha("duplicados (URL)", len(itens) - len(unicos), "mesma URL canônica do veículo por feeds diferentes")
+    com_texto = [(a, e) for a, e in unicos if len(e.texto) >= settings.min_texto_chars]
+    _linha("descartados", len(unicos) - len(com_texto), f"texto com menos de {settings.min_texto_chars} caracteres")
+
+    publicacao = _datas_de_publicacao(feeds)
+    candidatos, datas = [], []
+    for artigo, extracao in com_texto:
+        titulo, veiculo = ag.separar_veiculo(artigo.title, artigo.source)
+        candidatos.append(ag.Candidato(
+            titulo=titulo, veiculo=veiculo, url=artigo.url,
+            url_veiculo=extracao.url_resolvida or artigo.url, texto=extracao.texto,
+        ))
+        datas.append(publicacao.get(artigo.url))
+    return candidatos, datas, feeds
+
+
+def _gravar_amostra(candidatos: list[ag.Candidato], datas: list, incluir_vistos: bool, carimbo: str) -> Path:
+    """Guarda os candidatos já extraídos, para repetir a comparação sem coletar de novo.
+
+    O id é a posição do candidato na execução, a partir de 1; `url` é o link do feed.
+    """
+    conteudo = {
+        "criada_em": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "incluir_vistos": incluir_vistos,
+        "candidatos": [
+            {"id": n, "veiculo": c.veiculo, "titulo": c.titulo, "url": c.url, "url_resolvida": c.url_veiculo,
+             "data": data.isoformat() if data else None, "texto": c.texto}
+            for n, (c, data) in enumerate(zip(candidatos, datas), 1)
+        ],
+    }
+    caminho = _pasta() / f"amostra_{carimbo}.json"
+    caminho.write_text(json.dumps(conteudo, ensure_ascii=False, indent=1), encoding="utf-8")
+    return caminho
+
+
+def _carregar_amostra(caminho: str) -> list[ag.Candidato]:
+    """Candidatos de uma amostra gravada com --salvar-amostra, na mesma ordem. Não acessa a rede."""
+    try:
+        conteudo = json.loads(Path(caminho).read_text(encoding="utf-8"))
+        candidatos = [
+            ag.Candidato(titulo=c["titulo"], veiculo=c["veiculo"], url=c["url"],
+                         url_veiculo=c["url_resolvida"], texto=c["texto"])
+            for c in conteudo["candidatos"]
+        ]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        sys.exit(f"Amostra ilegível ({type(e).__name__}: {e}): {caminho}")
+    _linha("amostra", len(candidatos), f"{caminho} (criada em {conteudo.get('criada_em', '?')})")
+    return candidatos
 
 
 def _mostrar_pautas(pautas: list[ag.Pauta], args: argparse.Namespace) -> None:
@@ -150,21 +281,19 @@ def _mostrar_pares(titulo: str, pares: list[ag.ParPontuado]) -> None:
         print(f"{'':35}termos em comum: {', '.join(par.termos_comuns) or '-'}")
 
 
-def _descricoes_do_google() -> None:
+def _descricoes_do_google(feeds: dict[str, list] | None) -> None:
     """Relata se as descrições do Google Notícias listam outras coberturas do mesmo fato.
 
-    O collect_rss guarda a descrição já sem as tags, então os feeds do Google são baixados de
-    novo aqui só para olhar o HTML. Nada disso entra no agrupamento ainda.
+    O collect_rss guarda a descrição já sem as tags; o HTML vem das entradas observadas durante
+    a coleta. Nada disso entra no agrupamento ainda.
     """
     print("\n== Descrições dos itens do Google Notícias ==")
-    feeds = [f for f in settings.feeds if _eh_google(f)]
+    if feeds is None:
+        print("  não examinadas: com --amostra não há coleta")
+        return
+    do_google = [entradas for feed, entradas in feeds.items() if _eh_google(feed)]
     itens = com_lista = com_varios_links = 0
-    for feed in feeds:
-        try:
-            entradas = _baixar_feed(feed).entries
-        except Exception as e:
-            print(f"  um feed não pôde ser baixado de novo ({type(e).__name__})")
-            continue
+    for entradas in do_google:
         for entrada in entradas:
             descricao = entrada.get("summary", "")
             itens += 1
@@ -173,7 +302,7 @@ def _descricoes_do_google() -> None:
     if not itens:
         print("  nenhum item do Google Notícias para examinar")
         return
-    print(f"  {len(feeds)} feed(s), {itens} itens: {com_lista} com lista (<li>), "
+    print(f"  {len(do_google)} feed(s), {itens} itens: {com_lista} com lista (<li>), "
           f"{com_varios_links} com mais de um link")
     if com_lista or com_varios_links:
         print("  Há descrições que listam outras coberturas do mesmo fato (ainda não usadas no agrupamento).")
@@ -181,11 +310,9 @@ def _descricoes_do_google() -> None:
         print("  Nenhuma descrição lista outras coberturas: cada uma traz só o link e o veículo do próprio item.")
 
 
-def _gravar_csv(pares: list[ag.ParPontuado]) -> tuple[Path, int]:
+def _gravar_csv(pares: list[ag.ParPontuado], carimbo: str) -> tuple[Path, int]:
     escolhidos = [p for p in pares if p.score >= CSV_SCORE_MIN][:CSV_MAX_PARES]
-    pasta = Path(settings.db_path).parent / "agrupamento"
-    pasta.mkdir(parents=True, exist_ok=True)
-    caminho = pasta / f"pares_{datetime.datetime.now():%Y%m%d-%H%M%S}.csv"
+    caminho = _pasta() / f"pares_{carimbo}.csv"
     with open(caminho, "w", newline="", encoding="utf-8") as arquivo:
         saida = csv.writer(arquivo)
         saida.writerow(COLUNAS)
@@ -201,44 +328,18 @@ def _gravar_csv(pares: list[ag.ParPontuado]) -> tuple[Path, int]:
 def main() -> None:
     args = _argumentos()
     _log_no_console()
+    carimbo = f"{datetime.datetime.now():%Y%m%d-%H%M%S}"
 
     print("== Etapas ==", flush=True)
-    artigos, segundos = _cronometrar(collect_rss)
-    _linha("coletados", len(artigos), segundos=segundos)
-
-    novos, ja_vistos = _separar_vistos(artigos)
-    if args.incluir_vistos:
-        _linha("já vistos", ja_vistos, "mantidos (--incluir-vistos)")
+    feeds = amostra_gravada = None
+    if args.amostra:
+        candidatos = _carregar_amostra(args.amostra)
     else:
-        _linha("já vistos", ja_vistos, "ignorados (--incluir-vistos mantém)")
-        artigos = novos
-
-    unicos = _sem_repetir(artigos, lambda a: a.url)
-    _linha("duplicados (link)", len(artigos) - len(unicos), "o collect_rss já descarta links repetidos entre feeds")
-    artigos = unicos
-    if args.max_candidatos and len(artigos) > args.max_candidatos:
-        _linha("fora do --max-candidatos", len(artigos) - args.max_candidatos)
-        artigos = artigos[:args.max_candidatos]
-
-    print(f"  extraindo {len(artigos)} itens: até {settings.extracao_workers} em paralelo, "
-          f"{settings.extracao_workers_gnews} no Google Notícias...", flush=True)
-    extracoes, segundos = _cronometrar(extrair_em_lote, [(a.url, a.summary) for a in artigos])
-    extraidos = sum(e.extraido for e in extracoes)
-    _linha("extraídos", extraidos, f"sem extração (ficam com o resumo do feed): {len(artigos) - extraidos}", segundos)
-
-    itens = list(zip(artigos, extracoes))
-    unicos = _sem_repetir(itens, lambda item: ag.url_canonica(item[1].url_resolvida or item[0].url))
-    _linha("duplicados (URL)", len(itens) - len(unicos), "mesma URL canônica do veículo por feeds diferentes")
-    com_texto = [(a, e) for a, e in unicos if len(e.texto) >= settings.min_texto_chars]
-    _linha("descartados", len(unicos) - len(com_texto), f"texto com menos de {settings.min_texto_chars} caracteres")
-
-    candidatos = []
-    for artigo, extracao in com_texto:
-        titulo, veiculo = ag.separar_veiculo(artigo.title, artigo.source)
-        candidatos.append(ag.Candidato(
-            titulo=titulo, veiculo=veiculo, url=artigo.url,
-            url_veiculo=extracao.url_resolvida or artigo.url, texto=extracao.texto,
-        ))
+        candidatos, datas, feeds = _coletar_candidatos(args)
+        if args.salvar_amostra:
+            amostra_gravada = _gravar_amostra(candidatos, datas, args.incluir_vistos, carimbo)
+            sem_data = sum(1 for data in datas if data is None)
+            print(f"  amostra gravada: {amostra_gravada}" + (f" ({sem_data} sem data)" if sem_data else ""), flush=True)
     _linha("candidatos", len(candidatos))
     if len(candidatos) < 2:
         print("\nMenos de dois candidatos: não há pares para comparar.")
@@ -263,10 +364,12 @@ def main() -> None:
                    duplicatas)
     _mostrar_pares(f"Pares de maior score abaixo do limiar (até {QUASE_PAUTAS}, a partir de {CSV_SCORE_MIN:.2f})",
                    perto[:QUASE_PAUTAS])
-    _descricoes_do_google()
+    _descricoes_do_google(feeds)
 
-    caminho, gravados = _gravar_csv(pares)
+    caminho, gravados = _gravar_csv(pares, carimbo)
     print(f"\nCSV: {caminho} ({gravados} pares com score ≥ {CSV_SCORE_MIN:.2f}; marque a coluna mesmo_fato)")
+    if amostra_gravada:
+        print(f"Amostra: {amostra_gravada} ({len(candidatos)} candidatos; reuse com --amostra)")
 
 
 if __name__ == "__main__":

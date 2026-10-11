@@ -20,7 +20,7 @@ Everything in the codebase is written in Brazilian Portuguese: identifiers, comm
 .venv/bin/pytest                                 # tests
 ```
 
-- `scripts/testar_agrupamento.py` collects the feeds, extracts the texts (about a minute of network I/O), prints the "pautas" it would form and writes the top-scoring pairs to `data/agrupamento/pares_<timestamp>.csv`. Options: `--limiar`, `--peso-titulo`, `--max-candidatos`, `--incluir-vistos`.
+- `scripts/testar_agrupamento.py` collects the feeds, extracts the texts (about a minute of network I/O), prints the "pautas" it would form and writes the top-scoring pairs to `data/agrupamento/pares_<timestamp>.csv`. Options: `--limiar`, `--peso-titulo`, `--max-candidatos`, `--incluir-vistos`. Every live collection returns different articles, so to compare thresholds on the same data use `--salvar-amostra` (also writes the extracted candidates to `data/agrupamento/amostra_<timestamp>.json`) and then `--amostra <file>`, which reruns the comparison on a saved sample with no network access.
 - Tests cover only the pure functions in `processing/agrupamento.py`. There is no linter and no formatter configured. `requirements.txt` is empty and gitignored; dependencies live in `pyproject.toml`.
 - **Running the pipeline has real side effects and there is no dry-run mode**: it calls the LLM, sends messages and audio to the configured Telegram chat, and marks URLs as seen in `data/digest.db`. Do not run it just to check a change; exercise the individual function instead (e.g. `collect_rss()`, `extract_full_text(url)`, `qa.problemas(result)`).
 - Always enter through `techdigest.main` (the console script or `python -m techdigest`). `python -m techdigest.pipeline` skips `setup_logging()`, so nothing reaches the log file.
@@ -104,6 +104,6 @@ The presenter name `Helena` is fixed by the prompt and mapped to a fixed voice i
 
 ## Repo notes
 
-- `data/` (SQLite db, audio, logs, lock file, grouping CSVs) is runtime state and is gitignored.
+- `data/` (SQLite db, audio, logs, lock file, grouping samples and CSVs) is runtime state and is gitignored.
 - `src/techdigest.egg-info/` is committed, so reinstalling the package can produce diffs there.
 - `selectolax` is pinned below 1.0 because `googlenewsdecoder` depends on a backend that 1.0 removed.
