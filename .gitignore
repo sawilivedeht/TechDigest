@@ -10,3 +10,4 @@ raw_noformat.txt
 requirements.txt
 .vscode/
 .idea/
+.claude/settings.local.json
