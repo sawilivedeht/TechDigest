@@ -20,8 +20,11 @@ def _ascii(value: str, campo: str) -> str:
     return value
 
 
-def parse_json(text: str) -> dict:
-    """Parse defensivo: mensagem clara para vazio, cercas e JSON quebrado."""
+def parse_json(text: str, chaves=None) -> dict:
+    """Parse defensivo: mensagem clara para vazio, cercas e JSON quebrado.
+
+    `chaves` são as chaves obrigatórias da resposta; sem ele valem as 8 do episódio (REQUIRED_KEYS).
+    """
     if not text or not text.strip():
         raise ValueError(
             "Modelo retornou resposta VAZIA. Causas comuns: modelo truncado, "
@@ -33,7 +36,7 @@ def parse_json(text: str) -> dict:
     except json.JSONDecodeError as e:
         raise ValueError(f"JSON inválido ({e}). Início da resposta: {text[:300]!r}") from e
 
-    faltando = REQUIRED_KEYS - data.keys()
+    faltando = (REQUIRED_KEYS if chaves is None else set(chaves)) - data.keys()
     if faltando:
         raise ValueError(
             f"LLM retornou JSON sem as chaves {sorted(faltando)}. "
@@ -128,10 +131,17 @@ REQUIRED_KEYS = set(SCHEMA["required"])
 # ---------------------------------------------------------------- providers
 
 class LLMProvider(ABC):
-    """Contrato comum: toda chamada devolve o dict editorial validado."""
+    """Contrato comum: toda chamada devolve o dict validado.
+
+    Sem argumentos extras, a chamada é a do episódio: as 8 chaves de REQUIRED_KEYS e os parâmetros
+    do .env. `chaves`, `temperatura` e `max_saida` valem só para a chamada que os passa.
+    """
+
+    ultimo_uso: dict[str, int] = {}  # tokens da última chamada: {"prompt": n, "saida": n}
 
     @abstractmethod
-    def chat_json(self, system: str, user: str) -> dict: ...
+    def chat_json(self, system: str, user: str, chaves=None,
+                  temperatura: float | None = None, max_saida: int | None = None) -> dict: ...
 
 
 class OllamaProvider(LLMProvider):
@@ -156,7 +166,9 @@ class OllamaProvider(LLMProvider):
                 settings.ollama_num_predict, settings.ollama_num_ctx,
             )
 
-    def chat_json(self, system: str, user: str) -> dict:
+    def chat_json(self, system: str, user: str, chaves=None,
+                  temperatura: float | None = None, max_saida: int | None = None) -> dict:
+        num_predict = self.s.ollama_num_predict if max_saida is None else max_saida
         resp = self.client.chat(
             model=self.model,
             messages=[
@@ -166,19 +178,21 @@ class OllamaProvider(LLMProvider):
             format="json",
             keep_alive=self.s.ollama_keep_alive,
             options={
+                # num_ctx é sempre o do .env: mudar a janela numa chamada faz o Ollama recarregar o modelo.
                 "num_ctx": self.s.ollama_num_ctx,
-                "num_predict": self.s.ollama_num_predict,
-                "temperature": self.s.ollama_temperature,
+                "num_predict": num_predict,
+                "temperature": self.s.ollama_temperature if temperatura is None else temperatura,
             },
             **({} if self.think is None else {"think": self.think}),
         )
         prompt_tok = getattr(resp, "prompt_eval_count", None) or 0
         saida_tok = getattr(resp, "eval_count", None) or 0
+        self.ultimo_uso = {"prompt": prompt_tok, "saida": saida_tok}
         done = getattr(resp, "done_reason", None)
         self._log_metricas(resp, prompt_tok, saida_tok, done)
         if done == "length":
-            raise ValueError(self._explicar_truncamento(resp, prompt_tok, saida_tok))
-        return parse_json(resp.message.content)
+            raise ValueError(self._explicar_truncamento(resp, prompt_tok, saida_tok, num_predict))
+        return parse_json(resp.message.content, chaves)
 
     @staticmethod
     def _parse_think(valor) -> bool | None:
@@ -204,20 +218,24 @@ class OllamaProvider(LLMProvider):
             f" | {sistema}" if sistema else "",
         )
 
-    def _explicar_truncamento(self, resp, prompt_tok: int, saida_tok: int) -> str:
-        """Diz QUAL limite estourou e registra início/fim da saída cortada (nível WARNING)."""
+    def _explicar_truncamento(self, resp, prompt_tok: int, saida_tok: int, num_predict: int) -> str:
+        """Diz QUAL limite estourou e registra início/fim da saída cortada (nível WARNING).
+
+        `num_predict` é o limite de saída que valeu na chamada: o do .env ou o `max_saida` dela.
+        """
         num_ctx = self.s.ollama_num_ctx
-        num_predict = self.s.ollama_num_predict
+        do_env = num_predict == self.s.ollama_num_predict
+        limite = f"OLLAMA_NUM_PREDICT ({num_predict})" if do_env else f"o limite de saída desta chamada ({num_predict})"
         if num_predict > 0 and saida_tok >= num_predict:
-            causa = (
-                f"atingiu OLLAMA_NUM_PREDICT ({num_predict}). Aumente-o no .env "
-                f"(a janela total é OLLAMA_NUM_CTX={num_ctx}) ou reduza o roteiro."
+            causa = f"atingiu {limite}. " + (
+                f"Aumente-o no .env (a janela total é OLLAMA_NUM_CTX={num_ctx}) ou reduza o roteiro."
+                if do_env else "Aumente o max_saida passado na chamada."
             )
         else:
             causa = (
-                f"parou antes de OLLAMA_NUM_PREDICT ({num_predict}): o limite atingido foi "
+                f"parou antes de {limite}: o limite atingido foi "
                 f"a janela de contexto (OLLAMA_NUM_CTX={num_ctx}; prompt+saída="
-                f"{prompt_tok + saida_tok}). Aumentar OLLAMA_NUM_PREDICT NÃO ajuda: "
+                f"{prompt_tok + saida_tok}). Aumentar {'OLLAMA_NUM_PREDICT' if do_env else 'o limite de saída'} NÃO ajuda: "
                 f"suba OLLAMA_NUM_CTX ou investigue por que a saída passa do esperado "
                 f"(raciocínio interno ou repetição — veja o trecho final no log)."
             )
@@ -255,7 +273,9 @@ class OpenAIProvider(LLMProvider):
         self.reasoning_effort = reasoning_effort or None
         self.max_prompt_chars = max_prompt_chars
 
-    def chat_json(self, system: str, user: str) -> dict:
+    def chat_json(self, system: str, user: str, chaves=None,
+                  temperatura: float | None = None, max_saida: int | None = None) -> dict:
+        max_tokens = self.max_tokens if max_saida is None else max_saida
         # blindagem de tamanho (defesa contra 413)
         if len(user) > self.max_prompt_chars:
             user = user[: self.max_prompt_chars] + \
@@ -263,7 +283,7 @@ class OpenAIProvider(LLMProvider):
 
         total_chars = len(system) + len(user)
         logger.debug("request: %d chars (~%d tokens) + max_tokens=%d",
-                     total_chars, total_chars // 4, self.max_tokens)
+                     total_chars, total_chars // 4, max_tokens)
 
         tentativas = [
             {"response_format": {"type": "json_object"}},  # modo estrito (validador do provedor)
@@ -274,7 +294,7 @@ class OpenAIProvider(LLMProvider):
         for i, rf in enumerate(tentativas, 1):
             kwargs = dict(
                 model=self.model,
-                max_tokens=self.max_tokens,
+                max_tokens=max_tokens,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user + (
@@ -286,6 +306,8 @@ class OpenAIProvider(LLMProvider):
             )
             if self.reasoning_effort:
                 kwargs["reasoning_effort"] = self.reasoning_effort
+            if temperatura is not None:  # sem pedido na chamada, vale o padrão do provedor, como sempre
+                kwargs["temperature"] = temperatura
             try:
                 resp = self.client.chat.completions.create(**kwargs)
             except Exception as e:
@@ -299,13 +321,18 @@ class OpenAIProvider(LLMProvider):
                                i, type(e).__name__, str(e)[:120])
                 continue
 
+            uso = getattr(resp, "usage", None)
+            self.ultimo_uso = {"prompt": getattr(uso, "prompt_tokens", None) or 0,
+                               "saida": getattr(uso, "completion_tokens", None) or 0}
             choice = resp.choices[0]
             if choice.finish_reason == "length":
                 raise ValueError(
-                    "Saída truncada (finish_reason=length): aumente LLM_MAX_TOKENS no .env."
+                    "Saída truncada (finish_reason=length): "
+                    + ("aumente LLM_MAX_TOKENS no .env." if max_saida is None
+                       else f"aumente o max_saida passado na chamada ({max_saida}).")
                 )
             try:
-                return parse_json(choice.message.content)
+                return parse_json(choice.message.content, chaves)
             except ValueError as e:
                 ultimo_erro = e
                 logger.warning("Tentativa %d: JSON inservível — %s", i, str(e)[:120])

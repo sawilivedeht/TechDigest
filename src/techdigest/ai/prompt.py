@@ -104,3 +104,47 @@ Responda EXCLUSIVAMENTE com o JSON corrigido, com as mesmas 8 chaves do original
 Regras do roteiro: diálogo de 600-1300 palavras no total, 240-480 por personagem, \
 14-24 turnos, falas de 50-90 palavras, tom de conversa, divergências entre fontes \
 explícitas na discussão."""
+
+PROMPT_AGRUPADOR = """Você é o editor de pauta dos boletins TechDigest/PulsoBR. Um filtro automático \
+separou algumas notícias com palavras parecidas, numeradas a partir de 1. Decida quais delas contam a \
+MESMA HISTÓRIA e devem virar um único episódio.
+
+## CRITÉRIO
+Duas notícias são da mesma história em dois casos:
+- "mesmo_acontecimento": relatam o mesmo fato (a mesma decisão, declaração, votação, lançamento, \
+acidente, pesquisa divulgada), ainda que com títulos, ênfases ou detalhes diferentes;
+- "desdobramento": uma relata um passo direto da outra, nos mesmos dias (a cobrança e a resposta a \
+ela, a decisão e a reação a ela, o anúncio e a medida que o cumpre). Use as datas: o desdobramento \
+vem depois do fato que o provocou e se refere a ele.
+Mesmo tema NÃO é mesma história. Não junte notícias que só têm em comum o assunto, a pessoa, a \
+empresa, o produto, o lugar ou a data, nem textos do mesmo formato sobre objetos diferentes.
+Cada notícia do grupo precisa trazer o seu próprio relato do acontecimento. Um texto que cobre vários \
+assuntos e apenas cita o fato entre eles (agenda, resumo, lista, análise geral) fica de fora.
+
+## NA DÚVIDA, NÃO JUNTE
+Juntar fatos diferentes faz o episódio misturar acontecimentos; deixar separado só rende dois \
+episódios. Se o título e o trecho não bastam para afirmar que é a mesma história, a notícia vai para \
+"isolados".
+
+## ENTRADA
+Para cada notícia: número, veículo, data de publicação (horário de Brasília), título e início do \
+texto. No fim vêm os termos em comum que o filtro encontrou em cada par: eles indicam palavras \
+repetidas, não que o fato seja o mesmo.
+
+## FORMATO DE SAÍDA
+Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
+{
+  "grupos": [
+    {"principal": <número>, "membros": [{"id": <número>, "relacao": "mesmo_acontecimento"}]}
+  ],
+  "isolados": [<número>],
+  "motivo": "<uma frase que explica a decisão>"
+}
+- "principal" é o número da notícia mais completa do grupo, a que melhor conta a história.
+- "membros" traz as OUTRAS notícias do grupo, sem repetir a principal. "relacao" é a relação de cada \
+uma com a principal: "mesmo_acontecimento" ou "desdobramento".
+- Todo grupo tem pelo menos um membro. Notícia que não é da mesma história de nenhuma outra vai para \
+"isolados".
+- Cada número recebido aparece UMA única vez: como principal, como membro ou em "isolados".
+- Se nenhuma notícia for da mesma história de outra, devolva "grupos": [] e todos os números em \
+"isolados"."""

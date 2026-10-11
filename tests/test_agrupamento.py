@@ -1,4 +1,6 @@
 """Testes das funções puras de processing/agrupamento.py (sem rede, banco ou LLM)."""
+import datetime
+
 from techdigest.processing import agrupamento as ag
 
 CHARS_TEXTO = 1500
@@ -202,7 +204,7 @@ def test_republicacao_e_duplicata_e_nao_conta_como_fonte():
     pautas, _ = ag.formar_pautas(candidatos, pares, limiar=0.20, max_artigos=2)
     pauta = next(p for p in pautas if IR_AGENCIA in p.artigos)
     assert set(pauta.artigos) == {IR_AGENCIA, IR_G1}      # a republicação não ocupou a segunda vaga
-    assert pauta.duplicatas == (republicado,)
+    assert pauta.duplicatas == (republicado,) and pauta.original_de == {republicado: IR_AGENCIA}
     assert pauta.veiculos == ("Agência Brasil", "G1")
     assert set(pauta.links) == {IR_AGENCIA.url, IR_G1.url, republicado.url}
     assert not any(republicado in p.artigos for p in pautas)
@@ -226,3 +228,141 @@ def test_par_abaixo_do_limiar_nao_forma_pauta():
     pautas, barrados = ag.formar_pautas([a, b], [_par(a, b, 0.29)], limiar=0.30, max_artigos=3)
     assert [p.artigos for p in pautas] == [(a,), (b,)]
     assert barrados == []
+
+
+# ── Etapa 3: entrada do LLM, validação do veredito e pautas finais ────────────────────────
+
+def _artigo(n: int, veiculo: str, chars: int = 100, data=None) -> ag.Candidato:
+    return ag.Candidato(titulo=f"Notícia {n}", veiculo=veiculo, url=f"https://feed.example/{n}",
+                        url_veiculo=f"https://veiculo.example/{n}", texto="x" * chars, data=data)
+
+
+def _provisoria(*artigos: ag.Candidato, scores: dict | None = None, **campos) -> ag.Pauta:
+    """Pauta provisória na ordem dada (ids 1, 2, 3...), com os pares que tiverem score."""
+    pares = tuple(_par(artigos[i - 1], artigos[j - 1], s) for (i, j), s in (scores or {}).items())
+    return ag.Pauta(principal=artigos[0], relacionados=tuple(artigos[1:]), pares=pares, **campos)
+
+
+def _veredito(grupos: list, isolados: list, motivo: str = "porque sim") -> dict:
+    """grupos: [(principal, [(id, relacao), ...]), ...]"""
+    return {
+        "grupos": [{"principal": p, "membros": [{"id": i, "relacao": r} for i, r in membros]} for p, membros in grupos],
+        "isolados": isolados, "motivo": motivo,
+    }
+
+
+def test_entrada_do_llm_traz_id_veiculo_data_titulo_trecho_e_termos_sem_scores():
+    utc = datetime.timezone.utc
+    a = ag.Candidato("Senado aprova PEC", "G1", "https://f/1", "https://g1/1", "Início do texto. " + "resto " * 200,
+                     data=datetime.datetime(2026, 10, 11, 1, 30, tzinfo=utc))
+    b = ag.Candidato("PEC passa no Senado", "Folha", "https://f/2", "https://folha/2", "Outro\ntexto curto.")
+    par = ag.ParPontuado(a=a, b=b, sim_trigramas=0.4321, sim_entidades=0.5, sim_titulo=0.4661, sim_texto=0.3777,
+                         score=0.4131, entidades_comuns=("senado", "pec"), termos_comuns=("pec", "votacao segundo"))
+    entrada = ag.entrada_agrupador(ag.Pauta(principal=a, relacionados=(b,), pares=(par,)))
+
+    assert "NOTÍCIA 1\nVeículo: G1\nData: 10/10/2026 22:30\nTítulo: Senado aprova PEC\n" in entrada   # horário de Brasília
+    assert "NOTÍCIA 2\nVeículo: Folha\nData: desconhecida\nTítulo: PEC passa no Senado\nInício do texto: Outro texto curto." in entrada
+    trecho = entrada.split("Início do texto: ")[1].split("\n")[0]
+    assert trecho.startswith("Início do texto. resto") and 590 <= len(trecho) <= 600                    # só o começo
+    assert "- 1 e 2: senado, pec, votacao segundo" in entrada                                           # sem repetir "pec"
+    assert not any(numero in entrada for numero in ("0.4321", "0.4661", "0.3777", "0.4131", "0,4"))
+
+
+def test_veredito_bem_formado_nao_tem_problemas():
+    assert ag.problemas_do_veredito(_veredito([(1, [(2, "mesmo_acontecimento")])], [3]), 3) == []
+    assert ag.problemas_do_veredito(_veredito([], [1, 2]), 2) == []
+    assert ag.problemas_do_veredito({"grupos": [], "isolados": [2, 1]}, 2) == []                        # "motivo" é opcional
+    # modelos às vezes devolvem o número entre aspas
+    assert ag.problemas_do_veredito(_veredito([("1", [("2", "desdobramento")])], ["3"]), 3) == []
+
+
+def test_veredito_com_id_desconhecido_repetido_ou_ausente_tem_problema():
+    assert ag.problemas_do_veredito(_veredito([(1, [(4, "mesmo_acontecimento")])], [2, 3]), 3)          # 4 não existe
+    assert ag.problemas_do_veredito(_veredito([(1, [(2, "mesmo_acontecimento")])], [2, 3]), 3)          # 2 repetido
+    assert ag.problemas_do_veredito(_veredito([(1, [(2, "mesmo_acontecimento")])], []), 3)              # 3 ausente
+    assert ag.problemas_do_veredito(_veredito([(1, [(1, "mesmo_acontecimento")])], [2]), 2)             # principal como membro
+    assert ag.problemas_do_veredito(_veredito([("um", [(2, "mesmo_acontecimento")])], []), 2)           # id que não é número
+
+
+def test_veredito_fora_do_formato_tem_problema():
+    assert ag.problemas_do_veredito(_veredito([(1, [(2, "mesmo_tema")])], []), 2)                       # relação não aceita
+    assert ag.problemas_do_veredito({"grupos": "nenhum", "isolados": [1, 2]}, 2)
+    assert ag.problemas_do_veredito({"grupos": [{"principal": 1}], "isolados": [2]}, 2)                 # grupo sem "membros"
+    assert ag.problemas_do_veredito({"grupos": [{"principal": 1, "membros": [2]}], "isolados": []}, 2)  # membro sem relação
+    assert ag.problemas_do_veredito(["grupos"], 2)
+
+
+def test_grupo_confirmado_vira_pauta_e_isolado_vira_pauta_de_um_artigo():
+    a, b, c = _artigo(1, "G1"), _artigo(2, "Folha"), _artigo(3, "Estadão")
+    pautas = ag.compor_pautas(_provisoria(a, b, c, scores={(1, 2): 0.5, (1, 3): 0.2}),
+                              _veredito([(2, [(1, "desdobramento")])], [3], "a Folha responde ao G1"), max_artigos=3)
+
+    assert [(p.principal, p.relacionados, p.absorvidos) for p in pautas] == [(b, (a,), ()), (c, (), ())]
+    assert pautas[0].relacoes == {a: "desdobramento"} and pautas[0].motivo == "a Folha responde ao G1"
+    assert [p.score for p in pautas[0].pares] == [0.5]                                                  # só o par que ficou junto
+    assert pautas[1].relacoes == {} and pautas[1].pares == ()
+
+
+def test_mesmo_veiculo_e_mesmo_acontecimento_e_absorvido():
+    a, b, c = _artigo(1, "G1"), _artigo(2, "g1"), _artigo(3, "Folha")
+    [pauta] = ag.compor_pautas(_provisoria(a, b, c),
+                               _veredito([(1, [(2, "mesmo_acontecimento"), (3, "mesmo_acontecimento")])], []), max_artigos=3)
+
+    assert (pauta.principal, pauta.relacionados, pauta.absorvidos) == (a, (c,), (b,))
+    assert pauta.veiculos == ("G1", "Folha")
+    assert set(pauta.links) == {a.url, b.url, c.url}                                                    # o absorvido será marcado como visto
+
+
+def test_entre_dois_membros_do_mesmo_veiculo_fica_o_mais_completo():
+    a, curto, longo = _artigo(1, "G1"), _artigo(2, "Folha", chars=100), _artigo(3, "Folha", chars=900)
+    [pauta] = ag.compor_pautas(_provisoria(a, curto, longo),
+                               _veredito([(1, [(2, "mesmo_acontecimento"), (3, "mesmo_acontecimento")])], []), max_artigos=3)
+    assert (pauta.relacionados, pauta.absorvidos) == ((longo,), (curto,))
+
+
+def test_desdobramento_do_mesmo_veiculo_entra_como_relacionado():
+    a, b = _artigo(1, "Agência Brasil"), _artigo(2, "Agência Brasil")
+    [pauta] = ag.compor_pautas(_provisoria(a, b), _veredito([(1, [(2, "desdobramento")])], []), max_artigos=3)
+    assert (pauta.relacionados, pauta.absorvidos) == ((b,), ())
+    assert pauta.veiculos == ("Agência Brasil",)
+
+
+def test_limite_de_3_textos_da_prioridade_a_veiculos_distintos():
+    a, do_g1, folha, estadao = _artigo(1, "G1"), _artigo(2, "G1"), _artigo(3, "Folha"), _artigo(4, "Estadão")
+    provisoria = _provisoria(a, do_g1, folha, estadao, scores={(1, 2): 0.9, (1, 3): 0.3, (1, 4): 0.6})
+    veredito = _veredito([(1, [(2, "desdobramento"), (3, "mesmo_acontecimento"), (4, "mesmo_acontecimento")])], [])
+
+    [pauta] = ag.compor_pautas(provisoria, veredito, max_artigos=3)
+    assert pauta.relacionados == (estadao, folha)          # veículos novos primeiro; entre eles, o maior score
+    assert pauta.absorvidos == (do_g1,)                    # o desdobramento do mesmo veículo não coube
+    assert len(pauta.artigos) == 3 and set(pauta.links) == {a.url, do_g1.url, folha.url, estadao.url}
+
+    [com_quatro] = ag.compor_pautas(provisoria, veredito, max_artigos=4)
+    assert com_quatro.relacionados == (estadao, folha, do_g1) and com_quatro.absorvidos == ()
+
+
+def test_veredito_invalido_isola_a_pauta_inteira_e_avisa_no_log(caplog):
+    a, b, c = _artigo(1, "G1"), _artigo(2, "Folha"), _artigo(3, "Estadão")
+    with caplog.at_level("WARNING", logger="techdigest.processing.agrupamento"):
+        pautas = ag.compor_pautas(_provisoria(a, b, c), _veredito([(1, [(2, "mesmo_acontecimento")])], [4]), max_artigos=3)
+
+    assert [(p.principal, p.relacionados) for p in pautas] == [(a, ()), (b, ()), (c, ())]
+    assert all(p.motivo == "" for p in pautas)
+    assert "Veredito do agrupador descartado" in caplog.text and "id desconhecido" in caplog.text
+
+
+def test_grupo_sem_membros_conta_como_isolado():
+    a, b = _artigo(1, "G1"), _artigo(2, "Folha")
+    pautas = ag.compor_pautas(_provisoria(a, b), _veredito([(2, [])], [1]), max_artigos=3)
+    assert [(p.principal, p.relacionados) for p in pautas] == [(a, ()), (b, ())]
+
+
+def test_duplicata_acompanha_o_seu_original_quando_a_pauta_e_separada():
+    a, b, copia_de_b = _artigo(1, "G1"), _artigo(2, "Agência Brasil"), _artigo(9, "Sul 21")
+    provisoria = _provisoria(a, b, duplicatas=(copia_de_b,), original_de={copia_de_b: b})
+
+    separadas = ag.compor_pautas(provisoria, _veredito([], [1, 2]), max_artigos=3)
+    assert [(p.principal, p.duplicatas) for p in separadas] == [(a, ()), (b, (copia_de_b,))]
+
+    [junta] = ag.compor_pautas(provisoria, _veredito([(1, [(2, "mesmo_acontecimento")])], []), max_artigos=3)
+    assert junta.duplicatas == (copia_de_b,) and copia_de_b.url in junta.links

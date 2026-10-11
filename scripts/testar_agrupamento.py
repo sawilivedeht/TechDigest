@@ -1,8 +1,8 @@
-"""Diagnóstico do agrupamento de notícias (Fase 1).
+"""Diagnóstico do agrupamento de notícias (etapas 1 e 2 e, a pedido, a etapa 3 com o LLM).
 
 Coleta os feeds, extrai os textos em lote, pontua todos os pares (título e texto) e mostra as
-pautas que seriam formadas. Não chama o LLM, não envia nada ao Telegram, não chama mark_seen e
-não escreve no digest.db: o banco é aberto em modo somente leitura.
+pautas que seriam formadas. Não envia nada ao Telegram, não chama mark_seen e não escreve no
+digest.db: o banco é aberto em modo somente leitura. O LLM só é chamado com --etapa3.
 
 Uso (da raiz do projeto, com o venv ativo):
     python scripts/testar_agrupamento.py                    # só os itens ainda não entregues
@@ -10,10 +10,16 @@ Uso (da raiz do projeto, com o venv ativo):
     python scripts/testar_agrupamento.py --limiar 0.25 --peso-titulo 0.5 --max-candidatos 60
     python scripts/testar_agrupamento.py --incluir-vistos --salvar-amostra   # guarda os candidatos extraídos
     python scripts/testar_agrupamento.py --amostra data/agrupamento/amostra_<data-hora>.json   # sem rede
+    python scripts/testar_agrupamento.py --amostra <amostra> --rotulos <rotulos.csv>           # confere com os rótulos
+    python scripts/testar_agrupamento.py --amostra <amostra> --rotulos <rotulos.csv> --etapa3 --repeticoes 3
 
 Grava data/agrupamento/pares_<data-hora>.csv com os pares de maior score. A coluna mesmo_fato
 fica vazia, para marcar à mão e calibrar os limiares. Cada coleta traz notícias diferentes: para
 repetir a mesma comparação com outros limiares, grave uma amostra e rode de novo com --amostra.
+
+Com --etapa3, o LLM do projeto confirma cada pauta provisória de 2 ou mais artigos (uma chamada por
+pauta) e o resultado vai para data/agrupamento/etapa3_<data-hora>.csv. Com --rotulos, o resultado é
+comparado com um CSV de pares rotulados (colunas id_a, id_b e relacao, com os ids da amostra).
 """
 import argparse
 import calendar
@@ -25,8 +31,12 @@ import re
 import sqlite3
 import sys
 import time
+from dataclasses import dataclass
+from itertools import combinations
 from pathlib import Path
 
+from techdigest.ai.llm import get_provider
+from techdigest.ai.prompt import PROMPT_AGRUPADOR
 from techdigest.collectors import rss
 from techdigest.config import Settings
 from techdigest.processing import agrupamento as ag
@@ -41,6 +51,14 @@ QUASE_PAUTAS = 10      # pares logo abaixo do limiar mostrados no console
 COLUNAS = ("par", "veiculo_a", "titulo_a", "url_a", "veiculo_b", "titulo_b", "url_b",
            "sim_trigramas", "sim_entidades", "sim_texto", "score", "termos_comuns", "duplicata", "mesmo_fato")
 
+TEMPERATURA_ETAPA3 = 0.1   # baixa, para o veredito variar pouco entre execuções
+MAX_SAIDA_ETAPA3 = 512     # tokens: a resposta é um JSON curto
+# Como cada rótulo entra na conta: quais pares a pauta deve manter juntos e quais deve separar.
+ROTULOS_JUNTOS = ("mesmo_acontecimento", "desdobramento")
+ROTULOS_SEPARADOS = ("mesmo_tema", "diferente", "sobreposicao_parcial")
+COLUNAS_ETAPA3 = ("repeticao", "par", "id_a", "id_b", "veiculo_a", "titulo_a", "veiculo_b", "titulo_b",
+                  "rotulo", "esperado", "veredito", "relacao", "acerto", "motivo")
+
 
 class VistosSomenteLeitura(SeenStore):
     """SeenStore sobre uma conexão somente leitura.
@@ -51,6 +69,18 @@ class VistosSomenteLeitura(SeenStore):
 
     def __init__(self, db_path: str):
         self.conn = sqlite3.connect(f"{Path(db_path).resolve().as_uri()}?mode=ro", uri=True)
+
+
+@dataclass
+class Chamada:
+    """Uma consulta ao LLM sobre uma pauta provisória, e o que saiu dela."""
+    repeticao: int
+    provisoria: ag.Pauta
+    segundos: float
+    tokens: dict           # {"prompt": n, "saida": n}; vazio se a chamada caiu antes da resposta
+    motivo: str            # a frase do LLM
+    erro: str              # falha da chamada ou problemas do veredito; "" = veredito aproveitado
+    finais: list[ag.Pauta]
 
 
 def _argumentos() -> argparse.Namespace:
@@ -68,14 +98,24 @@ def _argumentos() -> argparse.Namespace:
                          help="grava os candidatos extraídos em data/agrupamento/amostra_<data-hora>.json")
     amostra.add_argument("--amostra", metavar="ARQUIVO",
                          help="usa os candidatos de uma amostra gravada, sem coletar, extrair nem acessar a rede")
+    p.add_argument("--etapa3", action="store_true",
+                   help="confirma cada pauta provisória com o LLM do projeto (exige --amostra)")
+    p.add_argument("--rotulos", metavar="ARQUIVO",
+                   help="compara o resultado com um CSV de pares rotulados (exige --amostra)")
+    p.add_argument("--repeticoes", type=int, default=1, metavar="N",
+                   help="repete a etapa 3 N vezes, para ver se o veredito muda (padrão: %(default)s)")
     args = p.parse_args()
     if args.amostra and (args.incluir_vistos or args.max_candidatos):
         p.error("--amostra já traz os candidatos: não combina com --incluir-vistos nem com --max-candidatos")
+    if (args.etapa3 or args.rotulos) and not args.amostra:
+        p.error("--etapa3 e --rotulos exigem --amostra: os rótulos e a comparação valem para uma amostra fixa")
+    if args.repeticoes < 1 or (args.repeticoes > 1 and not args.etapa3):
+        p.error("--repeticoes é um número a partir de 1 e só vale com --etapa3")
     return args
 
 
 def _log_no_console() -> None:
-    """Mostra o log do coletor e os avisos do extrator junto com o relatório.
+    """Mostra o log do coletor e os avisos do extrator, do LLM e do agrupamento junto com o relatório.
 
     Não chama setup_logging() de propósito: assim nada vai para data/logs/techdigest.log, o
     arquivo que scripts/resumo_lotes.py lê.
@@ -87,6 +127,7 @@ def _log_no_console() -> None:
     raiz.setLevel(logging.INFO)
     raiz.propagate = False
     logging.getLogger("techdigest.processing.extractor").setLevel(logging.WARNING)  # sem uma linha por link resolvido
+    logging.getLogger("techdigest.ai.llm").setLevel(logging.WARNING)  # tempo e tokens de cada chamada saem no relatório
 
 
 def _cronometrar(funcao, *args):
@@ -173,8 +214,8 @@ def _sem_repetir(itens: list, chave) -> list:
     return list(unicos.values())
 
 
-def _coletar_candidatos(args: argparse.Namespace) -> tuple[list[ag.Candidato], list, dict[str, list]]:
-    """Coleta, filtra e extrai. Devolve (candidatos, a data de publicação de cada um, entradas dos feeds)."""
+def _coletar_candidatos(args: argparse.Namespace) -> tuple[list[ag.Candidato], dict[str, list]]:
+    """Coleta, filtra e extrai. Devolve os candidatos e as entradas dos feeds baixados."""
     (artigos, feeds), segundos = _cronometrar(_coletar)
     _linha("coletados", len(artigos), segundos=segundos)
 
@@ -205,18 +246,18 @@ def _coletar_candidatos(args: argparse.Namespace) -> tuple[list[ag.Candidato], l
     _linha("descartados", len(unicos) - len(com_texto), f"texto com menos de {settings.min_texto_chars} caracteres")
 
     publicacao = _datas_de_publicacao(feeds)
-    candidatos, datas = [], []
+    candidatos = []
     for artigo, extracao in com_texto:
         titulo, veiculo = ag.separar_veiculo(artigo.title, artigo.source)
         candidatos.append(ag.Candidato(
             titulo=titulo, veiculo=veiculo, url=artigo.url,
             url_veiculo=extracao.url_resolvida or artigo.url, texto=extracao.texto,
+            data=publicacao.get(artigo.url),
         ))
-        datas.append(publicacao.get(artigo.url))
-    return candidatos, datas, feeds
+    return candidatos, feeds
 
 
-def _gravar_amostra(candidatos: list[ag.Candidato], datas: list, incluir_vistos: bool, carimbo: str) -> Path:
+def _gravar_amostra(candidatos: list[ag.Candidato], incluir_vistos: bool, carimbo: str) -> Path:
     """Guarda os candidatos já extraídos, para repetir a comparação sem coletar de novo.
 
     O id é a posição do candidato na execução, a partir de 1; `url` é o link do feed.
@@ -226,8 +267,8 @@ def _gravar_amostra(candidatos: list[ag.Candidato], datas: list, incluir_vistos:
         "incluir_vistos": incluir_vistos,
         "candidatos": [
             {"id": n, "veiculo": c.veiculo, "titulo": c.titulo, "url": c.url, "url_resolvida": c.url_veiculo,
-             "data": data.isoformat() if data else None, "texto": c.texto}
-            for n, (c, data) in enumerate(zip(candidatos, datas), 1)
+             "data": c.data.isoformat() if c.data else None, "texto": c.texto}
+            for n, c in enumerate(candidatos, 1)
         ],
     }
     caminho = _pasta() / f"amostra_{carimbo}.json"
@@ -235,24 +276,24 @@ def _gravar_amostra(candidatos: list[ag.Candidato], datas: list, incluir_vistos:
     return caminho
 
 
-def _carregar_amostra(caminho: str) -> list[ag.Candidato]:
-    """Candidatos de uma amostra gravada com --salvar-amostra, na mesma ordem. Não acessa a rede."""
+def _carregar_amostra(caminho: str) -> tuple[list[ag.Candidato], dict[ag.Candidato, int]]:
+    """Candidatos de uma amostra gravada com --salvar-amostra, na mesma ordem, e o id de cada um. Sem rede."""
     try:
         conteudo = json.loads(Path(caminho).read_text(encoding="utf-8"))
-        candidatos = [
-            ag.Candidato(titulo=c["titulo"], veiculo=c["veiculo"], url=c["url"],
-                         url_veiculo=c["url_resolvida"], texto=c["texto"])
+        ids = {
+            ag.Candidato(titulo=c["titulo"], veiculo=c["veiculo"], url=c["url"], url_veiculo=c["url_resolvida"],
+                         texto=c["texto"], data=datetime.datetime.fromisoformat(c["data"]) if c["data"] else None): c["id"]
             for c in conteudo["candidatos"]
-        ]
+        }
     except (OSError, ValueError, KeyError, TypeError) as e:
         sys.exit(f"Amostra ilegível ({type(e).__name__}: {e}): {caminho}")
-    _linha("amostra", len(candidatos), f"{caminho} (criada em {conteudo.get('criada_em', '?')})")
-    return candidatos
+    _linha("amostra", len(ids), f"{caminho} (criada em {conteudo.get('criada_em', '?')})")
+    return list(ids), ids
 
 
 def _mostrar_pautas(pautas: list[ag.Pauta], args: argparse.Namespace) -> None:
     com_varios = [p for p in pautas if p.relacionados]
-    print(f"\n== Pautas com 2 ou mais artigos: {len(com_varios)} "
+    print(f"\n== Pautas provisórias com 2 ou mais artigos: {len(com_varios)} "
           f"(limiar {args.limiar:.2f} · peso do título {args.peso_titulo:.2f} · "
           f"até {settings.agrup_max_artigos} artigos) ==")
     for n, pauta in enumerate(com_varios, 1):
@@ -325,6 +366,260 @@ def _gravar_csv(pares: list[ag.ParPontuado], carimbo: str) -> tuple[Path, int]:
     return caminho, len(escolhidos)
 
 
+# ── Etapa 3 (LLM) e comparação com os rótulos ─────────────────────────────────────────────
+
+def _membros(pauta: ag.Pauta) -> tuple[ag.Candidato, ...]:
+    """Os artigos que a pauta juntou: os que vão para a geração e os absorvidos."""
+    return (*pauta.artigos, *pauta.absorvidos)
+
+
+def _pauta_de_cada(pautas: list[ag.Pauta]) -> dict[ag.Candidato, ag.Pauta]:
+    return {c: p for p in pautas for c in _membros(p)}
+
+
+def _todos_isolados(pauta: ag.Pauta) -> list[ag.Pauta]:
+    """A pauta desfeita, cada artigo sozinho: o destino de uma chamada que falhou (na dúvida, não juntar)."""
+    isolados = {"grupos": [], "isolados": list(range(1, len(pauta.artigos) + 1))}
+    return ag.compor_pautas(pauta, isolados, settings.agrup_max_artigos)
+
+
+def _consultar_llm(provider, pauta: ag.Pauta, repeticao: int) -> Chamada:
+    """Pede ao LLM o veredito sobre uma pauta provisória e compõe as pautas finais."""
+    provider.ultimo_uso = {}
+    inicio = time.perf_counter()
+    try:
+        resposta = provider.chat_json(
+            PROMPT_AGRUPADOR, ag.entrada_agrupador(pauta), chaves=ag.CHAVES_AGRUPADOR,
+            temperatura=TEMPERATURA_ETAPA3, max_saida=MAX_SAIDA_ETAPA3,
+        )
+    except Exception as e:  # resposta vazia, cortada, sem as chaves, servidor fora do ar...
+        segundos = time.perf_counter() - inicio
+        erro = f"a chamada falhou ({type(e).__name__}: {str(e)[:160]})"
+        return Chamada(repeticao, pauta, segundos, dict(provider.ultimo_uso), "", erro, _todos_isolados(pauta))
+    segundos = time.perf_counter() - inicio
+    problemas = ag.problemas_do_veredito(resposta, len(pauta.artigos))
+    motivo = resposta.get("motivo") if isinstance(resposta.get("motivo"), str) else ""
+    erro = f"veredito descartado ({'; '.join(problemas)})" if problemas else ""
+    finais = ag.compor_pautas(pauta, resposta, settings.agrup_max_artigos)
+    return Chamada(repeticao, pauta, segundos, dict(provider.ultimo_uso), motivo, erro, finais)
+
+
+def _resumo_do_veredito(chamada: Chamada, ids: dict[ag.Candidato, int]) -> str:
+    grupos = []
+    for final in chamada.finais:
+        if len(_membros(final)) > 1:
+            outros = [f"{ids[c]} ({final.relacoes.get(c, '?')}{', absorvido' if c in final.absorvidos else ''})"
+                      for c in _membros(final)[1:]]
+            grupos.append(f"{ids[final.principal]} + " + " + ".join(outros))
+    sozinhos = [str(ids[final.principal]) for final in chamada.finais if len(_membros(final)) == 1]
+    return f"juntos: {'; '.join(grupos) or '-'} · isolados: {', '.join(sozinhos) or '-'}"
+
+
+def _rodar_etapa3(provisorias: list[ag.Pauta], ids: dict[ag.Candidato, int], repeticoes: int) -> list[Chamada]:
+    """Uma chamada ao LLM por pauta provisória de 2 ou mais artigos, em cada repetição."""
+    print(f"\n== Etapa 3: o LLM confirma {len(provisorias)} pauta(s) provisória(s), {repeticoes} vez(es) "
+          f"(temperatura {TEMPERATURA_ETAPA3}, saída de até {MAX_SAIDA_ETAPA3} tokens) ==", flush=True)
+    if not provisorias:
+        print("  nenhuma pauta provisória com 2 ou mais artigos: nada a confirmar")
+        return []
+    provider = get_provider(settings)
+    modelo = settings.ollama_model if settings.llm_provider == "ollama" else settings.openai_model
+    print(f"  modelo: {modelo} ({settings.llm_provider})", flush=True)
+    chamadas = []
+    for repeticao in range(1, repeticoes + 1):
+        for n, pauta in enumerate(provisorias, 1):
+            chamada = _consultar_llm(provider, pauta, repeticao)
+            chamadas.append(chamada)
+            tokens = (f"{chamada.tokens.get('prompt', 0)} + {chamada.tokens.get('saida', 0)} tokens"
+                      if chamada.tokens else "sem contagem de tokens")
+            print(f"  [repetição {repeticao}] pauta {n}/{len(provisorias)} · {len(pauta.artigos)} artigos "
+                  f"(ids {', '.join(str(ids[c]) for c in pauta.artigos)}) · {chamada.segundos:.1f} s · {tokens}")
+            print(f"      {chamada.erro or _resumo_do_veredito(chamada, ids)}")
+            if chamada.motivo:
+                print(f"      motivo: {chamada.motivo}", flush=True)
+
+    tempos = [c.segundos for c in chamadas]
+    com_tokens = [c.tokens for c in chamadas if c.tokens] or [{}]
+    entrada, saida = (sum(t.get(chave, 0) for t in com_tokens) / len(com_tokens) for chave in ("prompt", "saida"))
+    print(f"\n  {len(chamadas)} chamadas em {sum(tempos):.0f} s: média de {sum(tempos) / len(tempos):.1f} s por chamada "
+          f"(de {min(tempos):.1f} a {max(tempos):.1f} s)")
+    print(f"  tokens por chamada, em média: {entrada:.0f} de entrada e {saida:.0f} de saída")
+    print(f"  chamadas que falharam: {sum(c.erro.startswith('a chamada falhou') for c in chamadas)} · "
+          f"vereditos descartados: {sum(c.erro.startswith('veredito descartado') for c in chamadas)}")
+    return chamadas
+
+
+def _ler_rotulos(caminho: str, amostra: str) -> list[dict]:
+    """Linhas do CSV de rótulos (id_a, id_b, relacao; os ids são os da amostra)."""
+    try:
+        with open(caminho, newline="", encoding="utf-8") as arquivo:
+            linhas = list(csv.DictReader(arquivo))
+        rotulos = [{"par": linha.get("par", ""), "id_a": int(linha["id_a"]), "id_b": int(linha["id_b"]),
+                    "relacao": linha["relacao"].strip()} for linha in linhas]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        sys.exit(f"CSV de rótulos ilegível ({type(e).__name__}: {e}): {caminho}")
+    de_outra = {linha.get("amostra") for linha in linhas} - {None, "", Path(amostra).name}
+    if de_outra:
+        print(f"  ATENÇÃO: os rótulos dizem ser de outra amostra ({', '.join(sorted(de_outra))}); os ids podem não bater")
+    return rotulos
+
+
+def _situacao_do_par(a: ag.Candidato, b: ag.Candidato, provisoria_de: dict, final_de: dict, com_llm: bool) -> tuple[str, str]:
+    """(veredito, relação) de um par: "juntos", "separados" ou "fora da etapa 3"."""
+    if com_llm and (a not in provisoria_de or provisoria_de[a] is not provisoria_de.get(b)):
+        return "fora da etapa 3", ""
+    pauta = final_de.get(a)
+    if pauta is None or pauta is not final_de.get(b):
+        return "separados", ""
+    if not pauta.relacoes:
+        return "juntos", ""
+    if pauta.principal in (a, b):
+        return "juntos", pauta.relacoes.get(b if pauta.principal is a else a, "")
+    ambos_iguais = pauta.relacoes.get(a) == pauta.relacoes.get(b) == "mesmo_acontecimento"
+    return "juntos", "mesmo_acontecimento" if ambos_iguais else "desdobramento"
+
+
+def _linhas_da_comparacao(
+    rotulos: list[dict], provisorias: list[ag.Pauta], finais_por_repeticao: dict[int, list[ag.Pauta]],
+    motivos: dict[tuple[int, ag.Pauta | None], str], por_id: dict[int, ag.Candidato], ids: dict[ag.Candidato, int],
+    com_llm: bool,
+) -> list[dict]:
+    """Uma linha por repetição e por par: os pares rotulados e os que ficaram numa mesma pauta provisória."""
+    provisoria_de = _pauta_de_cada(provisorias)
+    rotulo_de = {frozenset((r["id_a"], r["id_b"])): r for r in rotulos}
+    pares = dict.fromkeys(rotulo_de)
+    for pauta in provisorias:
+        pares.update(dict.fromkeys(frozenset((ids[a], ids[b])) for a, b in combinations(pauta.artigos, 2)))
+
+    linhas = []
+    for repeticao, finais in finais_por_repeticao.items():
+        final_de = _pauta_de_cada(finais)
+        for par in pares:
+            rotulo = rotulo_de.get(par, {})
+            id_a, id_b = (rotulo["id_a"], rotulo["id_b"]) if rotulo else sorted(par)
+            a, b = por_id.get(id_a), por_id.get(id_b)
+            if a is None or b is None:
+                print(f"  ATENÇÃO: par rotulado com id fora da amostra: {id_a} × {id_b}")
+                continue
+            veredito, relacao = _situacao_do_par(a, b, provisoria_de, final_de, com_llm)
+            relacao_rotulada = rotulo.get("relacao", "")
+            esperado = ("juntos" if relacao_rotulada in ROTULOS_JUNTOS
+                        else "separados" if relacao_rotulada in ROTULOS_SEPARADOS else "")
+            acerto = "" if not esperado or veredito == "fora da etapa 3" else ("sim" if veredito == esperado else "não")
+            linhas.append({
+                "repeticao": repeticao, "par": rotulo.get("par", ""), "id_a": id_a, "id_b": id_b,
+                "veiculo_a": a.veiculo, "titulo_a": a.titulo, "veiculo_b": b.veiculo, "titulo_b": b.titulo,
+                "rotulo": relacao_rotulada, "esperado": esperado, "veredito": veredito, "relacao": relacao,
+                "acerto": acerto, "motivo": motivos.get((repeticao, provisoria_de.get(a)), "") if veredito != "fora da etapa 3" else "",
+            })
+    return linhas
+
+
+def _descrever(linha: dict) -> str:
+    par = f"par {linha['par']} · " if linha["par"] else ""
+    return (f"{par}id {linha['id_a']} × id {linha['id_b']} · {linha['veiculo_a']} × {linha['veiculo_b']} · "
+            f"rótulo {linha['rotulo'] or '(sem rótulo)'}")
+
+
+def _mostrar_comparacao(linhas: list[dict], caminho_rotulos: str, com_llm: bool) -> None:
+    quem = "LLM" if com_llm else "limiar das etapas 1 e 2"
+    print(f"\n== Comparação com os rótulos ({caminho_rotulos}) ==")
+    print(f"  devem ficar juntos: {', '.join(ROTULOS_JUNTOS)} · separados: {', '.join(ROTULOS_SEPARADOS)}")
+    repeticoes = sorted({linha["repeticao"] for linha in linhas})
+    primeira = [linha for linha in linhas if linha["repeticao"] == repeticoes[0]]
+
+    julgados = [linha for linha in primeira if linha["acerto"]]
+    print(f"\n  Pares rotulados julgados pelo {quem}: {len(julgados)}")
+    for repeticao in repeticoes:
+        da_vez = [linha for linha in linhas if linha["repeticao"] == repeticao and linha["acerto"]]
+        acertos = sum(linha["acerto"] == "sim" for linha in da_vez)
+        rotulo_da_vez = f"repetição {repeticao}: " if len(repeticoes) > 1 else ""
+        print(f"    {rotulo_da_vez}{acertos} acertos e {len(da_vez) - acertos} erros")
+        for linha in da_vez:
+            if linha["acerto"] == "não":
+                print(f"      ERRO · {_descrever(linha)} · ficou {linha['veredito']}"
+                      + (f" ({linha['relacao']})" if linha["relacao"] else ""))
+                if linha["motivo"]:
+                    print(f"             motivo do LLM: {linha['motivo']}")
+
+    if com_llm:
+        fora = [linha for linha in primeira if linha["veredito"] == "fora da etapa 3" and linha["esperado"]]
+        perdas = [linha for linha in fora if linha["esperado"] == "juntos"]
+        print(f"\n  Pares rotulados que não chegaram à etapa 3: {len(fora)}")
+        print(f"    perdas das etapas 1 e 2 (deviam estar juntos): {len(perdas)}")
+        for linha in perdas:
+            print(f"      {_descrever(linha)}")
+        ja_separados = [linha["par"] or f"{linha['id_a']}×{linha['id_b']}" for linha in fora if linha["esperado"] == "separados"]
+        print(f"    já separados pelas etapas 1 e 2, como deviam: {len(ja_separados)}"
+              + (f" (pares {', '.join(map(str, ja_separados))})" if ja_separados else ""))
+
+    fora_da_conta = [linha for linha in primeira if not linha["esperado"]]
+    print(f"\n  Fora da conta (rótulo duvidoso ou desconhecido, ou par sem rótulo): {len(fora_da_conta)}")
+    for linha in fora_da_conta:
+        print(f"    {_descrever(linha)} · ficou {linha['veredito']}" + (f" ({linha['relacao']})" if linha["relacao"] else ""))
+
+    if len(repeticoes) > 1:
+        historico: dict[tuple, list] = {}
+        for linha in linhas:
+            if linha["veredito"] != "fora da etapa 3":
+                historico.setdefault((linha["id_a"], linha["id_b"]), []).append(linha)
+        mudaram = [vezes for vezes in historico.values() if len({(l["veredito"], l["relacao"]) for l in vezes}) > 1]
+        print(f"\n  Pares cujo veredito mudou entre as {len(repeticoes)} repetições: {len(mudaram)} de {len(historico)}")
+        for vezes in mudaram:
+            sequencia = " → ".join(l["veredito"] + (f" ({l['relacao']})" if l["relacao"] else "") for l in vezes)
+            print(f"    {_descrever(vezes[0])}: {sequencia}")
+
+
+def _mostrar_pautas_finais(finais: list[ag.Pauta], ids: dict[ag.Candidato, int], repeticoes: int) -> None:
+    juntas = [p for p in finais if len(_membros(p)) > 1]
+    print(f"\n== Pautas finais com 2 ou mais artigos: {len(juntas)}"
+          + (" (repetição 1)" if repeticoes > 1 else "") + " ==")
+    for n, pauta in enumerate(juntas, 1):
+        print(f"\nPauta final {n} · {len(pauta.artigos)} texto(s) para a geração · {len(pauta.veiculos)} veículo(s) distinto(s)")
+        print(f"  principal:    [id {ids[pauta.principal]}] {_rotulo(pauta.principal)}")
+        for c in pauta.relacionados:
+            print(f"  relacionado:  [id {ids[c]}] {_rotulo(c)}  ({pauta.relacoes.get(c, '?')})")
+        for c in pauta.absorvidos:
+            print(f"  absorvido:    [id {ids[c]}] {_rotulo(c)}  ({pauta.relacoes.get(c, '?')})")
+        for c in pauta.duplicatas:
+            print(f"  republicação: {_rotulo(c)}")
+        if pauta.motivo:
+            print(f"  motivo: {pauta.motivo}")
+
+
+def _gravar_etapa3(linhas: list[dict], carimbo: str) -> Path:
+    caminho = _pasta() / f"etapa3_{carimbo}.csv"
+    with open(caminho, "w", newline="", encoding="utf-8") as arquivo:
+        saida = csv.DictWriter(arquivo, fieldnames=COLUNAS_ETAPA3)
+        saida.writeheader()
+        saida.writerows(linhas)
+    return caminho
+
+
+def _etapa3_e_rotulos(args: argparse.Namespace, pautas: list[ag.Pauta], ids: dict[ag.Candidato, int], carimbo: str) -> None:
+    """Confirma as pautas provisórias com o LLM (--etapa3) e confere o resultado com os rótulos (--rotulos)."""
+    provisorias = [p for p in pautas if p.relacionados]
+    sozinhas = [p for p in pautas if not p.relacionados]
+    motivos: dict[tuple[int, ag.Pauta | None], str] = {}
+    if args.etapa3:
+        chamadas = _rodar_etapa3(provisorias, ids, args.repeticoes)
+        finais_por_repeticao = {r: list(sozinhas) for r in range(1, args.repeticoes + 1)}
+        for chamada in chamadas:
+            finais_por_repeticao[chamada.repeticao] += chamada.finais
+            motivos[chamada.repeticao, chamada.provisoria] = chamada.erro or chamada.motivo
+    else:
+        finais_por_repeticao = {1: pautas}
+
+    rotulos = _ler_rotulos(args.rotulos, args.amostra) if args.rotulos else []
+    por_id = {n: c for c, n in ids.items()}
+    linhas = _linhas_da_comparacao(rotulos, provisorias, finais_por_repeticao, motivos, por_id, ids, com_llm=args.etapa3)
+    if args.rotulos:
+        _mostrar_comparacao(linhas, args.rotulos, com_llm=args.etapa3)
+    if args.etapa3:
+        _mostrar_pautas_finais(finais_por_repeticao[1], ids, args.repeticoes)
+        print(f"\nEtapa 3: {_gravar_etapa3(linhas, carimbo)} ({len(linhas)} linhas: um par por repetição)")
+
+
 def main() -> None:
     args = _argumentos()
     _log_no_console()
@@ -333,12 +628,13 @@ def main() -> None:
     print("== Etapas ==", flush=True)
     feeds = amostra_gravada = None
     if args.amostra:
-        candidatos = _carregar_amostra(args.amostra)
+        candidatos, ids = _carregar_amostra(args.amostra)
     else:
-        candidatos, datas, feeds = _coletar_candidatos(args)
+        candidatos, feeds = _coletar_candidatos(args)
+        ids = {c: n for n, c in enumerate(candidatos, 1)}
         if args.salvar_amostra:
-            amostra_gravada = _gravar_amostra(candidatos, datas, args.incluir_vistos, carimbo)
-            sem_data = sum(1 for data in datas if data is None)
+            amostra_gravada = _gravar_amostra(candidatos, args.incluir_vistos, carimbo)
+            sem_data = sum(1 for c in candidatos if c.data is None)
             print(f"  amostra gravada: {amostra_gravada}" + (f" ({sem_data} sem data)" if sem_data else ""), flush=True)
     _linha("candidatos", len(candidatos))
     if len(candidatos) < 2:
@@ -356,7 +652,7 @@ def main() -> None:
     perto = [p for p in pares if CSV_SCORE_MIN <= p.score < args.limiar and not p.duplicata]
     _linha("pares no limiar", sum(p.score >= args.limiar for p in pares), f"score ≥ {args.limiar:.2f}")
     _linha("pares perto do limiar", len(perto), f"score entre {CSV_SCORE_MIN:.2f} e {args.limiar:.2f}")
-    _linha("pautas", len(pautas), f"{sum(1 for p in pautas if p.relacionados)} com 2 ou mais artigos")
+    _linha("pautas provisórias", len(pautas), f"{sum(1 for p in pautas if p.relacionados)} com 2 ou mais artigos")
 
     _mostrar_pautas(pautas, args)
     _mostrar_pares(f"Pares no limiar barrados pelo teto de {settings.agrup_max_artigos} artigos: {len(barrados)}", barrados)
@@ -370,6 +666,8 @@ def main() -> None:
     print(f"\nCSV: {caminho} ({gravados} pares com score ≥ {CSV_SCORE_MIN:.2f}; marque a coluna mesmo_fato)")
     if amostra_gravada:
         print(f"Amostra: {amostra_gravada} ({len(candidatos)} candidatos; reuse com --amostra)")
+    if args.etapa3 or args.rotulos:
+        _etapa3_e_rotulos(args, pautas, ids, carimbo)
 
 
 if __name__ == "__main__":

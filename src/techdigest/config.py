@@ -61,10 +61,10 @@ class Settings(BaseSettings):
     extracao_workers: int = 6          # itens extraídos em paralelo
     extracao_workers_gnews: int = 2    # no máximo N resolvendo links do Google Notícias ao mesmo tempo (evita bloqueio)
 
-    # Agrupamento de notícias em pautas. Fase 1: só scripts/testar_agrupamento.py usa; o pipeline ainda não agrupa
+    # Agrupamento de notícias em pautas. Só scripts/testar_agrupamento.py usa; o pipeline ainda não agrupa
     agrup_chars_texto: int = 1500      # caracteres iniciais do texto extraído que entram no TF-IDF
     agrup_peso_titulo: float = 0.4     # score = peso × título + (1 − peso) × texto
-    agrup_limiar: float = 0.30         # score mínimo para dois artigos entrarem na mesma pauta
+    agrup_limiar: float = 0.18         # score mínimo da pauta provisória (provisório: calibrado numa amostra só); quem confirma é o LLM
     agrup_limiar_duplicata: float = 0.95   # similaridade de texto a partir da qual é republicação, não outra fonte
     agrup_max_artigos: int = 3         # artigos por pauta (principal + 2 relacionados, o limite do _montar_entrada)
 
