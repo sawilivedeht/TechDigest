@@ -99,3 +99,25 @@ def test_truncamento_cita_o_limite_que_valeu_na_chamada(ollama):
     do_episodio = ollama('{"titulo_reescrito": "', done_reason="length", saida_tok=4096)
     with pytest.raises(ValueError, match=r"atingiu OLLAMA_NUM_PREDICT \(4096\)\. Aumente-o no \.env"):
         do_episodio.chat_json("sistema", "artigo")
+
+
+def test_openai_registra_erro_quando_corta_a_entrada(caplog):
+    resposta = SimpleNamespace(
+        usage=SimpleNamespace(prompt_tokens=900, completion_tokens=50),
+        choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content='{"grupos": [], "isolados": [1]}'))],
+    )
+    pedidos = []
+    provider = llm.OpenAIProvider.__new__(llm.OpenAIProvider)        # sem o construtor: não cria o cliente de rede
+    provider.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+        create=lambda **kwargs: pedidos.append(kwargs) or resposta)))
+    provider.model, provider.max_tokens, provider.reasoning_effort, provider.max_prompt_chars = "modelo", 1000, None, 100
+
+    with caplog.at_level("ERROR", logger="techdigest.ai.llm"):
+        provider.chat_json("sistema", "x" * 80, chaves=CHAVES_AGRUPADOR)
+    assert caplog.text == "" and pedidos[-1]["messages"][1]["content"] == "x" * 80        # cabe: nada a registrar
+
+    with caplog.at_level("ERROR", logger="techdigest.ai.llm"):
+        provider.chat_json("sistema", "x" * 500, chaves=CHAVES_AGRUPADOR)
+    assert "Entrada de 500 caracteres cortada em LLM_MAX_PROMPT_CHARS (100)" in caplog.text
+    assert pedidos[-1]["messages"][1]["content"].startswith("x" * 100 + "\n\n[TEXTO TRUNCADO")
+    assert "temperature" not in pedidos[-1] and provider.ultimo_uso == {"prompt": 900, "saida": 50}

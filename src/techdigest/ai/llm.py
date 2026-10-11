@@ -278,6 +278,12 @@ class OpenAIProvider(LLMProvider):
         max_tokens = self.max_tokens if max_saida is None else max_saida
         # blindagem de tamanho (defesa contra 413)
         if len(user) > self.max_prompt_chars:
+            # O Summarizer monta a entrada dentro deste limite; chegar aqui é erro de orçamento,
+            # e o que se perde é o fim do prompt (relacionados, aviso e lembrete).
+            logger.error(
+                "Entrada de %d caracteres cortada em LLM_MAX_PROMPT_CHARS (%d): o fim do prompt foi descartado.",
+                len(user), self.max_prompt_chars,
+            )
             user = user[: self.max_prompt_chars] + \
                 "\n\n[TEXTO TRUNCADO POR LIMITE DE REQUISIÇÃO]"
 

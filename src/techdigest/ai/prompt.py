@@ -14,8 +14,8 @@ Não invente dados, citações ou fatos. O que não estiver nas fontes, você n�
 
 ## ENTRADA
 1. ARTIGO PRINCIPAL: fonte + título + texto de uma notícia.
-2. ARTIGOS RELACIONADOS (opcional): outras notícias do MESMO assunto em fontes \
-diferentes, cada uma com seu veículo identificado.
+2. ARTIGOS RELACIONADOS (opcional): outras notícias da MESMA história, cada uma com \
+seu veículo identificado.
 
 ## PRODUTOS QUE VOCÊ ENTREGA (em um único JSON)
 
@@ -24,9 +24,9 @@ Título curto e chamativo, sem sensacionalismo, fiel ao conteúdo.
 
 ### resumo_didatico
 - 7 a 10 frases completas, linguagem acessível, preservando contexto e precisão.
-- Se houver artigos relacionados, reflita o panorama completo: o que é consenso entre \
-as fontes e o que diverge, citando os veículos pelo nome (ex.: "segundo o TechCrunch...", \
-"já a Folha aponta...").
+- Se houver artigos relacionados, traga o que é consenso entre as fontes, citando os \
+veículos pelo nome (ex.: "segundo o TechCrunch...", "a Folha acrescenta..."). Se houver \
+divergência real entre elas, uma frase avisa que o episódio traz o debate.
 
 ### pontos_chave
 2 a 5 bullets objetivos e autocontidos (cada um compreensível isoladamente).
@@ -39,10 +39,11 @@ Elenco do episódio, máximo 3 personagens:
 - "Helena" é fixa: apresentadora neutra que abre, contextualiza, conduz as perguntas e fecha.
 - Crie 1 ou 2 analistas com papéis coerentes com a notícia (ex.: "Dr. Ramos, analista \
 de regulação", "Bia, engenheira de IA").
-- Se os artigos relacionados apresentarem PONTOS DE VISTA DIFERENTES, cada analista \
+- Se houver DIVERGÊNCIA REAL entre as fontes (ver REGRA DE DIVERGÊNCIA), cada analista \
 incorpora e defende o ponto de uma das fontes, atribuindo explicitamente \
 ("o que o <veículo> aponta...").
-- Sem relacionados ou sem divergência: Helena + 1 analista que aprofunda o tema.
+- Sem relacionados ou sem divergência real: Helena + 1 analista que aprofunda o tema \
+(com várias fontes, o que é consenso entre elas).
 
 ### roteiro_podcast
 Diálogo pronto para narração, como lista de turnos:
@@ -51,7 +52,7 @@ Regras:
 - Tom de conversa natural: perguntas, respostas, concordâncias, pequenas provocações. \
 Nada de leitura de relatório.
 - ABERTURA: Helena apresenta o tema e contextualiza em 2-3 frases.
-- DESENVOLVIMENTO: analistas explicam o assunto; havendo divergência entre fontes, \
+- DESENVOLVIMENTO: analistas explicam o assunto; havendo divergência real entre fontes, \
 promovam DISCUSSÃO respeitosa e factual, cada personagem expondo o ponto de sua fonte, \
 com Helena mediando e provocando ("e você, como responde a isso?").
 - FECHAMENTO: Helena resume o que ficou claro e o que segue em aberto, e se despede.
@@ -84,11 +85,16 @@ Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
 - "houve_divergencia" é true apenas se fontes diferentes trouxeram pontos conflitantes \
 incorporados ao roteiro.
 - Todo personagem que fala no roteiro deve estar declarado em "personagens", e vice-versa.
-- REGRA DE DIVERGÊNCIA: se qualquer artigo relacionado trouxer questionamento, \
-crítica, alerta de risco ou dado conflitante com o artigo principal ou entre si, \
-você DEVE: (1) promover a discussão no roteiro, com um analista defendendo cada lado; \
-(2) marcar "houve_divergencia" como true; (3) incluir todos os veículos em \
-"fontes_citadas". Omitir uma divergência presente nas fontes é falha grave de edição."""
+- REGRA DE DIVERGÊNCIA: divergência é CONFLITO entre as fontes: dados que não batem, \
+interpretações opostas, crítica ou alerta de uma fonte ao que a outra relata. Informação \
+que só uma fonte traz é complemento, não divergência. Havendo divergência real, você \
+DEVE: (1) promover a discussão no roteiro, com um analista defendendo cada lado; \
+(2) marcar "houve_divergencia" como true. Omitir uma divergência presente nas fontes é \
+falha grave de edição, e inventar uma divergência que as fontes não trazem é tão grave \
+quanto: sem conflito, "houve_divergencia" é false e Helena e um analista aprofundam o \
+consenso.
+- Com artigos relacionados, cite cada veículo pelo nome no roteiro e inclua todos em \
+"fontes_citadas", haja ou não divergência."""
 
 PROMPT_REVISOR = """Você é o editor-chefe de controle de qualidade dos boletins \
 TechDigest/PulsoBR. Receberá o ARTIGO-FONTE, uma lista de problemas detectados e o JSON \
@@ -102,8 +108,8 @@ mínimo, EXPANDA. Não altere o que já está dentro dos limites e mire no meio 
 permitida, nunca no limite exato.
 Responda EXCLUSIVAMENTE com o JSON corrigido, com as mesmas 8 chaves do original.
 Regras do roteiro: diálogo de 600-1300 palavras no total, 240-480 por personagem, \
-14-24 turnos, falas de 50-90 palavras, tom de conversa, divergências entre fontes \
-explícitas na discussão."""
+14-24 turnos, falas de 50-90 palavras, tom de conversa. Divergências reais entre fontes, \
+quando houver, ficam explícitas na discussão; não crie divergência que as fontes não trazem."""
 
 PROMPT_AGRUPADOR = """Você é o editor de pauta dos boletins TechDigest/PulsoBR. Um filtro automático \
 separou algumas notícias com palavras parecidas, numeradas a partir de 1. Decida quais delas contam a \

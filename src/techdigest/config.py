@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     openai_reasoning_effort: str = ""  #ex.: "low"/"medium"/"high" p/ modelos reasoning
     llm_max_tokens: int = 153600
     llm_max_prompt_chars: int = 4096
+    llm_reserva_saida: int = 3000      # tokens da janela guardados para a resposta no orçamento da entrada (vale o menor entre isto e OLLAMA_NUM_PREDICT)
 
 
     #Telegram

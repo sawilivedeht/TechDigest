@@ -16,12 +16,14 @@ Everything in the codebase is written in Brazilian Portuguese: identifiers, comm
 .venv/bin/python scripts/resumo_lotes.py         # per-run summary table parsed from today's log
 .venv/bin/python scripts/resumo_lotes.py 07/10   # same, for a given day (DD/MM)
 .venv/bin/python scripts/testar_agrupamento.py   # grouping diagnostic: no Telegram, digest.db opened read-only, LLM only with --etapa3
+.venv/bin/python scripts/testar_episodio.py --amostra <file>   # generates a few multi-source episodes from a saved sample: LLM only, nothing delivered
 .venv/bin/pip install -e '.[dev]'                # dev extra (pytest)
 .venv/bin/pytest                                 # tests
 ```
 
 - `scripts/testar_agrupamento.py` collects the feeds, extracts the texts (about a minute of network I/O), prints the "pautas" it would form and writes the top-scoring pairs to `data/agrupamento/pares_<timestamp>.csv`. Options: `--limiar`, `--peso-titulo`, `--max-candidatos`, `--incluir-vistos`. Every live collection returns different articles, so to compare thresholds on the same data use `--salvar-amostra` (also writes the extracted candidates to `data/agrupamento/amostra_<timestamp>.json`) and then `--amostra <file>`, which reruns the comparison on a saved sample with no network access. On a saved sample, `--rotulos <csv>` checks the result against hand-labelled pairs, and `--etapa3` asks the project's LLM to confirm each provisional pauta (one call per pauta, repeated with `--repeticoes N`) and writes `data/agrupamento/etapa3_<timestamp>.csv`. Before using `--etapa3`, make sure the LLM server is up and that no pipeline run is in progress or about to start, since both would compete for the model.
-- Tests cover the pure functions in `processing/agrupamento.py` and, in `ai/llm.py`, the JSON parsing and the options each call sends to Ollama (through a fake client; no test calls an LLM). There is no linter and no formatter configured. `requirements.txt` is empty and gitignored; dependencies live in `pyproject.toml`.
+- `scripts/testar_episodio.py` rebuilds the final pautas of a saved sample (stages 1 to 3) and calls `Summarizer.process` for up to 4 multi-source pautas plus one single-source pauta as a control. It writes each episode and a `relatorio_<timestamp>.json` (rewritten after every episode) to `data/agrupamento/episodios/`, prints memory, swap and temperatures before every LLM call and stops if available memory drops below `--min-memoria` GiB. On the local model it takes about 15 minutes when no episode needs the revision call (about 2 minutes per call). The script's own output goes to stdout only: redirect it to a file under `data/`, not `/tmp`. Same precautions as `--etapa3`.
+- Tests cover the pure functions in `processing/agrupamento.py`, the JSON parsing and the options each call sends in `ai/llm.py`, the input budget and the `process` flow in `ai/summarizer.py`, and the source rule in `ai/qa.py` (all through fake clients; no test calls an LLM). There is no linter and no formatter configured. `requirements.txt` is empty and gitignored; dependencies live in `pyproject.toml`.
 - **Running the pipeline has real side effects and there is no dry-run mode**: it calls the LLM, sends messages and audio to the configured Telegram chat, and marks URLs as seen in `data/digest.db`. Do not run it just to check a change; exercise the individual function instead (e.g. `collect_rss()`, `extract_full_text(url)`, `qa.problemas(result)`).
 - Always enter through `techdigest.main` (the console script or `python -m techdigest`). `python -m techdigest.pipeline` skips `setup_logging()`, so nothing reaches the log file.
 - System requirements outside pip: `ffmpeg`/`ffprobe` on PATH (audio concat and duration), network access for Edge-TTS, and an Ollama server at `OLLAMA_HOST` when `LLM_PROVIDER=ollama`.
@@ -44,6 +46,7 @@ The rules below are the ones in force today. They are referred to by name, not b
 - Every speaking character is declared in the cast, and every declared character speaks.
 - Source text with at least 1200 characters, so headlines alone never become an episode (`pipeline.py`).
 - Article published no more than 7 days ago (`MAX_IDADE_DIAS`).
+- When an episode has two or more outlets as sources, every one of them appears in `fontes_citadas` (accent- and case-insensitive, one name may be contained in the other, compared by whole words). Single-source episodes are not affected, and the pipeline only produces single-source episodes today.
 
 **Requested in the prompt only.** The model is instructed to follow these, but nothing checks them (`ai/prompt.py`):
 - Use only information from the sources; do not invent data or quotes.
@@ -55,7 +58,8 @@ The rules below are the ones in force today. They are referred to by name, not b
 - Helena opens, moderates and closes the episode.
 - Written to be spoken: no markdown, URLs or lists.
 - Cite outlets by name.
-- Divergence rule: when sources conflict, each analyst defends one side, `houve_divergencia` is set to true, and all outlets go into `fontes_citadas`.
+- Divergence rule: divergence means conflict between sources (figures that do not match, opposite readings, criticism or a warning); information that only one source carries is a complement. With a real divergence each analyst defends one side and `houve_divergencia` is true; without one, Helena and one analyst deepen the consensus. Inventing a divergence is treated as seriously as omitting a real one.
+- With several sources, `resumo_didatico` carries the consensus, plus one sentence announcing the debate when there is a real divergence.
 
 **Other editorial principles in the code:**
 - "Boletim duplo": feeds are interleaved so `MAX_NEWS` is not consumed by the first feeds alone, since TechDigest and PulsoBR share each batch (`collectors/rss.py`).
@@ -67,7 +71,7 @@ The rules below are the ones in force today. They are referred to by name, not b
 1. `collectors/rss.collect_rss()` downloads each feed, filters by age (`MAX_IDADE_DIAS`) before applying `MAX_POR_FEED`, and **interleaves** the feeds so `MAX_NEWS` is not consumed by the first feeds only.
 2. `storage/dedup.SeenStore` (SQLite table `seen`, keyed by SHA-256 of the URL) skips items already delivered.
 3. `processing/extractor.extract_full_text()` fetches the article body with trafilatura. Google News links are first resolved to the publisher URL with `googlenewsdecoder`; trafilatura is never run against a google.com URL (it would return the cookie-consent page). Items with less than `MIN_TEXTO_CHARS` of text are discarded.
-4. `ai/summarizer.Summarizer.process()` calls the provider with `PROMPT_SISTEMA`, runs the deterministic checks in `ai/qa.py`, and on failure makes **one** revision call with `PROMPT_REVISOR`. If the revision still fails it raises `QAReprovado`.
+4. `ai/summarizer.Summarizer.process()` assembles the input within a size budget (see below), calls the provider with `PROMPT_SISTEMA`, runs the deterministic checks in `ai/qa.py`, and on failure makes **one** revision call with `PROMPT_REVISOR`. If the revision still fails it raises `QAReprovado`.
 5. `audio/tts.gerar_podcast()` synthesizes one mp3 per dialogue turn, inserts silences with ffmpeg and concatenates into `data/audio/<slug>.mp3`.
 6. `delivery.deliver_item()` sends the text and then the audio to Telegram, and only after that does the pipeline call `seen.mark_seen()`.
 
@@ -77,6 +81,16 @@ Invariants worth preserving:
 - **One bad item never kills the run.** Generation errors are caught per item and logged. Only `MAX_FALHAS_ENTREGA` consecutive delivery failures abort the run, by raising, which makes `main` exit with status 1 for systemd.
 - **Time budget.** No new item starts after `MAX_RUNTIME_MIN`; the systemd unit kills the process at 4 hours.
 - **The Telegram token must not reach the logs.** The token is part of the request URL and `requests` errors quote the URL, so `delivery/telegram._post` re-raises with `from None` and without the URL.
+
+### The input budget
+
+`summarizer.montar_entrada()` builds the message for the episode and keeps it inside a character limit, so the provider never has to truncate it:
+
+- Headers, the editor's notice (`AVISO DO EDITOR-CHEFE`) and the reminder are never cut. The texts share what is left: each keeps its usual ceiling (5000 characters for the principal, 3000 for each of up to 2 related articles); if they do not fit, the principal gets about half and the related ones split the rest, unused share is passed on, and cuts fall at a paragraph end. A related article that would get less than 400 characters is dropped, and the notice only counts and names what was actually included.
+- The limit comes from `Summarizer._limite_da_entrada()`. With Ollama it is `OLLAMA_NUM_CTX` minus the output reserve and a margin, converted to characters, minus the system prompt. The reserve is the smaller of `OLLAMA_NUM_PREDICT` and `LLM_RESERVA_SAIDA`, because `num_predict` may be larger than the window itself. With an OpenAI-compatible provider the limit is `LLM_MAX_PROMPT_CHARS`; if a message still exceeds it, `OpenAIProvider` cuts it and logs an error.
+- Characters per token start at a conservative 3.0 and are then measured from `provider.ultimo_uso` after every call (90% of the lowest value seen).
+- The revision call carries the original episode too, so its source text is rebuilt with what is left of the window and can be shorter than in the generation call.
+- A single-source input that fits is byte-for-byte what it was before the budget existed.
 
 ### The LLM output contract
 
@@ -111,8 +125,8 @@ The presenter name `Helena` is fixed by the prompt and mapped to a fixed voice i
 
 ## Unfinished or dormant code
 
-- **Related articles (divergence).** `Summarizer.process(principal, relacionados)` and both prompts support several sources for one story and the divergence discussion, but `pipeline.py` never passes `relacionados`, so every episode is single-source and the divergence rule is never triggered.
-- **News grouping, phases 1 and 2 of 4.** `processing/agrupamento.py` groups articles that tell the same story (the same event, or a direct follow-up of it within the collection window) into "pautas": stages 1 and 2 score every pair by title and text similarity and form provisional pautas of up to `AGRUP_MAX_ARTIGOS` articles (`AGRUP_LIMIAR`, provisionally 0.18, was calibrated on a single labelled sample); in stage 3 the LLM reads the first `AGRUP_CHARS_ETAPA3` characters of each article, confirms each provisional pauta, and `compor_pautas()` builds the final ones. In a final pauta the `principal` is the article with the longest extracted text and every other confirmed article is a `relacionado`, same outlet or not; the relation (`mesmo_acontecimento` or `desdobramento`) only guides the episode. Only `principal` and `relacionados` go to generation. `duplicatas` (republications, detected by text similarity in stages 1 and 2) are not generated but are delivered with the pauta, so `Pauta.links` includes them; `excedentes` (confirmed articles beyond the limit) are neither generated nor delivered, and are meant to come back as candidates in a later run. All of this, plus `extractor.extrair_em_lote()` and the `AGRUP_*` / `EXTRACAO_*` settings, is used only by `scripts/testar_agrupamento.py`: the pipeline does not group yet, and the call to the LLM for stage 3 lives in that script. Still to come: the context budget in `_montar_entrada`, the prompt and QA changes (phase 3), and the pipeline integration behind `AGRUPAMENTO_ATIVO` with an atomic `mark_seen` per pauta (phase 4).
+- **Related articles (divergence).** `Summarizer.process(principal, relacionados)`, both prompts, the input budget and the QA source rule support several sources for one story, but `pipeline.py` never passes `relacionados`, so every delivered episode is single-source and the divergence rule is never triggered. Multi-source generation is only exercised by `scripts/testar_episodio.py`.
+- **News grouping, phases 1 to 3 of 4.** `processing/agrupamento.py` groups articles that tell the same story (the same event, or a direct follow-up of it within the collection window) into "pautas": stages 1 and 2 score every pair by title and text similarity and form provisional pautas of up to `AGRUP_MAX_ARTIGOS` articles (`AGRUP_LIMIAR`, provisionally 0.18, was calibrated on a single labelled sample); in stage 3 the LLM reads the first `AGRUP_CHARS_ETAPA3` characters of each article, confirms each provisional pauta, and `compor_pautas()` builds the final ones. In a final pauta the `principal` is the article with the longest extracted text and every other confirmed article is a `relacionado`, same outlet or not; the relation (`mesmo_acontecimento` or `desdobramento`) only guides the episode. Only `principal` and `relacionados` go to generation. `duplicatas` (republications, detected by text similarity in stages 1 and 2) are not generated but are delivered with the pauta, so `Pauta.links` includes them; `excedentes` (confirmed articles beyond the limit) are neither generated nor delivered, and are meant to come back as candidates in a later run. All of this, plus `extractor.extrair_em_lote()` and the `AGRUP_*` / `EXTRACAO_*` settings, is used only by `scripts/testar_agrupamento.py`: the pipeline does not group yet, and the call to the LLM for stage 3 lives in that script. Phase 3 added the multi-source generation described above (budget, prompts, QA rule). Still to come: the pipeline integration behind `AGRUPAMENTO_ATIVO`, with `mark_seen` per pauta (phase 4).
 - **E-mail delivery.** `delivery/email_smtp.py` was never finished (it references a nonexistent `settings.recipients`, and `send_digest_email` does nothing). `delivery/__init__.py` raises `NotImplementedError` for any `DELIVERY_CHANNEL` other than `telegram`.
 
 ## Repo notes

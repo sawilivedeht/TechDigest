@@ -1,4 +1,6 @@
 import logging
+import re
+import unicodedata
 
 from techdigest.config import Settings
 
@@ -24,8 +26,36 @@ def palavras_por_personagem(roteiro: list[dict]) -> dict[str, int]:
     return acc
 
 
-def problemas(result: dict) -> list[str]:
-    """Retorna lista de violações; lista vazia = aprovado."""
+def _palavras_do_nome(nome) -> list[str]:
+    sem_acentos = "".join(c for c in unicodedata.normalize("NFKD", str(nome)) if not unicodedata.combining(c))
+    return re.findall(r"[a-z0-9]+", sem_acentos.lower())
+
+
+def mesmo_veiculo(a, b) -> bool:
+    """Comparação tolerante de nomes de veículo: sem acento nem caixa, e um nome pode estar contido no outro.
+
+    A comparação é por palavras inteiras: "Folha" casa com "Folha de S.Paulo", mas "ge" não casa
+    com "Agência Brasil".
+    """
+    menor, maior = sorted((_palavras_do_nome(a), _palavras_do_nome(b)), key=len)
+    return bool(menor) and any(maior[i:i + len(menor)] == menor for i in range(len(maior) - len(menor) + 1))
+
+
+def veiculos_distintos(veiculos) -> list[str]:
+    """Os veículos sem repetição (pela comparação tolerante), na ordem em que aparecem."""
+    distintos: list[str] = []
+    for veiculo in veiculos:
+        if not any(mesmo_veiculo(veiculo, outro) for outro in distintos):
+            distintos.append(veiculo)
+    return distintos
+
+
+def problemas(result: dict, veiculos=None) -> list[str]:
+    """Retorna lista de violações; lista vazia = aprovado.
+
+    `veiculos` são os veículos das fontes do episódio. Com dois ou mais veículos distintos, todos
+    têm de aparecer em fontes_citadas; com um só (ou sem a lista), essa regra não se aplica.
+    """
     probs = []
 
     frases = sum(result["resumo_didatico"].count(p) for p in ".!?")
@@ -45,5 +75,15 @@ def problemas(result: dict) -> list[str]:
     falantes = set(por_pers)
     if falantes != declarados:
         probs.append(f"personagens inconsistentes: {falantes ^ declarados}")
+
+    distintos = veiculos_distintos(veiculos or [])
+    if len(distintos) >= 2:
+        citadas = result["fontes_citadas"] if isinstance(result["fontes_citadas"], list) else []
+        faltando = [v for v in distintos if not any(mesmo_veiculo(v, citada) for citada in citadas)]
+        if faltando:
+            probs.append(
+                f"fontes_citadas sem {', '.join(faltando)} (o episódio tem {len(distintos)} veículos como "
+                f"fonte: cite cada um pelo nome no roteiro e liste todos em fontes_citadas)"
+            )
 
     return probs
