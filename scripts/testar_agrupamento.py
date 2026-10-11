@@ -369,8 +369,8 @@ def _gravar_csv(pares: list[ag.ParPontuado], carimbo: str) -> tuple[Path, int]:
 # ── Etapa 3 (LLM) e comparação com os rótulos ─────────────────────────────────────────────
 
 def _membros(pauta: ag.Pauta) -> tuple[ag.Candidato, ...]:
-    """Os artigos que a pauta juntou: os que vão para a geração e os absorvidos."""
-    return (*pauta.artigos, *pauta.absorvidos)
+    """Os artigos que a pauta juntou: os que vão para a geração e os que passaram do limite."""
+    return (*pauta.artigos, *pauta.excedentes)
 
 
 def _pauta_de_cada(pautas: list[ag.Pauta]) -> dict[ag.Candidato, ag.Pauta]:
@@ -389,7 +389,7 @@ def _consultar_llm(provider, pauta: ag.Pauta, repeticao: int) -> Chamada:
     inicio = time.perf_counter()
     try:
         resposta = provider.chat_json(
-            PROMPT_AGRUPADOR, ag.entrada_agrupador(pauta), chaves=ag.CHAVES_AGRUPADOR,
+            PROMPT_AGRUPADOR, ag.entrada_agrupador(pauta, settings.agrup_chars_etapa3), chaves=ag.CHAVES_AGRUPADOR,
             temperatura=TEMPERATURA_ETAPA3, max_saida=MAX_SAIDA_ETAPA3,
         )
     except Exception as e:  # resposta vazia, cortada, sem as chaves, servidor fora do ar...
@@ -408,7 +408,7 @@ def _resumo_do_veredito(chamada: Chamada, ids: dict[ag.Candidato, int]) -> str:
     grupos = []
     for final in chamada.finais:
         if len(_membros(final)) > 1:
-            outros = [f"{ids[c]} ({final.relacoes.get(c, '?')}{', absorvido' if c in final.absorvidos else ''})"
+            outros = [f"{ids[c]} ({final.relacoes.get(c, '?')}{', excedente' if c in final.excedentes else ''})"
                       for c in _membros(final)[1:]]
             grupos.append(f"{ids[final.principal]} + " + " + ".join(outros))
     sozinhos = [str(ids[final.principal]) for final in chamada.finais if len(_membros(final)) == 1]
@@ -418,7 +418,8 @@ def _resumo_do_veredito(chamada: Chamada, ids: dict[ag.Candidato, int]) -> str:
 def _rodar_etapa3(provisorias: list[ag.Pauta], ids: dict[ag.Candidato, int], repeticoes: int) -> list[Chamada]:
     """Uma chamada ao LLM por pauta provisória de 2 ou mais artigos, em cada repetição."""
     print(f"\n== Etapa 3: o LLM confirma {len(provisorias)} pauta(s) provisória(s), {repeticoes} vez(es) "
-          f"(temperatura {TEMPERATURA_ETAPA3}, saída de até {MAX_SAIDA_ETAPA3} tokens) ==", flush=True)
+          f"(temperatura {TEMPERATURA_ETAPA3}, saída de até {MAX_SAIDA_ETAPA3} tokens, "
+          f"{settings.agrup_chars_etapa3} caracteres de cada texto) ==", flush=True)
     if not provisorias:
         print("  nenhuma pauta provisória com 2 ou mais artigos: nada a confirmar")
         return []
@@ -579,8 +580,8 @@ def _mostrar_pautas_finais(finais: list[ag.Pauta], ids: dict[ag.Candidato, int],
         print(f"  principal:    [id {ids[pauta.principal]}] {_rotulo(pauta.principal)}")
         for c in pauta.relacionados:
             print(f"  relacionado:  [id {ids[c]}] {_rotulo(c)}  ({pauta.relacoes.get(c, '?')})")
-        for c in pauta.absorvidos:
-            print(f"  absorvido:    [id {ids[c]}] {_rotulo(c)}  ({pauta.relacoes.get(c, '?')})")
+        for c in pauta.excedentes:
+            print(f"  excedente:    [id {ids[c]}] {_rotulo(c)}  ({pauta.relacoes.get(c, '?')})")
         for c in pauta.duplicatas:
             print(f"  republicação: {_rotulo(c)}")
         if pauta.motivo:

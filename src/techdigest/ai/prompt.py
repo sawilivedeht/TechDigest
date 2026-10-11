@@ -113,13 +113,15 @@ MESMA HISTÓRIA e devem virar um único episódio.
 Duas notícias são da mesma história em dois casos:
 - "mesmo_acontecimento": relatam o mesmo fato (a mesma decisão, declaração, votação, lançamento, \
 acidente, pesquisa divulgada), ainda que com títulos, ênfases ou detalhes diferentes;
-- "desdobramento": uma relata um passo direto da outra, nos mesmos dias (a cobrança e a resposta a \
-ela, a decisão e a reação a ela, o anúncio e a medida que o cumpre). Use as datas: o desdobramento \
-vem depois do fato que o provocou e se refere a ele.
+- "desdobramento": uma relata a consequência ou a resposta direta a um acontecimento específico \
+relatado na outra, nos mesmos dias (a cobrança e a resposta a ela, a decisão e a reação a ela). Use \
+as datas: o desdobramento vem depois do fato que o provocou e se refere a ele.
 Mesmo tema NÃO é mesma história. Não junte notícias que só têm em comum o assunto, a pessoa, a \
 empresa, o produto, o lugar ou a data, nem textos do mesmo formato sobre objetos diferentes.
-Cada notícia do grupo precisa trazer o seu próprio relato do acontecimento. Um texto que cobre vários \
-assuntos e apenas cita o fato entre eles (agenda, resumo, lista, análise geral) fica de fora.
+Uma nova declaração num debate em andamento (uma PEC em tramitação, uma eleição) é só o mesmo tema, \
+a não ser que responda a um fato específico relatado na outra notícia.
+Texto que resume ou lista várias notícias (resumo semanal, boletim, agenda, "as notícias do dia") \
+NUNCA entra num grupo: vai para "isolados", mesmo que um dos assuntos resumidos seja o de outra notícia.
 
 ## NA DÚVIDA, NÃO JUNTE
 Juntar fatos diferentes faz o episódio misturar acontecimentos; deixar separado só rende dois \

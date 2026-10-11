@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     agrup_limiar: float = 0.18         # score mínimo da pauta provisória (provisório: calibrado numa amostra só); quem confirma é o LLM
     agrup_limiar_duplicata: float = 0.95   # similaridade de texto a partir da qual é republicação, não outra fonte
     agrup_max_artigos: int = 3         # artigos por pauta (principal + 2 relacionados, o limite do _montar_entrada)
+    agrup_chars_etapa3: int = 900      # caracteres iniciais de cada texto que o LLM recebe para confirmar a pauta
 
     # QA editorial (regras 2, 3 e 6). Os defaults são as regras originais; ajuste no .env (QA_*)
     qa_min_por_personagem: int = 240

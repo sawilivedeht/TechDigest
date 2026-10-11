@@ -56,11 +56,9 @@ STOPWORDS = frozenset("""
     dizer diz dizem disse disseram
 """.split())
 
-# Etapa 3: chaves obrigatórias da resposta do LLM (ver PROMPT_AGRUPADOR), relações aceitas e quanto
-# do texto de cada notícia ele recebe.
+# Etapa 3: chaves obrigatórias da resposta do LLM (ver PROMPT_AGRUPADOR) e relações aceitas.
 CHAVES_AGRUPADOR = frozenset({"grupos", "isolados"})
 RELACOES = ("mesmo_acontecimento", "desdobramento")
-CHARS_AGRUPADOR = 600
 _BRASILIA = timezone(timedelta(hours=-3))  # sem horário de verão desde 2019
 
 # Um token é uma sequência de letras e dígitos; o separador entre dígitos fica dentro do número.
@@ -324,8 +322,8 @@ class Pauta:
     relacionados: tuple[Candidato, ...] = ()   # do mais parecido com o principal para o menos
     duplicatas: tuple[Candidato, ...] = ()     # republicações de artigos da pauta: não contam como fonte
     pares: tuple[ParPontuado, ...] = ()        # pares entre os artigos da pauta, do maior score para o menor
-    absorvidos: tuple[Candidato, ...] = ()     # mesma história, fora da geração: repetição do mesmo veículo ou excedente
-    relacoes: Mapping[Candidato, str] = field(default_factory=dict)   # relação de cada artigo com o principal, segundo o LLM
+    excedentes: tuple[Candidato, ...] = ()     # confirmados pelo LLM, mas além do limite de textos: fora da geração
+    relacoes: Mapping[Candidato, str] = field(default_factory=dict)   # relação de cada artigo com o principal: só orienta o episódio
     motivo: str = ""                           # a frase do LLM sobre a decisão
     original_de: Mapping[Candidato, Candidato] = field(default_factory=dict)  # de qual artigo cada duplicata é cópia
 
@@ -343,8 +341,8 @@ class Pauta:
 
     @property
     def links(self) -> tuple[str, ...]:
-        """Links do feed de tudo o que a pauta cobre, absorvidos e duplicatas inclusive (o que marcar como visto)."""
-        return tuple(c.url for c in (*self.artigos, *self.absorvidos, *self.duplicatas))
+        """Links do feed de tudo o que a pauta cobre, excedentes e duplicatas inclusive (o que marcar como visto)."""
+        return tuple(c.url for c in (*self.artigos, *self.excedentes, *self.duplicatas))
 
 
 class SimTitulo(NamedTuple):
@@ -513,12 +511,13 @@ def formar_pautas(
 
 # ── Etapa 3: veredito do LLM ──────────────────────────────────────────────────────────────
 
-def entrada_agrupador(pauta: Pauta, chars: int = CHARS_AGRUPADOR) -> str:
+def entrada_agrupador(pauta: Pauta, chars: int) -> str:
     """Texto que o LLM recebe para confirmar uma pauta provisória (vai com PROMPT_AGRUPADOR).
 
     As notícias são numeradas a partir de 1, na ordem de `pauta.artigos`: é por esses números que
-    a resposta se refere a elas. Vão o veículo, a data, o título, o início do texto e os termos em
-    comum de cada par. Os scores ficam de fora, para o modelo julgar pelo conteúdo.
+    a resposta se refere a elas. Vão o veículo, a data, o título, os primeiros `chars` caracteres
+    do texto e os termos em comum de cada par. Os scores ficam de fora, para o modelo julgar pelo
+    conteúdo.
     """
     numero = {c: n for n, c in enumerate(pauta.artigos, 1)}
     partes = [f"PAUTA PROVISÓRIA COM {len(numero)} NOTÍCIAS"]
@@ -598,35 +597,16 @@ def problemas_do_veredito(resposta, n: int) -> list[str]:
     return _ler_veredito(resposta, n)[2]
 
 
-def _absorver_repetidos(principal: Candidato, relacoes: Mapping[Candidato, str]) -> tuple[list[Candidato], list[Candidato]]:
-    """Separa os membros do grupo em (mantidos, absorvidos).
-
-    Dois artigos do mesmo veículo sobre o mesmo acontecimento não são duas fontes: fica o principal
-    ou, entre dois membros, o de texto mais longo. Desdobramento é outro fato e fica.
-    """
-    mantidos: list[Candidato] = []
-    absorvidos: list[Candidato] = []
-    for membro, relacao in relacoes.items():
-        if relacao != "mesmo_acontecimento":
-            mantidos.append(membro)
-            continue
-        if _chave(membro.veiculo) == _chave(principal.veiculo):
-            absorvidos.append(membro)
-            continue
-        rival = next((m for m in mantidos if relacoes[m] == "mesmo_acontecimento"
-                      and _chave(m.veiculo) == _chave(membro.veiculo)), None)
-        if rival is None:
-            mantidos.append(membro)
-        elif len(membro.texto) > len(rival.texto):
-            mantidos[mantidos.index(rival)] = membro
-            absorvidos.append(rival)
-        else:
-            absorvidos.append(membro)
-    return mantidos, absorvidos
+def _mais_completo(artigos: Sequence[Candidato]) -> Candidato:
+    """O artigo de texto extraído mais longo; no empate, o mais recente (sem data, o primeiro da lista)."""
+    def chave(item: tuple[int, Candidato]) -> tuple[int, float, int]:
+        posicao, c = item
+        return len(c.texto), c.data.timestamp() if c.data else float("-inf"), -posicao
+    return max(enumerate(artigos), key=chave)[1]
 
 
 def _escolher_relacionados(
-    principal: Candidato, mantidos: list[Candidato], vagas: int, score: Mapping[frozenset, float],
+    principal: Candidato, demais: list[Candidato], vagas: int, score: Mapping[frozenset, float],
 ) -> tuple[list[Candidato], list[Candidato]]:
     """Devolve (relacionados, excedentes): até `vagas` relacionados, com prioridade para veículos distintos.
 
@@ -634,11 +614,11 @@ def _escolher_relacionados(
     maior score com o principal.
     """
     escolhidos: list[Candidato] = []
-    restantes = list(mantidos)
+    restantes = list(demais)
     veiculos = {_chave(principal.veiculo)}
     while restantes and len(escolhidos) < vagas:
         melhor = min(restantes, key=lambda c: (
-            _chave(c.veiculo) in veiculos, -score.get(frozenset((principal, c)), 0.0), mantidos.index(c),
+            _chave(c.veiculo) in veiculos, -score.get(frozenset((principal, c)), 0.0), demais.index(c),
         ))
         restantes.remove(melhor)
         escolhidos.append(melhor)
@@ -648,14 +628,14 @@ def _escolher_relacionados(
 
 def _pauta_final(
     provisoria: Pauta, principal: Candidato, relacionados: Sequence[Candidato] = (),
-    absorvidos: Sequence[Candidato] = (), relacoes: Mapping[Candidato, str] | None = None, motivo: str = "",
+    excedentes: Sequence[Candidato] = (), relacoes: Mapping[Candidato, str] | None = None, motivo: str = "",
 ) -> Pauta:
     """Pauta final com as duplicatas e os pares da provisória que dizem respeito aos seus artigos."""
-    do_grupo = {principal, *relacionados, *absorvidos}
+    do_grupo = {principal, *relacionados, *excedentes}
     textos = {principal, *relacionados}
     duplicatas = tuple(d for d in provisoria.duplicatas if provisoria.original_de.get(d, provisoria.principal) in do_grupo)
     return Pauta(
-        principal=principal, relacionados=tuple(relacionados), absorvidos=tuple(absorvidos),
+        principal=principal, relacionados=tuple(relacionados), excedentes=tuple(excedentes),
         duplicatas=duplicatas,
         pares=tuple(p for p in provisoria.pares if p.a in textos and p.b in textos),
         relacoes=dict(relacoes or {}), motivo=motivo,
@@ -670,11 +650,13 @@ def compor_pautas(pauta: Pauta, resposta, max_artigos: int) -> list[Pauta]:
     - Resposta com id desconhecido, repetido ou ausente, ou fora do formato, é descartada com aviso
       no log e cada artigo vira uma pauta: na dúvida, não juntar.
     - Grupo sem membros e artigo em "isolados" viram pautas de um artigo só.
-    - No grupo, o principal é o que o LLM indicou. Artigo do mesmo veículo que relata o mesmo
-      acontecimento de outro é absorvido; desdobramento do mesmo veículo entra como relacionado.
-    - Cabem `max_artigos` textos por pauta, com prioridade para veículos distintos; o que sobra
-      é absorvido.
-    Absorvidos e duplicatas não vão para a geração, mas pertencem à pauta (ver `Pauta.links`).
+    - Do LLM vale quem fica junto. O principal é o artigo de texto extraído mais longo (no empate,
+      o mais recente), e não o que o LLM indicou. Todos os outros entram como relacionados, do mesmo
+      veículo ou não: a única absorção é a das duplicatas de texto, feita nas etapas 1 e 2.
+    - A relação de cada artigo é recalculada para o principal escolhido e só orienta o episódio:
+      "mesmo_acontecimento" quando o LLM pôs os dois no mesmo fato, "desdobramento" nos outros casos.
+    - Cabem `max_artigos` textos por pauta, com prioridade para veículos distintos. O que passar
+      disso fica em `excedentes`: pertence à pauta, mas não vai para a geração.
     As pautas saem com os grupos primeiro, na ordem da resposta, e depois os isolados.
     """
     artigos = pauta.artigos
@@ -694,10 +676,15 @@ def compor_pautas(pauta: Pauta, resposta, max_artigos: int) -> list[Pauta]:
         if not membros:
             isolados.append(principal_id)
             continue
-        principal = artigos[principal_id - 1]
-        relacoes = {artigos[ident - 1]: relacao for ident, relacao in membros}
-        mantidos, absorvidos = _absorver_repetidos(principal, relacoes)
-        relacionados, excedentes = _escolher_relacionados(principal, mantidos, max_artigos - 1, score)
-        finais.append(_pauta_final(pauta, principal, relacionados, absorvidos + excedentes, relacoes, motivo))
+        do_grupo = [artigos[principal_id - 1], *(artigos[ident - 1] for ident, _ in membros)]
+        mesmo_fato = {do_grupo[0], *(artigos[ident - 1] for ident, relacao in membros if relacao == "mesmo_acontecimento")}
+        principal = _mais_completo(do_grupo)
+        demais = [c for c in do_grupo if c is not principal]
+        relacoes = {
+            c: "mesmo_acontecimento" if principal in mesmo_fato and c in mesmo_fato else "desdobramento"
+            for c in demais
+        }
+        relacionados, excedentes = _escolher_relacionados(principal, demais, max_artigos - 1, score)
+        finais.append(_pauta_final(pauta, principal, relacionados, excedentes, relacoes, motivo))
     finais.extend(_pauta_final(pauta, artigos[ident - 1], motivo=motivo) for ident in sorted(isolados))
     return finais
