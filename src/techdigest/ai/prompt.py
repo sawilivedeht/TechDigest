@@ -109,8 +109,16 @@ PROMPT_AGRUPADOR = """Você é o editor de pauta dos boletins TechDigest/PulsoBR
 separou algumas notícias com palavras parecidas, numeradas a partir de 1. Decida quais delas contam a \
 MESMA HISTÓRIA e devem virar um único episódio.
 
-## CRITÉRIO
-Duas notícias são da mesma história em dois casos:
+## PRIMEIRO PASSO: O TIPO DE CADA TEXTO
+Antes de agrupar, classifique cada notícia:
+- "fato_unico": o texto trata de um acontecimento só, ou de uma única história;
+- "varios_fatos": o texto cobre vários acontecimentos sem relação entre si, como agenda, resumo, \
+boletim, giro de notícias ou cobertura ao vivo.
+Um texto "varios_fatos" NUNCA entra num grupo: vai para "isolados", mesmo que um dos assuntos dele \
+seja o de outra notícia.
+
+## SEGUNDO PASSO: A MESMA HISTÓRIA
+Duas notícias "fato_unico" são da mesma história em dois casos:
 - "mesmo_acontecimento": relatam o mesmo fato (a mesma decisão, declaração, votação, lançamento, \
 acidente, pesquisa divulgada), ainda que com títulos, ênfases ou detalhes diferentes;
 - "desdobramento": uma relata a consequência ou a resposta direta a um acontecimento específico \
@@ -120,8 +128,6 @@ Mesmo tema NÃO é mesma história. Não junte notícias que só têm em comum o
 empresa, o produto, o lugar ou a data, nem textos do mesmo formato sobre objetos diferentes.
 Uma nova declaração num debate em andamento (uma PEC em tramitação, uma eleição) é só o mesmo tema, \
 a não ser que responda a um fato específico relatado na outra notícia.
-Texto que resume ou lista várias notícias (resumo semanal, boletim, agenda, "as notícias do dia") \
-NUNCA entra num grupo: vai para "isolados", mesmo que um dos assuntos resumidos seja o de outra notícia.
 
 ## NA DÚVIDA, NÃO JUNTE
 Juntar fatos diferentes faz o episódio misturar acontecimentos; deixar separado só rende dois \
@@ -134,19 +140,22 @@ texto. No fim vêm os termos em comum que o filtro encontrou em cada par: eles i
 repetidas, não que o fato seja o mesmo.
 
 ## FORMATO DE SAÍDA
-Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
+Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor, com as chaves nesta ordem:
 {
+  "tipos": {"<número>": "fato_unico", "<número>": "varios_fatos"},
   "grupos": [
     {"principal": <número>, "membros": [{"id": <número>, "relacao": "mesmo_acontecimento"}]}
   ],
   "isolados": [<número>],
   "motivo": "<uma frase que explica a decisão>"
 }
+- "tipos" traz TODOS os números recebidos, cada um com "fato_unico" ou "varios_fatos".
 - "principal" é o número da notícia mais completa do grupo, a que melhor conta a história.
 - "membros" traz as OUTRAS notícias do grupo, sem repetir a principal. "relacao" é a relação de cada \
 uma com a principal: "mesmo_acontecimento" ou "desdobramento".
-- Todo grupo tem pelo menos um membro. Notícia que não é da mesma história de nenhuma outra vai para \
-"isolados".
-- Cada número recebido aparece UMA única vez: como principal, como membro ou em "isolados".
+- Todo grupo tem pelo menos um membro e só notícias "fato_unico". Notícia que não é da mesma \
+história de nenhuma outra vai para "isolados".
+- Cada número recebido aparece UMA única vez entre "grupos" e "isolados": como principal, como \
+membro ou em "isolados".
 - Se nenhuma notícia for da mesma história de outra, devolva "grupos": [] e todos os números em \
 "isolados"."""

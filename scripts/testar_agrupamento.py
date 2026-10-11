@@ -57,7 +57,7 @@ MAX_SAIDA_ETAPA3 = 512     # tokens: a resposta é um JSON curto
 ROTULOS_JUNTOS = ("mesmo_acontecimento", "desdobramento")
 ROTULOS_SEPARADOS = ("mesmo_tema", "diferente", "sobreposicao_parcial")
 COLUNAS_ETAPA3 = ("repeticao", "par", "id_a", "id_b", "veiculo_a", "titulo_a", "veiculo_b", "titulo_b",
-                  "rotulo", "esperado", "veredito", "relacao", "acerto", "motivo")
+                  "rotulo", "esperado", "veredito", "relacao", "acerto", "tipo_a", "tipo_b", "motivo")
 
 
 class VistosSomenteLeitura(SeenStore):
@@ -80,6 +80,7 @@ class Chamada:
     tokens: dict           # {"prompt": n, "saida": n}; vazio se a chamada caiu antes da resposta
     motivo: str            # a frase do LLM
     erro: str              # falha da chamada ou problemas do veredito; "" = veredito aproveitado
+    tipos: dict            # {candidato: "fato_unico" | "varios_fatos"}, como o LLM classificou
     finais: list[ag.Pauta]
 
 
@@ -377,12 +378,6 @@ def _pauta_de_cada(pautas: list[ag.Pauta]) -> dict[ag.Candidato, ag.Pauta]:
     return {c: p for p in pautas for c in _membros(p)}
 
 
-def _todos_isolados(pauta: ag.Pauta) -> list[ag.Pauta]:
-    """A pauta desfeita, cada artigo sozinho: o destino de uma chamada que falhou (na dúvida, não juntar)."""
-    isolados = {"grupos": [], "isolados": list(range(1, len(pauta.artigos) + 1))}
-    return ag.compor_pautas(pauta, isolados, settings.agrup_max_artigos)
-
-
 def _consultar_llm(provider, pauta: ag.Pauta, repeticao: int) -> Chamada:
     """Pede ao LLM o veredito sobre uma pauta provisória e compõe as pautas finais."""
     provider.ultimo_uso = {}
@@ -395,13 +390,14 @@ def _consultar_llm(provider, pauta: ag.Pauta, repeticao: int) -> Chamada:
     except Exception as e:  # resposta vazia, cortada, sem as chaves, servidor fora do ar...
         segundos = time.perf_counter() - inicio
         erro = f"a chamada falhou ({type(e).__name__}: {str(e)[:160]})"
-        return Chamada(repeticao, pauta, segundos, dict(provider.ultimo_uso), "", erro, _todos_isolados(pauta))
+        return Chamada(repeticao, pauta, segundos, dict(provider.ultimo_uso), "", erro, {}, ag.pautas_isoladas(pauta))
     segundos = time.perf_counter() - inicio
     problemas = ag.problemas_do_veredito(resposta, len(pauta.artigos))
     motivo = resposta.get("motivo") if isinstance(resposta.get("motivo"), str) else ""
     erro = f"veredito descartado ({'; '.join(problemas)})" if problemas else ""
+    tipos = {pauta.artigos[n - 1]: tipo for n, tipo in ag.tipos_do_veredito(resposta, len(pauta.artigos)).items()}
     finais = ag.compor_pautas(pauta, resposta, settings.agrup_max_artigos)
-    return Chamada(repeticao, pauta, segundos, dict(provider.ultimo_uso), motivo, erro, finais)
+    return Chamada(repeticao, pauta, segundos, dict(provider.ultimo_uso), motivo, erro, tipos, finais)
 
 
 def _resumo_do_veredito(chamada: Chamada, ids: dict[ag.Candidato, int]) -> str:
@@ -412,7 +408,9 @@ def _resumo_do_veredito(chamada: Chamada, ids: dict[ag.Candidato, int]) -> str:
                       for c in _membros(final)[1:]]
             grupos.append(f"{ids[final.principal]} + " + " + ".join(outros))
     sozinhos = [str(ids[final.principal]) for final in chamada.finais if len(_membros(final)) == 1]
-    return f"juntos: {'; '.join(grupos) or '-'} · isolados: {', '.join(sozinhos) or '-'}"
+    varios = [str(ids[c]) for c, tipo in chamada.tipos.items() if tipo == "varios_fatos"]
+    return (f"juntos: {'; '.join(grupos) or '-'} · isolados: {', '.join(sozinhos) or '-'} · "
+            f"varios_fatos: {', '.join(varios) or '-'}")
 
 
 def _rodar_etapa3(provisorias: list[ag.Pauta], ids: dict[ag.Candidato, int], repeticoes: int) -> list[Chamada]:
@@ -482,8 +480,8 @@ def _situacao_do_par(a: ag.Candidato, b: ag.Candidato, provisoria_de: dict, fina
 
 def _linhas_da_comparacao(
     rotulos: list[dict], provisorias: list[ag.Pauta], finais_por_repeticao: dict[int, list[ag.Pauta]],
-    motivos: dict[tuple[int, ag.Pauta | None], str], por_id: dict[int, ag.Candidato], ids: dict[ag.Candidato, int],
-    com_llm: bool,
+    motivos: dict[tuple[int, ag.Pauta | None], str], tipos: dict[tuple[int, ag.Candidato], str],
+    por_id: dict[int, ag.Candidato], ids: dict[ag.Candidato, int], com_llm: bool,
 ) -> list[dict]:
     """Uma linha por repetição e por par: os pares rotulados e os que ficaram numa mesma pauta provisória."""
     provisoria_de = _pauta_de_cada(provisorias)
@@ -511,7 +509,8 @@ def _linhas_da_comparacao(
                 "repeticao": repeticao, "par": rotulo.get("par", ""), "id_a": id_a, "id_b": id_b,
                 "veiculo_a": a.veiculo, "titulo_a": a.titulo, "veiculo_b": b.veiculo, "titulo_b": b.titulo,
                 "rotulo": relacao_rotulada, "esperado": esperado, "veredito": veredito, "relacao": relacao,
-                "acerto": acerto, "motivo": motivos.get((repeticao, provisoria_de.get(a)), "") if veredito != "fora da etapa 3" else "",
+                "acerto": acerto, "tipo_a": tipos.get((repeticao, a), ""), "tipo_b": tipos.get((repeticao, b), ""),
+                "motivo": motivos.get((repeticao, provisoria_de.get(a)), "") if veredito != "fora da etapa 3" else "",
             })
     return linhas
 
@@ -602,18 +601,21 @@ def _etapa3_e_rotulos(args: argparse.Namespace, pautas: list[ag.Pauta], ids: dic
     provisorias = [p for p in pautas if p.relacionados]
     sozinhas = [p for p in pautas if not p.relacionados]
     motivos: dict[tuple[int, ag.Pauta | None], str] = {}
+    tipos: dict[tuple[int, ag.Candidato], str] = {}
     if args.etapa3:
         chamadas = _rodar_etapa3(provisorias, ids, args.repeticoes)
         finais_por_repeticao = {r: list(sozinhas) for r in range(1, args.repeticoes + 1)}
         for chamada in chamadas:
             finais_por_repeticao[chamada.repeticao] += chamada.finais
             motivos[chamada.repeticao, chamada.provisoria] = chamada.erro or chamada.motivo
+            tipos.update({(chamada.repeticao, c): tipo for c, tipo in chamada.tipos.items()})
     else:
         finais_por_repeticao = {1: pautas}
 
     rotulos = _ler_rotulos(args.rotulos, args.amostra) if args.rotulos else []
     por_id = {n: c for c, n in ids.items()}
-    linhas = _linhas_da_comparacao(rotulos, provisorias, finais_por_repeticao, motivos, por_id, ids, com_llm=args.etapa3)
+    linhas = _linhas_da_comparacao(rotulos, provisorias, finais_por_repeticao, motivos, tipos, por_id, ids,
+                                   com_llm=args.etapa3)
     if args.rotulos:
         _mostrar_comparacao(linhas, args.rotulos, com_llm=args.etapa3)
     if args.etapa3:

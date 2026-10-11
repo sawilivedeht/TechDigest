@@ -56,8 +56,9 @@ STOPWORDS = frozenset("""
     dizer diz dizem disse disseram
 """.split())
 
-# Etapa 3: chaves obrigatórias da resposta do LLM (ver PROMPT_AGRUPADOR) e relações aceitas.
-CHAVES_AGRUPADOR = frozenset({"grupos", "isolados"})
+# Etapa 3: chaves obrigatórias da resposta do LLM (ver PROMPT_AGRUPADOR), tipos de texto e relações aceitas.
+CHAVES_AGRUPADOR = frozenset({"tipos", "grupos", "isolados"})
+TIPOS = ("fato_unico", "varios_fatos")
 RELACOES = ("mesmo_acontecimento", "desdobramento")
 _BRASILIA = timezone(timedelta(hours=-3))  # sem horário de verão desde 2019
 
@@ -322,7 +323,7 @@ class Pauta:
     relacionados: tuple[Candidato, ...] = ()   # do mais parecido com o principal para o menos
     duplicatas: tuple[Candidato, ...] = ()     # republicações de artigos da pauta: não contam como fonte
     pares: tuple[ParPontuado, ...] = ()        # pares entre os artigos da pauta, do maior score para o menor
-    excedentes: tuple[Candidato, ...] = ()     # confirmados pelo LLM, mas além do limite de textos: fora da geração
+    excedentes: tuple[Candidato, ...] = ()     # confirmados pelo LLM, mas além do limite de textos: ficam para outra execução
     relacoes: Mapping[Candidato, str] = field(default_factory=dict)   # relação de cada artigo com o principal: só orienta o episódio
     motivo: str = ""                           # a frase do LLM sobre a decisão
     original_de: Mapping[Candidato, Candidato] = field(default_factory=dict)  # de qual artigo cada duplicata é cópia
@@ -341,8 +342,11 @@ class Pauta:
 
     @property
     def links(self) -> tuple[str, ...]:
-        """Links do feed de tudo o que a pauta cobre, excedentes e duplicatas inclusive (o que marcar como visto)."""
-        return tuple(c.url for c in (*self.artigos, *self.excedentes, *self.duplicatas))
+        """Links do feed do que a pauta entrega: os artigos gerados e as suas duplicatas (o que marcar como visto).
+
+        Os excedentes ficam de fora: não foram gerados e voltam como candidatos na execução seguinte.
+        """
+        return tuple(c.url for c in (*self.artigos, *self.duplicatas))
 
 
 class SimTitulo(NamedTuple):
@@ -536,8 +540,9 @@ def entrada_agrupador(pauta: Pauta, chars: int) -> str:
         termos = dict.fromkeys((*par.entidades_comuns, *par.termos_comuns))
         partes.append(f"- {a} e {b}: {', '.join(termos) or 'nenhum'}")
     partes.append(
-        '\nLEMBRETE: só o JSON com "grupos", "isolados" e "motivo". Cada número aparece uma única '
-        'vez; na dúvida, "isolados".'
+        '\nLEMBRETE: só o JSON com "tipos", "grupos", "isolados" e "motivo". Classifique o tipo de cada '
+        'notícia antes de agrupar. Cada número aparece uma única vez entre "grupos" e "isolados"; na '
+        'dúvida, "isolados".'
     )
     return "\n".join(partes)
 
@@ -555,14 +560,37 @@ def _numero(valor) -> int | None:
     return None
 
 
-def _ler_veredito(resposta, n: int) -> tuple[list[tuple[int, list[tuple[int, str]]]], list[int], list[str]]:
-    """Lê a resposta do agrupador sobre `n` notícias: (grupos, isolados, problemas).
+def _ler_veredito(
+    resposta, n: int,
+) -> tuple[list[tuple[int, list[tuple[int, str]]]], list[int], dict[int, str], list[str]]:
+    """Lê a resposta do agrupador sobre `n` notícias: (grupos, isolados, tipos, problemas).
 
-    Cada grupo é (principal, [(id, relação), ...]). Com problemas, o resto não deve ser usado.
+    Cada grupo é (principal, [(id, relação), ...]) e `tipos` leva o tipo de cada id. Com problemas,
+    o resto não deve ser usado.
     """
-    if not isinstance(resposta, Mapping) or not all(isinstance(resposta.get(k), list) for k in CHAVES_AGRUPADOR):
-        return [], [], ['a resposta precisa trazer "grupos" e "isolados" como listas']
+    formato_certo = (
+        isinstance(resposta, Mapping) and isinstance(resposta.get("grupos"), list)
+        and isinstance(resposta.get("isolados"), list) and isinstance(resposta.get("tipos"), Mapping)
+    )
+    if not formato_certo:
+        return [], [], {}, ['a resposta precisa trazer "grupos" e "isolados" como listas e "tipos" como objeto']
     problemas: list[str] = []
+
+    tipos: dict[int, str] = {}
+    com_tipo_errado = set()
+    for chave, tipo in resposta["tipos"].items():
+        ident = _numero(chave)
+        if ident is None or not 1 <= ident <= n:
+            problemas.append(f"id desconhecido em tipos: {chave!r}")
+        elif tipo not in TIPOS:
+            problemas.append(f"tipo desconhecido: {tipo!r}")
+            com_tipo_errado.add(ident)
+        else:
+            tipos[ident] = tipo
+    sem_tipo = sorted(set(range(1, n + 1)) - set(tipos) - com_tipo_errado)
+    if sem_tipo:
+        problemas.append(f"tipo ausente: {sem_tipo}")
+
     grupos = []
     citados = []
     for grupo in resposta["grupos"]:
@@ -589,11 +617,16 @@ def _ler_veredito(resposta, n: int) -> tuple[list[tuple[int, list[tuple[int, str
     ausentes = sorted(set(range(1, n + 1)) - set(validos))
     if ausentes:
         problemas.append(f"id ausente: {ausentes}")
-    return grupos, isolados, problemas
+    return grupos, isolados, tipos, problemas
 
 
 def problemas_do_veredito(resposta, n: int) -> list[str]:
     """Violações na resposta do agrupador sobre `n` notícias; lista vazia = resposta utilizável."""
+    return _ler_veredito(resposta, n)[3]
+
+
+def tipos_do_veredito(resposta, n: int) -> dict[int, str]:
+    """O tipo que o LLM deu a cada notícia ({id: "fato_unico" | "varios_fatos"}); só os ids com tipo válido."""
     return _ler_veredito(resposta, n)[2]
 
 
@@ -643,41 +676,52 @@ def _pauta_final(
     )
 
 
+def pautas_isoladas(pauta: Pauta, motivo: str = "") -> list[Pauta]:
+    """A pauta desfeita: cada artigo numa pauta só sua, levando as próprias duplicatas."""
+    return [_pauta_final(pauta, c, motivo=motivo) for c in pauta.artigos]
+
+
 def compor_pautas(pauta: Pauta, resposta, max_artigos: int) -> list[Pauta]:
     """Pautas finais de uma pauta provisória, segundo o veredito do LLM.
 
     Os ids da resposta são as posições em `pauta.artigos`, a partir de 1 (ver `entrada_agrupador`).
-    - Resposta com id desconhecido, repetido ou ausente, ou fora do formato, é descartada com aviso
-      no log e cada artigo vira uma pauta: na dúvida, não juntar.
-    - Grupo sem membros e artigo em "isolados" viram pautas de um artigo só.
-    - Do LLM vale quem fica junto. O principal é o artigo de texto extraído mais longo (no empate,
-      o mais recente), e não o que o LLM indicou. Todos os outros entram como relacionados, do mesmo
-      veículo ou não: a única absorção é a das duplicatas de texto, feita nas etapas 1 e 2.
+    - Resposta fora do formato, com id desconhecido, repetido ou ausente, ou com tipo ausente ou
+      inválido, é descartada com aviso no log e cada artigo vira uma pauta: na dúvida, não juntar.
+    - Texto que o LLM classificou como "varios_fatos" (agenda, resumo, boletim) sai do grupo e
+      vira pauta de um artigo só, mesmo que o LLM o tenha agrupado. Grupo que fica com um texto
+      só se desfaz, assim como grupo sem membros.
+    - Do LLM vale quem fica junto. O principal é o artigo de texto extraído mais longo entre os que
+      sobram (no empate, o mais recente), e não o que o LLM indicou. Todos os outros entram como
+      relacionados, do mesmo veículo ou não: a única absorção é a das duplicatas de texto, feita
+      nas etapas 1 e 2.
     - A relação de cada artigo é recalculada para o principal escolhido e só orienta o episódio:
       "mesmo_acontecimento" quando o LLM pôs os dois no mesmo fato, "desdobramento" nos outros casos.
     - Cabem `max_artigos` textos por pauta, com prioridade para veículos distintos. O que passar
-      disso fica em `excedentes`: pertence à pauta, mas não vai para a geração.
+      disso fica em `excedentes`: não vai para a geração nem é dado como entregue.
     As pautas saem com os grupos primeiro, na ordem da resposta, e depois os isolados.
     """
     artigos = pauta.artigos
-    grupos, isolados, problemas = _ler_veredito(resposta, len(artigos))
+    grupos, isolados, tipos, problemas = _ler_veredito(resposta, len(artigos))
     if problemas:
         logger.warning(
             "Veredito do agrupador descartado (%s): os %d artigos da pauta ficam separados — %r",
             "; ".join(problemas), len(artigos), pauta.principal.titulo[:80],
         )
-        grupos, isolados, motivo = [], list(range(1, len(artigos) + 1)), ""
-    else:
-        motivo = resposta.get("motivo") if isinstance(resposta.get("motivo"), str) else ""
+        return pautas_isoladas(pauta)
+    motivo = resposta.get("motivo") if isinstance(resposta.get("motivo"), str) else ""
 
     score = {frozenset((p.a, p.b)): p.score for p in pauta.pares}
     finais = []
     for principal_id, membros in grupos:
-        if not membros:
-            isolados.append(principal_id)
+        citados = [principal_id, *(ident for ident, _ in membros)]
+        ficam = [ident for ident in citados if tipos[ident] == "fato_unico"]
+        if len(ficam) < 2:
+            isolados.extend(citados)
             continue
-        do_grupo = [artigos[principal_id - 1], *(artigos[ident - 1] for ident, _ in membros)]
-        mesmo_fato = {do_grupo[0], *(artigos[ident - 1] for ident, relacao in membros if relacao == "mesmo_acontecimento")}
+        isolados.extend(ident for ident in citados if ident not in ficam)
+        do_grupo = [artigos[ident - 1] for ident in ficam]
+        no_mesmo_fato = {principal_id, *(ident for ident, relacao in membros if relacao == "mesmo_acontecimento")}
+        mesmo_fato = {artigos[ident - 1] for ident in ficam if ident in no_mesmo_fato}
         principal = _mais_completo(do_grupo)
         demais = [c for c in do_grupo if c is not principal]
         relacoes = {

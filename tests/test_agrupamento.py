@@ -243,9 +243,11 @@ def _provisoria(*artigos: ag.Candidato, scores: dict | None = None, **campos) ->
     return ag.Pauta(principal=artigos[0], relacionados=tuple(artigos[1:]), pares=pares, **campos)
 
 
-def _veredito(grupos: list, isolados: list, motivo: str = "porque sim") -> dict:
-    """grupos: [(principal, [(id, relacao), ...]), ...]"""
+def _veredito(grupos: list, isolados: list, motivo: str = "porque sim", varios_fatos: tuple = ()) -> dict:
+    """grupos: [(principal, [(id, relacao), ...]), ...]; todo id citado é "fato_unico", menos os de `varios_fatos`."""
+    citados = [i for p, membros in grupos for i in (p, *(m for m, _ in membros))] + list(isolados)
     return {
+        "tipos": {str(i): "varios_fatos" if i in varios_fatos else "fato_unico" for i in citados},
         "grupos": [{"principal": p, "membros": [{"id": i, "relacao": r} for i, r in membros]} for p, membros in grupos],
         "isolados": isolados, "motivo": motivo,
     }
@@ -272,7 +274,9 @@ def test_entrada_do_llm_traz_id_veiculo_data_titulo_trecho_e_termos_sem_scores()
 def test_veredito_bem_formado_nao_tem_problemas():
     assert ag.problemas_do_veredito(_veredito([(1, [(2, "mesmo_acontecimento")])], [3]), 3) == []
     assert ag.problemas_do_veredito(_veredito([], [1, 2]), 2) == []
-    assert ag.problemas_do_veredito({"grupos": [], "isolados": [2, 1]}, 2) == []                        # "motivo" é opcional
+    so_o_obrigatorio = {"tipos": {"1": "fato_unico", "2": "varios_fatos"}, "grupos": [], "isolados": [2, 1]}
+    assert ag.problemas_do_veredito(so_o_obrigatorio, 2) == []                                          # "motivo" é opcional
+    assert ag.tipos_do_veredito(so_o_obrigatorio, 2) == {1: "fato_unico", 2: "varios_fatos"}
     # modelos às vezes devolvem o número entre aspas
     assert ag.problemas_do_veredito(_veredito([("1", [("2", "desdobramento")])], ["3"]), 3) == []
 
@@ -286,11 +290,23 @@ def test_veredito_com_id_desconhecido_repetido_ou_ausente_tem_problema():
 
 
 def test_veredito_fora_do_formato_tem_problema():
+    tipos = {"1": "fato_unico", "2": "fato_unico"}
     assert ag.problemas_do_veredito(_veredito([(1, [(2, "mesmo_tema")])], []), 2)                       # relação não aceita
-    assert ag.problemas_do_veredito({"grupos": "nenhum", "isolados": [1, 2]}, 2)
-    assert ag.problemas_do_veredito({"grupos": [{"principal": 1}], "isolados": [2]}, 2)                 # grupo sem "membros"
-    assert ag.problemas_do_veredito({"grupos": [{"principal": 1, "membros": [2]}], "isolados": []}, 2)  # membro sem relação
+    assert ag.problemas_do_veredito({"tipos": tipos, "grupos": "nenhum", "isolados": [1, 2]}, 2)
+    assert ag.problemas_do_veredito({"tipos": tipos, "grupos": [{"principal": 1}], "isolados": [2]}, 2)  # grupo sem "membros"
+    assert ag.problemas_do_veredito({"tipos": tipos, "grupos": [{"principal": 1, "membros": [2]}], "isolados": []}, 2)  # membro sem relação
     assert ag.problemas_do_veredito(["grupos"], 2)
+
+
+def test_tipo_ausente_ou_invalido_tem_problema():
+    juntos = {"grupos": [{"principal": 1, "membros": [{"id": 2, "relacao": "desdobramento"}]}], "isolados": []}
+    assert ag.problemas_do_veredito({**juntos, "tipos": {"1": "fato_unico", "2": "fato_unico"}}, 2) == []
+    assert ag.problemas_do_veredito({**juntos, "tipos": {1: "fato_unico", 2: "fato_unico"}}, 2) == []    # chave numérica também vale
+    assert ag.problemas_do_veredito(juntos, 2)                                                          # sem "tipos"
+    assert ag.problemas_do_veredito({**juntos, "tipos": ["fato_unico", "fato_unico"]}, 2)               # "tipos" não é objeto
+    assert ag.problemas_do_veredito({**juntos, "tipos": {"1": "fato_unico"}}, 2) == ["tipo ausente: [2]"]
+    assert ag.problemas_do_veredito({**juntos, "tipos": {"1": "fato_unico", "2": "agenda"}}, 2) == ["tipo desconhecido: 'agenda'"]
+    assert ag.problemas_do_veredito({**juntos, "tipos": {"1": "fato_unico", "2": "fato_unico", "3": "fato_unico"}}, 2)
 
 
 def test_grupo_confirmado_vira_pauta_e_isolado_vira_pauta_de_um_artigo():
@@ -351,6 +367,25 @@ def test_mesmo_veiculo_entra_como_relacionado_qualquer_que_seja_a_relacao():
     assert set(pauta.links) == {a.url, b.url, c.url}
 
 
+def test_texto_de_varios_fatos_sai_do_grupo_mesmo_que_o_llm_o_agrupe():
+    noticia, outra, agenda = _artigo(1, "G1", chars=500), _artigo(2, "Folha", chars=300), _artigo(3, "Valor", chars=9000)
+    veredito = _veredito([(3, [(1, "mesmo_acontecimento"), (2, "desdobramento")])], [], varios_fatos=(3,))
+
+    pautas = ag.compor_pautas(_provisoria(noticia, outra, agenda), veredito, max_artigos=3)
+    # a agenda era a principal do LLM e o texto mais longo: sai do grupo e os outros dois ficam juntos
+    assert [(p.principal, p.relacionados) for p in pautas] == [(noticia, (outra,)), (agenda, ())]
+    assert pautas[0].relacoes == {outra: "desdobramento"}
+
+
+def test_grupo_que_fica_com_um_texto_so_se_desfaz():
+    noticia, resumo = _artigo(1, "Diolinux", chars=500), _artigo(2, "Diolinux", chars=9000)
+    for veredito in (_veredito([(1, [(2, "mesmo_acontecimento")])], [], varios_fatos=(2,)),
+                     _veredito([(2, [(1, "mesmo_acontecimento")])], [], varios_fatos=(2,)),
+                     _veredito([(1, [(2, "mesmo_acontecimento")])], [], varios_fatos=(1, 2))):
+        pautas = ag.compor_pautas(_provisoria(noticia, resumo), veredito, max_artigos=3)
+        assert [(p.principal, p.relacionados) for p in pautas] == [(noticia, ()), (resumo, ())]
+
+
 def test_limite_de_3_textos_da_prioridade_a_veiculos_distintos():
     a, do_g1, folha, estadao = _artigo(1, "G1", chars=900), _artigo(2, "G1"), _artigo(3, "Folha"), _artigo(4, "Estadão")
     provisoria = _provisoria(a, do_g1, folha, estadao, scores={(1, 2): 0.9, (1, 3): 0.3, (1, 4): 0.6})
@@ -358,8 +393,8 @@ def test_limite_de_3_textos_da_prioridade_a_veiculos_distintos():
 
     [pauta] = ag.compor_pautas(provisoria, veredito, max_artigos=3)
     assert pauta.relacionados == (estadao, folha)          # veículos novos primeiro; entre eles, o maior score
-    assert pauta.excedentes == (do_g1,)                    # confirmado, mas não coube: fica na pauta, fora da geração
-    assert len(pauta.artigos) == 3 and set(pauta.links) == {a.url, do_g1.url, folha.url, estadao.url}
+    assert pauta.excedentes == (do_g1,)                    # confirmado, mas não coube: fica para outra execução
+    assert len(pauta.artigos) == 3 and set(pauta.links) == {a.url, folha.url, estadao.url}   # o excedente não é dado como entregue
 
     [com_quatro] = ag.compor_pautas(provisoria, veredito, max_artigos=4)
     assert com_quatro.relacionados == (estadao, folha, do_g1) and com_quatro.excedentes == ()
