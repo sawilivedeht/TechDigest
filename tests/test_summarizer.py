@@ -8,7 +8,7 @@ import pytest
 
 from techdigest.ai import qa, summarizer
 from techdigest.ai.lados import MAX_BLOCO, Lado, bloco_dos_lados, entrada_dos_lados, lado_unico
-from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_REVISOR, PROMPT_SISTEMA
+from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA
 from techdigest.ai.summarizer import LEMBRETE, QAReprovado, Summarizer, _repartir, montar_entrada
 
 UTC = datetime.timezone.utc
@@ -313,33 +313,110 @@ def test_process_com_ressalva_cobra_a_pergunta_atribuida_da_helena(ollama_8192):
         {"resposta": "Não", "posicao": "A mudança pode enfraquecer a tarifa comum.", "atores": [], "grupos": ["economistas"], "veiculos": ["G1"]},
     ]}
     sem_pergunta = _episodio(["G1"])
-    com_pergunta = json.loads(json.dumps(sem_pergunta))
-    com_pergunta["roteiro_podcast"][0]["fala"] += " Segundo o G1, economistas alertam que a tarifa comum pode enfraquecer. Como você vê isso?"
-    provider = ProviderFalso(sem_pergunta, com_pergunta, lados=um_lado_e_uma_ressalva)
+    roteiro = json.loads(json.dumps(sem_pergunta["roteiro_podcast"]))
+    roteiro[0]["fala"] += " Segundo o G1, economistas alertam que a tarifa comum pode enfraquecer. Como você vê isso?"
+    provider = ProviderFalso(sem_pergunta, {"roteiro_podcast": roteiro}, lados=um_lado_e_uma_ressalva)
     s = Summarizer(provider=provider)
+    principal = _artigo("G1", 2000)
+    principal["text"] += "\n\nNo entanto, economistas alertam para o risco."
 
-    assert s.process(_artigo("G1", 2000)) is com_pergunta                    # um lado e uma ressalva: um analista, sem divergência
+    episodio = s.process(principal)                                          # um lado e uma ressalva: um analista, sem divergência
+    assert episodio == {**sem_pergunta, "roteiro_podcast": roteiro}          # só o roteiro mudou
     analise = s.ultimo_diagnostico["lados"]
     assert len(analise.lados) == 1 and analise.questao == "" and [r.grupos for r in analise.ressalvas] == [("economistas",)]
     [problema] = s.ultimo_diagnostico["problemas"]
     assert problema.startswith("ressalva 1 (economistas; G1): não aparece numa frase da Helena")
+    assert s.ultimo_diagnostico["correcao"] == "roteiro" and s.ultimo_diagnostico["problemas_da_revisao"] == []
     (_, entrada), (_, revisao) = (args for args, _ in provider.chamadas)
     for mensagem in (entrada, revisao):                                      # a ressalva vai no bloco, na geração e na revisão
         assert "\nRessalva 1: A mudança pode enfraquecer a tarifa comum. Grupos: economistas. Veículos: G1.\n" in mensagem
     assert len(provider.analises) == 1
 
 
+# ── Correções direcionadas ────────────────────────────────────────────────────────────────
+
+def test_tipo_de_correcao_vem_dos_campos_dos_problemas():
+    resumo, roteiro, titulo = qa.Problema(qa.RESUMO, "r"), qa.Problema(qa.ROTEIRO, "f"), qa.Problema(qa.TITULO, "t")
+    assert summarizer.tipo_de_correcao([resumo]) == summarizer.tipo_de_correcao([resumo, resumo]) == "resumo"
+    assert summarizer.tipo_de_correcao([roteiro, roteiro]) == "roteiro"
+    assert summarizer.tipo_de_correcao([resumo, roteiro]) == "completa"          # mais de um campo
+    assert summarizer.tipo_de_correcao([titulo]) == "completa"                   # um campo só, mas sem correção própria
+    assert summarizer.tipo_de_correcao([qa.Problema(qa.ESTRUTURA, "e")]) == "completa"
+
+
+def test_problema_so_no_resumo_reescreve_so_o_resumo_com_os_mesmos_trechos(ollama_8192):
+    curto = {**_episodio(["O Globo", "G1", "Agência Brasil"]), "resumo_didatico": "Uma frase. " * (qa.MIN_FRASES_RESUMO - 1)}
+    novo = "Outra frase. " * qa.MIN_FRASES_RESUMO
+    provider = ProviderFalso(curto, {"resumo_didatico": novo})
+    s = Summarizer(provider=provider)
+    principal = _artigo("O Globo", 9000)
+    relacionados = [_artigo("G1", 6000, relacao="desdobramento"), _artigo("Agência Brasil", 6000, relacao="desdobramento")]
+
+    assert s.process(principal, relacionados) == {**curto, "resumo_didatico": novo}      # o resto do episódio fica como estava
+    diagnostico = s.ultimo_diagnostico
+    assert diagnostico["correcao"] == "resumo" and diagnostico["problemas_da_revisao"] == []
+    assert diagnostico["problemas"] == [f"resumo com {qa.MIN_FRASES_RESUMO - 1} frases (alvo {qa.MIN_FRASES_RESUMO}-{qa.MAX_FRASES_RESUMO})"]
+    assert diagnostico["revisao"] is diagnostico["entrada"]                               # os textos são os da geração, no orçamento normal
+
+    ((_, _), _), ((sistema, mensagem), opcoes) = provider.chamadas
+    assert sistema == PROMPT_RESUMO and opcoes == {"chaves": ("resumo_didatico",), "max_saida": summarizer.MAX_SAIDA_RESUMO}
+    assert mensagem == (
+        "ARTIGO-FONTE (use somente fatos deste texto; não invente informações):\n" + diagnostico["entrada"].artigos
+        + "\n\nhouve_divergencia: false"
+        + f"\n\nPROBLEMAS DETECTADOS:\n- {diagnostico['problemas'][0]}"
+        + "\n\nRESUMO ORIGINAL:\n" + curto["resumo_didatico"]
+    )
+    assert all(t["texto"] in mensagem for t in diagnostico["entrada"].textos)
+    assert "roteiro_podcast" not in mensagem and "LADOS DA PAUTA" not in mensagem and "LEMBRETE" not in mensagem
+    assert len(mensagem) < len(provider.chamadas[0][0][1])                                # é uma chamada mais curta que a da geração
+
+
+def test_problema_so_no_roteiro_reescreve_so_o_roteiro_com_os_mesmos_personagens(ollama_8192):
+    curto = _episodio(["G1"])
+    curto["roteiro_podcast"][1]["fala"] = " ".join(["palavra"] * (qa.MIN_POR_PERSONAGEM - 1))
+    roteiro = _episodio(["G1"])["roteiro_podcast"]
+    provider = ProviderFalso(curto, {"roteiro_podcast": roteiro})
+    s = Summarizer(provider=provider)
+
+    assert s.process(_artigo("G1", 3000)) == {**curto, "roteiro_podcast": roteiro}
+    diagnostico = s.ultimo_diagnostico
+    assert diagnostico["correcao"] == "roteiro" and diagnostico["problemas_da_revisao"] == []
+    ((_, _), _), ((sistema, mensagem), opcoes) = provider.chamadas
+    assert sistema == PROMPT_ROTEIRO and opcoes == {"chaves": ("roteiro_podcast",)}
+    assert mensagem.startswith("ARTIGO-FONTE (use somente fatos deste texto; não invente informações):\nARTIGO PRINCIPAL\n")
+    assert "\nLADOS DA PAUTA: 1 lado.\n" in mensagem and summarizer.LEMBRETE_DO_ROTEIRO in mensagem
+    assert summarizer.LEMBRETE not in mensagem and "resumo_didatico" not in mensagem      # só o roteiro, sem o episódio inteiro
+    assert ('\n\nPERSONAGENS (os mesmos, com estes nomes):\n[{"nome": "Helena", "papel": "apresentadora"}, '
+            '{"nome": "Ramos", "papel": "analista"}]\n\nPROBLEMAS DETECTADOS:\n- Ramos com ') in mensagem
+    assert mensagem.endswith("\n\nROTEIRO ORIGINAL:\n" + json.dumps(curto["roteiro_podcast"], ensure_ascii=False))
+    assert diagnostico["revisao"].cortes == [{"fonte": "G1", "texto": len(summarizer._limpar(_artigo("G1", 3000)["text"])),
+                                              "incluido": diagnostico["revisao"].cortes[0]["incluido"]}]
+
+
+def test_correcao_direcionada_que_nao_resolve_levanta_qareprovado(ollama_8192):
+    curto = {**_episodio(["G1"]), "resumo_didatico": "Uma frase. " * (qa.MIN_FRASES_RESUMO - 1)}
+    s = Summarizer(provider=ProviderFalso(curto, {"resumo_didatico": curto["resumo_didatico"]}))
+    with pytest.raises(QAReprovado, match="correção do resumo ainda reprovada pelo QA"):
+        s.process(_artigo("G1", 2000))
+    assert s.ultimo_diagnostico["episodio"] == curto and s.ultimo_diagnostico["primeira_versao"] is curto
+
+    sem_chave = Summarizer(provider=ProviderFalso(curto, {"outra": 1}))
+    with pytest.raises(QAReprovado, match="correção do resumo falhou \\(KeyError"):
+        sem_chave.process(_artigo("G1", 2000))
+
+
 def test_a_lista_de_veiculos_nunca_chega_como_none_ao_qa(ollama_8192, monkeypatch):
     recebidos = []
     monkeypatch.setattr(
-        summarizer, "problemas", lambda result, veiculos, lados, ressalvas: recebidos.append((veiculos, lados, ressalvas)) or [],
+        summarizer, "problemas_com_campo",
+        lambda result, veiculos, lados, ressalvas, textos: recebidos.append((veiculos, lados, ressalvas, len(textos))) or [],
     )
 
     Summarizer(provider=ProviderFalso(_episodio([]))).process(_artigo("G1", 2000))                 # como o pipeline chama: só o principal
     Summarizer(provider=ProviderFalso(_episodio([]))).process(_artigo("G1", 2000), [_artigo("Folha", 2000), _artigo("G1", 2000)])
     assert recebidos == [
-        (["G1"], lado_unico(["G1"]), []),
-        (["G1", "Folha", "G1"], lado_unico(["G1", "Folha"]), []),
+        (["G1"], lado_unico(["G1"]), [], 1),                               # e os textos da pauta, um por artigo
+        (["G1", "Folha", "G1"], lado_unico(["G1", "Folha"]), [], 3),
     ]
     with pytest.raises(TypeError):                                        # e não há mais valor padrão para esquecer a lista
         summarizer._qa(_episodio([]))

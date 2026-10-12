@@ -2,7 +2,9 @@ import itertools
 import logging
 import re
 import unicodedata
+from dataclasses import dataclass
 
+from techdigest.ai.atribuicoes import atribuicoes_a_grupos, grupo_na_pauta, plano
 from techdigest.ai.verbos import FORMAS_DE_POSICAO, INFINITIVOS, verbos_de_posicao
 from techdigest.config import Settings
 
@@ -17,6 +19,16 @@ MIN_TOTAL, MAX_TOTAL = settings.qa_min_total, settings.qa_max_total
 MIN_FRASES_RESUMO, MAX_FRASES_RESUMO = settings.qa_min_frases, settings.qa_max_frases
 
 HELENA = "helena"
+# Os campos do episódio em que um problema pode estar: é o campo que decide o tipo de correção.
+TITULO, RESUMO, PONTOS, ROTEIRO = "titulo_reescrito", "resumo_didatico", "pontos_chave", "roteiro_podcast"
+ELENCO, FONTES, DIVERGENCIA, ESTRUTURA = "personagens", "fontes_citadas", "houve_divergencia", "estrutura"
+
+
+@dataclass(frozen=True)
+class Problema:
+    """Uma violação das regras editoriais e o campo do episódio em que ela está."""
+    campo: str
+    texto: str
 _ARTIGOS = {"o", "a", "os", "as"}
 _PREPOSICOES = {"de", "do", "da", "dos", "das"}
 # Não contam como palavras na comparação de atores: partículas (da, de, do, das, dos, e), artigos e "em".
@@ -46,6 +58,7 @@ _PROPORCOES_NO_TITULO = [re.compile(padrao) for padrao in (
     rf"{_UM_OU_NUMERO}\s+(?:em|a|de|entre)\s+cada\b(?:\s+{_NUMERO})?",                            # "três em cada quatro"
     rf"\b(?:a|em|de)\s+cada\s+{_NUMERO}",                                                         # "a cada 9 horas"
     r"\bmetade\b",
+    r"\b(?:maioria|minoria|maior parte|grande parte)\b",                                           # proporção sem número
     rf"{_UM_OU_NUMERO}\s+tercos?\b",                                                              # "um terço", "dois terços"
     rf"{_UM_OU_NUMERO}\s+(?:quartos?|quintos?|sextos?|decimos?)\s+d[oa]s?\b",                      # "um quarto dos eleitores"
 )]
@@ -100,7 +113,8 @@ def proporcoes_no_titulo(titulo) -> list[str]:
     """Os trechos do título que a regra do título bloqueia; lista vazia = aprovado.
 
     Bloqueia percentuais, "x vezes" (e "dobro", "triplo", "quádruplo") e proporções ("metade", "um
-    terço", "três em cada quatro", "6 de 11", "a cada 9 horas"). Quantidade absoluta passa, em
+    terço", "três em cada quatro", "6 de 11", "a cada 9 horas", "maioria", "minoria", "maior parte",
+    "grande parte"). Quantidade absoluta passa, em
     algarismos ou por extenso, mesmo com "quase", "mais de" e parecidos ("12 mortos", "doze
     mortos", "mais de 100 mortos"), assim como ano, ordinal e nome com algarismo ("Eleições 2026",
     "1º turno", "escala 6x1").
@@ -207,28 +221,21 @@ def lados_de_cada_analista(result: dict, lados) -> dict[str, list[int]]:
     return apresenta
 
 
-def problemas_dos_analistas(result: dict, lados) -> list[str]:
-    """As regras que ligam o elenco aos lados da pauta (ver `ai/lados.py`); lista vazia = aprovado.
-
-    O episódio tem exatamente um analista por lado (Helena não conta), e houve_divergencia é true
-    se e só se há dois lados ou mais. Com dois lados ou mais, é preciso haver uma correspondência
-    um a um entre analistas e lados em que cada analista apresenta o seu lado (ver
-    `lados_de_cada_analista`). A regra confere a forma da atribuição, não se ela é fiel ao texto.
-    """
+def _dos_analistas(result: dict, lados) -> list[Problema]:
     n = len(lados)
     apresenta = lados_de_cada_analista(result, lados)
     analistas = list(apresenta)
     probs = []
     if len(analistas) != n:
-        probs.append(
+        probs.append(Problema(ELENCO, (
             f"{len(analistas)} analista(s) ({', '.join(analistas) or 'nenhum'}) para {n} lado(s): o elenco é Helena e "
             f"exatamente {n} analista(s), um por lado"
-        )
+        )))
     if result["houve_divergencia"] is not (n >= 2):
-        probs.append(
+        probs.append(Problema(DIVERGENCIA, (
             f"houve_divergencia tem de ser {'true' if n >= 2 else 'false'}: a pauta tem {n} lado(s), e o campo é true "
             f"se e só se houver 2 lados ou mais"
-        )
+        )))
     um_a_um = any(all(lado in apresenta[nome] for nome, lado in zip(analistas, ordem)) for ordem in itertools.permutations(range(n)))
     if n >= 2 and len(analistas) == n and not um_a_um:
         feito = "; ".join(
@@ -239,12 +246,23 @@ def problemas_dos_analistas(result: dict, lados) -> list[str]:
             f"Lado {i + 1}: atores {', '.join(exclusivos[i]) or 'nenhum'}; veículos {', '.join(lado.veiculos)}."
             for i, lado in enumerate(lados)
         )
-        probs.append(
+        probs.append(Problema(ROTEIRO, (
             f"os analistas não apresentam os lados um a um ({feito}): cada analista precisa de uma frase que nomeie um "
             f"ator do seu lado, cite um veículo do lado e use um verbo de posição ({INFINITIVOS}), como em "
             f"\"segundo <veículo>, <ator> afirma que...\". {descricao}"
-        )
+        )))
     return probs
+
+
+def problemas_dos_analistas(result: dict, lados) -> list[str]:
+    """As regras que ligam o elenco aos lados da pauta (ver `ai/lados.py`); lista vazia = aprovado.
+
+    O episódio tem exatamente um analista por lado (Helena não conta), e houve_divergencia é true
+    se e só se há dois lados ou mais. Com dois lados ou mais, é preciso haver uma correspondência
+    um a um entre analistas e lados em que cada analista apresenta o seu lado (ver
+    `lados_de_cada_analista`). A regra confere a forma da atribuição, não se ela é fiel ao texto.
+    """
+    return [p.texto for p in _dos_analistas(result, lados)]
 
 
 def _raiz(palavra: str) -> str:
@@ -329,53 +347,90 @@ def problemas_das_ressalvas(result: dict, ressalvas) -> list[str]:
     return probs
 
 
-def problemas(result: dict, veiculos, lados, ressalvas) -> list[str]:
-    """Retorna lista de violações; lista vazia = aprovado.
+def _textos_do_episodio(result: dict) -> list[tuple[str, str, str]]:
+    """Os textos do episódio em que uma atribuição pode estar: (campo, onde, texto)."""
+    pontos = result["pontos_chave"] if isinstance(result.get("pontos_chave"), list) else []
+    return [
+        (TITULO, "no título", str(result["titulo_reescrito"])),
+        (RESUMO, "no resumo", str(result["resumo_didatico"])),
+        *((PONTOS, "nos pontos-chave", str(ponto)) for ponto in pontos),
+        *((ROTEIRO, f"na fala de {turno['personagem']}", str(turno["fala"])) for turno in result["roteiro_podcast"]),
+    ]
+
+
+def problemas_das_atribuicoes(result: dict, textos) -> list[Problema]:
+    """As atribuições a um grupo sem nome que nenhum texto da pauta cita; lista vazia = aprovado.
+
+    `textos` são os textos da pauta (título e texto de cada artigo). Vale a lista fechada de
+    `ai/atribuicoes.py`: "para os analistas, ...", "especialistas afirmam", "segundo as análises".
+    O grupo conta como citado quando os textos trazem uma palavra da mesma família.
+    """
+    da_pauta = plano(textos)
+    probs = []
+    for campo, onde, texto in _textos_do_episodio(result):
+        for grupo, expressao, _ in atribuicoes_a_grupos(texto):
+            if not grupo_na_pauta(grupo, da_pauta):
+                probs.append(Problema(campo, (
+                    f"atribuição a um grupo que os textos da pauta não citam, {onde} (\"{expressao}\"): atribua a "
+                    f"informação a quem as fontes nomeiam ou retire a frase"
+                )))
+    return probs
+
+
+def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos) -> list[Problema]:
+    """As violações do episódio, cada uma com o campo em que está; lista vazia = aprovado.
 
     `veiculos` são os veículos dos textos que entraram no episódio: com dois ou mais distintos,
     todos têm de aparecer em fontes_citadas. `lados` e `ressalvas` são o resultado da análise de
     lados da pauta (`ai/lados.py`): os lados definem o elenco (ver `problemas_dos_analistas`) e
-    cada ressalva pede uma pergunta atribuída da Helena (ver `problemas_das_ressalvas`). Os três
+    cada ressalva pede uma pergunta atribuída da Helena (ver `problemas_das_ressalvas`). `textos`
+    são os textos da pauta, para a regra das atribuições (ver `problemas_das_atribuicoes`). Todos
     são obrigatórios: quem monta as listas é o Summarizer, para toda pauta.
     """
     probs = []
 
     proporcoes = proporcoes_no_titulo(result["titulo_reescrito"])
     if proporcoes:
-        probs.append(
+        probs.append(Problema(TITULO, (
             f"título com percentual ou proporção ({'; '.join(proporcoes)}): o título não leva percentuais, \"x vezes\" "
-            f"(nem \"dobro\" ou \"triplo\") nem proporções (quantidades absolutas podem ficar); reescreva-o a partir do resumo_didatico"
-        )
+            f"(nem \"dobro\" ou \"triplo\") nem proporções, como \"metade\" ou \"maioria\" (quantidades absolutas "
+            f"podem ficar); reescreva-o a partir do resumo_didatico"
+        )))
 
     frases_do_resumo = sum(result["resumo_didatico"].count(p) for p in ".!?")
     if not (MIN_FRASES_RESUMO <= frases_do_resumo <= MAX_FRASES_RESUMO):
-        probs.append(f"resumo com {frases_do_resumo} frases (alvo {MIN_FRASES_RESUMO}-{MAX_FRASES_RESUMO})")
+        probs.append(Problema(RESUMO, f"resumo com {frases_do_resumo} frases (alvo {MIN_FRASES_RESUMO}-{MAX_FRASES_RESUMO})"))
 
     por_pers = palavras_por_personagem(result["roteiro_podcast"])
     for nome, n in por_pers.items():
         if not (MIN_POR_PERSONAGEM <= n <= MAX_POR_PERSONAGEM):
-            probs.append(f"{nome} com {n} palavras (alvo {MIN_POR_PERSONAGEM}-{MAX_POR_PERSONAGEM})")
+            probs.append(Problema(ROTEIRO, f"{nome} com {n} palavras (alvo {MIN_POR_PERSONAGEM}-{MAX_POR_PERSONAGEM})"))
 
     total = sum(por_pers.values())
     if not (MIN_TOTAL <= total <= MAX_TOTAL):
-        probs.append(f"total de {total} palavras (alvo {MIN_TOTAL}-{MAX_TOTAL})")
+        probs.append(Problema(ROTEIRO, f"total de {total} palavras (alvo {MIN_TOTAL}-{MAX_TOTAL})"))
 
     declarados = {p["nome"] for p in result["personagens"]}
     falantes = set(por_pers)
     if falantes != declarados:
-        probs.append(f"personagens inconsistentes: {falantes ^ declarados}")
+        probs.append(Problema(ELENCO, f"personagens inconsistentes: {falantes ^ declarados}"))
 
     distintos = veiculos_distintos(veiculos)
     if len(distintos) >= 2:
         citadas = result["fontes_citadas"] if isinstance(result["fontes_citadas"], list) else []
         faltando = [v for v in distintos if not any(mesmo_veiculo(v, citada) for citada in citadas)]
         if faltando:
-            probs.append(
+            probs.append(Problema(FONTES, (
                 f"fontes_citadas sem {', '.join(faltando)} (o episódio tem {len(distintos)} veículos como "
                 f"fonte: cite cada um pelo nome no roteiro e liste todos em fontes_citadas)"
-            )
+            )))
 
-    probs += problemas_dos_analistas(result, lados)
-    probs += problemas_das_ressalvas(result, ressalvas)
-
+    probs += _dos_analistas(result, lados)
+    probs += [Problema(ROTEIRO, texto) for texto in problemas_das_ressalvas(result, ressalvas)]
+    probs += problemas_das_atribuicoes(result, textos)
     return probs
+
+
+def problemas(result: dict, veiculos, lados, ressalvas, textos) -> list[str]:
+    """Retorna lista de violações; lista vazia = aprovado (ver `problemas_com_campo`)."""
+    return [p.texto for p in problemas_com_campo(result, veiculos, lados, ressalvas, textos)]

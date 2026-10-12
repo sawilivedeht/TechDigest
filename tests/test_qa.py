@@ -18,6 +18,7 @@ TITULOS_REAIS = {
 
 UM_LADO = lado_unico(["G1"])
 SEM_RESSALVAS: list = []
+SEM_TEXTOS: list = []
 # Os lados das pautas dos episódios 3 e 5, como a análise de lados deve devolvê-los.
 LADOS_DA_META = [
     Lado("A campanha de Lula acusa a Meta de reduzir o alcance do presidente.", ("campanha de Lula", "PT"), ("CartaCapital", "Agência Brasil")),
@@ -74,30 +75,32 @@ EPISODIO_5 = _debate(
 
 # ── Fontes ────────────────────────────────────────────────────────────────────────────────
 
-def test_veiculos_lados_e_ressalvas_sao_obrigatorios():
+def test_veiculos_lados_ressalvas_e_textos_sao_obrigatorios():
     with pytest.raises(TypeError):
         qa.problemas(_episodio([]))
     with pytest.raises(TypeError):
         qa.problemas(_episodio([]), ["G1"])
     with pytest.raises(TypeError):
         qa.problemas(_episodio([]), ["G1"], UM_LADO)
+    with pytest.raises(TypeError):
+        qa.problemas(_episodio([]), ["G1"], UM_LADO, SEM_RESSALVAS)
 
 
 def test_episodio_de_um_veiculo_so_nao_cobra_fontes_citadas():
-    assert qa.problemas(_episodio([]), ["G1"], UM_LADO, SEM_RESSALVAS) == []
-    assert qa.problemas(_episodio(["outra coisa"]), ["Agência Brasil", "agencia brasil"], UM_LADO, SEM_RESSALVAS) == []   # dois textos, um veículo
+    assert qa.problemas(_episodio([]), ["G1"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS) == []
+    assert qa.problemas(_episodio(["outra coisa"]), ["Agência Brasil", "agencia brasil"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS) == []   # dois textos, um veículo
 
 
 def test_com_dois_veiculos_todos_tem_de_estar_em_fontes_citadas():
-    assert qa.problemas(_episodio(["G1", "Folha de S.Paulo"]), ["G1", "Folha de S.Paulo"], UM_LADO, SEM_RESSALVAS) == []
-    [problema] = qa.problemas(_episodio(["G1"]), ["G1", "Folha de S.Paulo", "Estadão"], UM_LADO, SEM_RESSALVAS)
+    assert qa.problemas(_episodio(["G1", "Folha de S.Paulo"]), ["G1", "Folha de S.Paulo"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS) == []
+    [problema] = qa.problemas(_episodio(["G1"]), ["G1", "Folha de S.Paulo", "Estadão"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS)
     assert problema.startswith("fontes_citadas sem Folha de S.Paulo, Estadão (o episódio tem 3 veículos como fonte")
-    assert len(qa.problemas(_episodio("G1 e Folha"), ["G1", "Folha"], UM_LADO, SEM_RESSALVAS)) == 1               # lista malformada não vale
+    assert len(qa.problemas(_episodio("G1 e Folha"), ["G1", "Folha"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS)) == 1               # lista malformada não vale
 
 
 def test_comparacao_de_veiculos_e_tolerante_mas_por_palavras_inteiras():
     veiculos = ["O GLOBO", "Agência Brasil", "Folha de S.Paulo"]
-    assert qa.problemas(_episodio(["o globo", "AGENCIA BRASIL (EBC)", "Folha"]), veiculos, UM_LADO, SEM_RESSALVAS) == []
+    assert qa.problemas(_episodio(["o globo", "AGENCIA BRASIL (EBC)", "Folha"]), veiculos, UM_LADO, SEM_RESSALVAS, SEM_TEXTOS) == []
     assert qa.mesmo_veiculo("Valor", "Valor Econômico") and qa.mesmo_veiculo("g1", "G1")
     assert not qa.mesmo_veiculo("ge", "Agência Brasil")           # "ge" está dentro de "Agência", mas não é palavra
     assert not qa.mesmo_veiculo("G1", "") and not qa.mesmo_veiculo("Estadão", "O Estado de S. Paulo")
@@ -119,9 +122,9 @@ def test_titulo_do_episodio_2_reprova_e_os_outros_quatro_passam():
     assert qa.proporcoes_no_titulo(TITULOS_REAIS[2]) == ["quase 60%"]
     assert [qa.proporcoes_no_titulo(TITULOS_REAIS[n]) for n in (1, 3, 4, 5)] == [[], [], [], []]
 
-    [problema] = qa.problemas(_episodio([], titulo_reescrito=TITULOS_REAIS[2]), ["G1"], UM_LADO, SEM_RESSALVAS)
+    [problema] = qa.problemas(_episodio([], titulo_reescrito=TITULOS_REAIS[2]), ["G1"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS)
     assert problema.startswith("título com percentual ou proporção (quase 60%): o título não leva percentuais")
-    assert qa.problemas(_episodio([], titulo_reescrito=TITULOS_REAIS[5]), ["G1"], UM_LADO, SEM_RESSALVAS) == []
+    assert qa.problemas(_episodio([], titulo_reescrito=TITULOS_REAIS[5]), ["G1"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS) == []
 
 
 @pytest.mark.parametrize("titulo, bloqueado", [
@@ -135,6 +138,10 @@ def test_titulo_do_episodio_2_reprova_e_os_outros_quatro_passam():
     ("Preço da memória é o triplo do previsto", ["triplo"]),
     ("Queimadas atingem o quádruplo da área", ["quádruplo"]),
     ("Metade dos eleitores rejeita a proposta", ["Metade"]),                          # proporções
+    ("Violência política atinge maioria das mulheres candidatas no primeiro turno", ["maioria"]),   # o título do ep. 2 de 12/10/2026
+    ("Minoria no Senado barra a PEC", ["Minoria"]),
+    ("A maior parte dos municípios segue em emergência", ["maior parte"]),
+    ("Grande parte do canal já estava fora do ar", ["Grande parte"]),
     ("Mulheres são um terço das candidaturas", ["um terço"]),
     ("Dois terços do Senado apoiam a PEC", ["Dois terços"]),
     ("Um quarto dos deputados falta à sessão", ["Um quarto dos"]),
@@ -174,7 +181,8 @@ def test_titulo_com_ano_ordinal_ou_quantidade_absoluta_passa(titulo):
 # ── Verbos de posição ─────────────────────────────────────────────────────────────────────
 
 def test_verbos_de_posicao_sao_formas_inteiras_e_nao_radicais():
-    assert len(VERBOS_DE_POSICAO) == 14 and len(FORMAS_DE_POSICAO) == 14 * 7
+    assert len(VERBOS_DE_POSICAO) == 16 and len(FORMAS_DE_POSICAO) == 16 * 7
+    assert verbos_de_posicao("Analistas avaliam o risco, e o ministro ponderou.") == ["avaliam", "ponderou"]
     assert verbos_de_posicao("A Meta nega, mas a campanha Acusou e segue cobrando.") == ["nega", "acusou", "cobrando"]
     assert verbos_de_posicao("O partido afirmava, e os aliados defendiam, rebatendo a crítica.") == ["afirmava", "defendiam", "rebatendo"]
     assert verbos_de_posicao("O negócio da empresa e a cobertura do jornal") == []      # "nega" e "cobra" não são radicais
@@ -331,11 +339,11 @@ def test_tres_lados_pedem_uma_correspondencia_um_a_um():
 def test_problemas_inclui_as_regras_dos_analistas():
     episodio = {**_episodio(["Agência Brasil", "CartaCapital"]), **EPISODIO_3,
                 "personagens": [{"nome": "Helena"}, {"nome": "Dr. Marcos"}]}
-    problemas = qa.problemas(episodio, ["Agência Brasil", "CartaCapital"], LADOS_DA_META, SEM_RESSALVAS)
+    problemas = qa.problemas(episodio, ["Agência Brasil", "CartaCapital"], LADOS_DA_META, SEM_RESSALVAS, SEM_TEXTOS)
     assert any(p.startswith("1 analista(s) (Dr. Marcos) para 2 lado(s)") for p in problemas)
     # o mesmo roteiro, numa pauta de um lado só, reprova pelo houve_divergencia
     assert any(p.startswith("houve_divergencia tem de ser false") for p in
-               qa.problemas(episodio, ["Agência Brasil", "CartaCapital"], lado_unico(["Agência Brasil", "CartaCapital"]), SEM_RESSALVAS))
+               qa.problemas(episodio, ["Agência Brasil", "CartaCapital"], lado_unico(["Agência Brasil", "CartaCapital"]), SEM_RESSALVAS, SEM_TEXTOS))
 
 
 # ── Ressalvas ─────────────────────────────────────────────────────────────────────────────
@@ -390,10 +398,11 @@ def test_cada_ressalva_e_cobrada_e_a_regra_entra_em_problemas():
     [problema] = qa.problemas_das_ressalvas(episodio, [RESSALVA, outra])
     assert problema.startswith("ressalva 2 (especialistas em segurança; G1): não aparece numa frase da Helena")
 
-    completo = _episodio(["Gazeta do Povo"])
-    assert any(p.startswith("ressalva 1 (economistas; Gazeta do Povo)") for p in qa.problemas(completo, ["Gazeta do Povo"], UM_LADO, [RESSALVA]))
+    completo, textos = _episodio(["Gazeta do Povo"]), ["No entanto, economistas alertam para o fim da negociação unificada."]
+    [problema] = qa.problemas_com_campo(completo, ["Gazeta do Povo"], UM_LADO, [RESSALVA], textos)
+    assert problema.campo == qa.ROTEIRO and problema.texto.startswith("ressalva 1 (economistas; Gazeta do Povo)")
     completo["roteiro_podcast"][0]["fala"] += " " + PERGUNTA
-    assert qa.problemas(completo, ["Gazeta do Povo"], UM_LADO, [RESSALVA]) == []
+    assert qa.problemas(completo, ["Gazeta do Povo"], UM_LADO, [RESSALVA], textos) == []
 
 
 def test_termo_do_grupo_vale_em_qualquer_numero_e_genero():
@@ -414,4 +423,55 @@ def test_ressalva_sem_grupo_pede_o_veiculo_o_verbo_e_a_pergunta():
     sem = _conversa(("Helena", "A mudança pode enfraquecer a tarifa comum. Como você vê isso?"), ("Ramos", "Há risco."))
     assert qa.problemas_das_ressalvas(com, [sem_grupo]) == []
     assert qa.problemas_das_ressalvas(sem, [sem_grupo])[0].startswith("ressalva 1 (sem grupo; Gazeta do Povo): não aparece")
+
+
+# ── Atribuição a grupo que a pauta não cita ───────────────────────────────────────────────
+
+# Os textos da pauta da Meta não falam em analistas; a frase é do episódio 3 gerado em 12/10/2026.
+TEXTOS_DA_META = ["Meta alega problemas técnicos\nA campanha do PT acionou o TSE. A Meta nega favorecimento.",
+                  "Campanha de Lula acusa Meta\nO Grupo Prerrogativas manifestou preocupação."]
+PARA_OS_ANALISTAS = "Para os analistas, a opacidade dos sistemas impede que se saiba se houve uma falha real."
+
+
+def test_atribuicao_a_grupo_que_nenhum_texto_da_pauta_cita_reprova():
+    episodio = _episodio(["G1"])
+    episodio["roteiro_podcast"][1]["fala"] += ". " + PARA_OS_ANALISTAS
+    [problema] = qa.problemas_com_campo(episodio, ["G1"], UM_LADO, SEM_RESSALVAS, TEXTOS_DA_META)
+    assert problema.campo == qa.ROTEIRO
+    assert problema.texto == ('atribuição a um grupo que os textos da pauta não citam, na fala de Ramos ("Para os analistas"): '
+                              "atribua a informação a quem as fontes nomeiam ou retire a frase")
+    # o grupo aparece em algum texto da pauta: passa
+    assert qa.problemas(episodio, ["G1"], UM_LADO, SEM_RESSALVAS, [*TEXTOS_DA_META, "Analistas avaliam que o caso segue aberto."]) == []
+
+
+def test_atribuicao_a_grupo_e_cobrada_no_titulo_no_resumo_e_nos_pontos_chave():
+    episodio = _episodio(["G1"], titulo_reescrito="Especialistas alertam para risco nas redes",
+                         resumo_didatico="Segundo as análises, a Meta falhou. " + "Uma frase. " * 7,
+                         pontos_chave=["Críticos dizem que a regra é frouxa.", "A Meta nega favorecimento."])
+    campos = [p.campo for p in qa.problemas_das_atribuicoes(episodio, TEXTOS_DA_META)]
+    assert campos == [qa.TITULO, qa.RESUMO, qa.PONTOS]
+
+
+@pytest.mark.parametrize("fala", [
+    "As decisões não são transparentes para as autoridades.",          # "para as autoridades" não abre a oração nem atribui nada
+    "Nossos analistas explicam o caso em seguida.",                    # o elenco do episódio não é uma fonte
+    "Os dois analistas divergem sobre a decisão.",
+    "Há pontos críticos que precisam de atenção.",                     # adjetivo, e o verbo não é de atribuição
+    "Segundo a CartaCapital, o Grupo Prerrogativas alerta para o risco.",
+])
+def test_frase_que_nao_atribui_nada_a_um_grupo_sem_nome_passa(fala):
+    assert qa.problemas_das_atribuicoes(_conversa(("Helena", "Olá."), ("Ramos", fala)) | {"titulo_reescrito": "", "resumo_didatico": ""},
+                                        TEXTOS_DA_META) == []
+
+
+def test_cada_problema_tem_o_campo_em_que_esta():
+    curto = " ".join(["palavra"] * (qa.MIN_POR_PERSONAGEM - 1))
+    episodio = _episodio(["G1"], titulo_reescrito="Metade do Senado apoia", resumo_didatico="Uma frase. " * (qa.MIN_FRASES_RESUMO - 1),
+                         houve_divergencia=True)
+    episodio["roteiro_podcast"][1]["fala"] = curto
+    campos = {p.campo for p in qa.problemas_com_campo(episodio, ["G1", "Folha"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS)}
+    assert campos == {qa.TITULO, qa.RESUMO, qa.ROTEIRO, qa.FONTES, qa.DIVERGENCIA}
+    dois_analistas = _episodio(["G1"])
+    dois_analistas["roteiro_podcast"].append({"personagem": "Bia", "fala": curto + " palavra"})
+    assert {p.campo for p in qa.problemas_com_campo(dois_analistas, ["G1"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS)} == {qa.ELENCO}
 

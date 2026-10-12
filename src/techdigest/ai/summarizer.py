@@ -1,4 +1,4 @@
-"""Summarizer — geração + revisão com QA determinístico."""
+"""Summarizer — geração, QA determinístico e uma correção: do resumo, do roteiro ou do episódio inteiro."""
 import json
 import logging
 import re
@@ -7,8 +7,8 @@ from datetime import timedelta, timezone
 
 from techdigest.ai.lados import MAX_BLOCO, Analise, analisar_lados, bloco_dos_lados
 from techdigest.ai.llm import get_provider
-from techdigest.ai.prompt import PROMPT_REVISOR, PROMPT_SISTEMA
-from techdigest.ai.qa import problemas, veiculos_distintos
+from techdigest.ai.prompt import PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA
+from techdigest.ai.qa import ESTRUTURA, RESUMO, ROTEIRO, Problema, problemas_com_campo, veiculos_distintos
 from techdigest.config import Settings
 
 logger = logging.getLogger("techdigest.ai.summarizer")
@@ -27,6 +27,14 @@ LEMBRETE = (
     "\nLEMBRETE: só o JSON das 8 chaves. Roteiro com 600-1300 palavras "
     "no total, 240-480 por personagem, 14-24 turnos."
 )
+LEMBRETE_DO_ROTEIRO = (
+    "\nLEMBRETE: só o JSON com a chave roteiro_podcast. Roteiro com 600-1300 palavras "
+    "no total, 240-480 por personagem, 14-24 turnos."
+)
+FONTE_ANTES = "ARTIGO-FONTE (use somente fatos deste texto; não invente informações):\n"
+MAX_SAIDA_RESUMO = 700          # tokens: a correção do resumo devolve só o resumo
+# Os tipos de correção depois de um QA reprovado e como cada um aparece nas mensagens.
+CORRECOES = {"resumo": "correção do resumo", "roteiro": "revisão do roteiro", "completa": "revisão"}
 _BRASILIA = timezone(timedelta(hours=-3))  # sem horário de verão desde 2019
 
 
@@ -41,6 +49,7 @@ class Entrada:
     fontes: list[str]                                   # veículo de cada texto incluído, o principal primeiro
     cortes: list[dict] = field(default_factory=list)    # por artigo recebido: fonte, caracteres do texto e quantos entraram
     textos: list[dict] = field(default_factory=list)    # por texto incluído: fonte, titulo e o trecho que entrou
+    artigos: str = ""                                   # os artigos e o aviso, sem o bloco de lados nem o lembrete
 
 
 def _limpar(texto: str) -> str:
@@ -51,12 +60,27 @@ def _limpar(texto: str) -> str:
     return texto.strip()
 
 
-def _qa(result: dict, veiculos: list[str], lados: list, ressalvas: list) -> list[str]:
+def _qa(result: dict, veiculos: list[str], lados: list, ressalvas: list, textos: list[str]) -> list[Problema]:
     """Roda o QA sem deixar um JSON malformado derrubar o fluxo (vira problema, não exceção)."""
     try:
-        return problemas(result, veiculos, lados, ressalvas)
+        return problemas_com_campo(result, veiculos, lados, ressalvas, textos)
     except (KeyError, TypeError, AttributeError) as e:
-        return [f"estrutura inválida para o QA ({type(e).__name__}: {e})"]
+        return [Problema(ESTRUTURA, f"estrutura inválida para o QA ({type(e).__name__}: {e})")]
+
+
+def tipo_de_correcao(problemas: list[Problema]) -> str:
+    """Que correção os problemas pedem: "resumo", "roteiro" ou "completa".
+
+    Com todos os problemas no resumo_didatico, só o resumo é reescrito; com todos no
+    roteiro_podcast, só o roteiro. Problema em outro campo, ou em mais de um, pede a revisão do
+    episódio inteiro.
+    """
+    campos = {p.campo for p in problemas}
+    if campos == {RESUMO}:
+        return "resumo"
+    if campos == {ROTEIRO}:
+        return "roteiro"
+    return "completa"
 
 
 def _cortar_em_paragrafo(texto: str, limite: int) -> str:
@@ -132,7 +156,7 @@ def _aviso(artigos: list[dict]) -> str:
 
 
 def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limite: int | None = None,
-                   lados: list | None = None, questao: str = "", ressalvas=()) -> Entrada:
+                   lados: list | None = None, questao: str = "", ressalvas=(), lembrete: str = LEMBRETE) -> Entrada:
     """Monta a mensagem do episódio dentro de `limite` caracteres (None = sem limite).
 
     Cada artigo é um dict com "source", "title" e "text"; os relacionados podem trazer também
@@ -145,9 +169,10 @@ def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limi
     o aviso conta e nomeia só os que entraram.
 
     `lados`, `questao` e `ressalvas` são o resultado da análise de lados: com eles, o bloco LADOS
-    DA PAUTA entra antes do lembrete. O espaço do bloco (MAX_BLOCO) é reservado sempre, com ou sem `lados`, para que os
-    trechos sejam os mesmos na chamada sem o bloco (a que alimenta a análise de lados) e na
-    chamada com ele (a do episódio).
+    DA PAUTA entra antes do lembrete. O espaço do bloco (MAX_BLOCO) é reservado sempre, com ou
+    sem `lados`, para que os trechos sejam os mesmos na chamada sem o bloco (a que alimenta a
+    análise de lados) e na chamada com ele (a do episódio). `lembrete` fecha a mensagem: o do
+    episódio pede as 8 chaves, e a revisão do roteiro passa o dela.
     """
     recebidos = [principal, *(relacionados or [])]
     artigos = recebidos[:1 + MAX_RELACIONADOS]
@@ -164,7 +189,7 @@ def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limi
         if limite is None:
             concedidos = [len(t) for t in textos]
             break
-        fixos = (sum(map(len, cabecalhos)) + sum(map(len, avisos)) + MAX_BLOCO + len(LEMBRETE)
+        fixos = (sum(map(len, cabecalhos)) + sum(map(len, avisos)) + MAX_BLOCO + len(lembrete)
                  + len(cabecalhos) + len(avisos) + 1)   # com as quebras do join
         concedidos = _repartir([len(t) for t in textos], max(limite - fixos, 0))
         apertados = [i for i in range(1, len(artigos)) if concedidos[i] < min(MIN_TRECHO, len(textos[i]))]
@@ -180,10 +205,12 @@ def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limi
         concedidos[0] = min(MIN_TRECHO, len(textos[0]))
     trechos = [_cortar_em_paragrafo(texto, cabe) for texto, cabe in zip(textos, concedidos)]
 
-    finais = avisos + ([bloco_dos_lados(lados, questao, ressalvas)] if lados else []) + [LEMBRETE]
+    partes = [c + t for c, t in zip(cabecalhos, trechos)] + avisos
+    finais = ([bloco_dos_lados(lados, questao, ressalvas)] if lados else []) + [lembrete]
     incluido = {id(a): len(t) for a, t in zip(artigos, trechos)}
     return Entrada(
-        texto="\n".join([c + t for c, t in zip(cabecalhos, trechos)] + finais),
+        texto="\n".join(partes + finais),
+        artigos="\n".join(partes),
         fontes=[a["source"] for a in artigos],
         cortes=[{"fonte": a["source"], "texto": len(_limpar(a["text"])), "incluido": incluido.get(id(a), 0)} for a in recebidos],
         textos=[{"fonte": a["source"], "titulo": _limpar(a["title"]), "texto": t} for a, t in zip(artigos, trechos)],
@@ -243,46 +270,92 @@ class Summarizer:
         analise = analisar_lados(self._chamar, previa.textos)
         return montar_entrada(principal, relacionados, limite, analise.lados, analise.questao, analise.ressalvas), analise
 
-    def process(self, principal: dict, relacionados: list[dict] | None = None) -> dict:
-        """Devolve um episódio que passou no QA; do contrário levanta QAReprovado (item é pulado)."""
-        entrada, analise = self.preparar(principal, relacionados)
-        self.ultimo_diagnostico = {
-            "entrada": entrada, "lados": analise, "problemas": None, "revisao": None, "problemas_da_revisao": None,
-        }
-        logger.debug("Início da entrada enviada ao LLM: %r", entrada.texto[:600])
+    def _corrigir_resumo(self, entrada: Entrada, analise: Analise, result: dict, probs: list[str]) -> tuple[dict, Entrada]:
+        """Reescreve só o resumo, com os mesmos trechos que foram para a geração e sem o episódio inteiro."""
+        usuario = (
+            FONTE_ANTES + entrada.artigos
+            + "\n\nhouve_divergencia: " + ("true" if len(analise.lados) >= 2 else "false")
+            + "\n\nPROBLEMAS DETECTADOS:\n- " + "\n- ".join(probs)
+            + "\n\nRESUMO ORIGINAL:\n" + str(result["resumo_didatico"])
+        )
+        resposta = self._chamar(PROMPT_RESUMO, usuario, chaves=(RESUMO,), max_saida=MAX_SAIDA_RESUMO)
+        return {**result, RESUMO: resposta[RESUMO]}, entrada
 
-        result = self._chamar(PROMPT_SISTEMA, entrada.texto)
+    def _revisar_roteiro(self, principal: dict, relacionados: list[dict] | None, analise: Analise, result: dict,
+                         probs: list[str]) -> tuple[dict, Entrada]:
+        """Reescreve só o roteiro: a chamada leva os textos, os lados, os personagens e o roteiro original."""
+        depois = (
+            "\n\nPERSONAGENS (os mesmos, com estes nomes):\n" + json.dumps(result["personagens"], ensure_ascii=False)
+            + "\n\nPROBLEMAS DETECTADOS:\n- " + "\n- ".join(probs)
+            + "\n\nROTEIRO ORIGINAL:\n" + json.dumps(result[ROTEIRO], ensure_ascii=False)
+        )
+        fonte = montar_entrada(
+            principal, relacionados, self._limite_da_entrada(PROMPT_ROTEIRO, extra=len(FONTE_ANTES) + len(depois)),
+            analise.lados, analise.questao, analise.ressalvas, lembrete=LEMBRETE_DO_ROTEIRO,
+        )
+        resposta = self._chamar(PROMPT_ROTEIRO, FONTE_ANTES + fonte.texto + depois, chaves=(ROTEIRO,))
+        return {**result, ROTEIRO: resposta[ROTEIRO]}, fonte
 
-        probs = _qa(result, entrada.fontes, analise.lados, analise.ressalvas)
-        self.ultimo_diagnostico["problemas"] = probs
-        if not probs:
-            return result
+    def _revisar(self, principal: dict, relacionados: list[dict] | None, analise: Analise, result: dict,
+                 probs: list[str]) -> tuple[dict, Entrada]:
+        """A revisão completa: leva o artigo-fonte e o episódio original, e devolve o episódio inteiro.
 
-        logger.warning("QA reprovou a 1ª versão: %s — acionando revisão", probs)
-        # A revisão recebe o artigo-fonte: sem ele, "expandir" o roteiro vira invenção de fatos.
-        # Ela leva também o episódio original, então a fonte é remontada no espaço que sobra.
-        antes = "ARTIGO-FONTE (use somente fatos deste texto; não invente informações):\n"
+        Sem o artigo-fonte, "expandir" o roteiro vira invenção de fatos. Como o episódio original
+        vai junto, a fonte é remontada no espaço que sobra.
+        """
         depois = (
             "\n\nPROBLEMAS DETECTADOS:\n- " + "\n- ".join(probs)
             + "\n\nEPISÓDIO ORIGINAL:\n" + json.dumps(result, ensure_ascii=False)
         )
         fonte = montar_entrada(
-            principal, relacionados, self._limite_da_entrada(PROMPT_REVISOR, extra=len(antes) + len(depois)),
+            principal, relacionados, self._limite_da_entrada(PROMPT_REVISOR, extra=len(FONTE_ANTES) + len(depois)),
             analise.lados, analise.questao, analise.ressalvas,
         )
-        self.ultimo_diagnostico["revisao"] = fonte
+        return self._chamar(PROMPT_REVISOR, FONTE_ANTES + fonte.texto + depois), fonte
+
+    def process(self, principal: dict, relacionados: list[dict] | None = None) -> dict:
+        """Devolve um episódio que passou no QA; do contrário levanta QAReprovado (item é pulado).
+
+        O episódio reprovado ganha uma correção só, do tipo que os problemas pedem (ver
+        `tipo_de_correcao`), e passa pelo QA de novo.
+        """
+        entrada, analise = self.preparar(principal, relacionados)
+        pauta = [f"{artigo['title']}\n{artigo['text']}" for artigo in (principal, *(relacionados or []))]
+        diagnostico = self.ultimo_diagnostico = {
+            "entrada": entrada, "lados": analise, "episodio": None, "primeira_versao": None,
+            "problemas": None, "correcao": None, "revisao": None, "problemas_da_revisao": None,
+        }
+        logger.debug("Início da entrada enviada ao LLM: %r", entrada.texto[:600])
+
+        def qa(episodio: dict) -> list[Problema]:
+            return _qa(episodio, entrada.fontes, analise.lados, analise.ressalvas, pauta)
+
+        result = self._chamar(PROMPT_SISTEMA, entrada.texto)
+        diagnostico["primeira_versao"] = diagnostico["episodio"] = result
+        problemas = qa(result)
+        probs = diagnostico["problemas"] = [p.texto for p in problemas]
+        if not probs:
+            return result
+
+        tipo = diagnostico["correcao"] = tipo_de_correcao(problemas)
+        logger.warning("QA reprovou a 1ª versão: %s — acionando %s", probs, CORRECOES[tipo])
         try:
-            corrigido = self._chamar(PROMPT_REVISOR, antes + fonte.texto + depois)
+            if tipo == "resumo":
+                corrigido, fonte = self._corrigir_resumo(entrada, analise, result, probs)
+            elif tipo == "roteiro":
+                corrigido, fonte = self._revisar_roteiro(principal, relacionados, analise, result, probs)
+            else:
+                corrigido, fonte = self._revisar(principal, relacionados, analise, result, probs)
         except Exception as e:
             raise QAReprovado(
-                f"revisão falhou ({type(e).__name__}: {str(e)[:200]}); "
+                f"{CORRECOES[tipo]} falhou ({type(e).__name__}: {str(e)[:200]}); "
                 f"1ª versão reprovada: {probs}"
             ) from e
+        diagnostico["revisao"], diagnostico["episodio"] = fonte, corrigido
 
-        probs2 = _qa(corrigido, entrada.fontes, analise.lados, analise.ressalvas)
-        self.ultimo_diagnostico["problemas_da_revisao"] = probs2
+        probs2 = diagnostico["problemas_da_revisao"] = [p.texto for p in qa(corrigido)]
         if not probs2:
-            logger.info("Revisão aprovada pelo QA.")
+            logger.info("%s aprovada pelo QA.", CORRECOES[tipo].capitalize())
             return corrigido
 
-        raise QAReprovado(f"revisão ainda reprovada pelo QA: {probs2}")
+        raise QAReprovado(f"{CORRECOES[tipo]} ainda reprovada pelo QA: {probs2}")

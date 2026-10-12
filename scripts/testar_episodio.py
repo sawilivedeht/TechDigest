@@ -21,6 +21,7 @@ relatorio_<data-hora>.json (ou lados_<data-hora>.json) com tudo o que foi medido
 import argparse
 import datetime
 import json
+import os
 import re
 import sys
 import time
@@ -29,8 +30,8 @@ from pathlib import Path
 import testar_agrupamento as diag
 from techdigest.ai import qa
 from techdigest.ai.llm import _amostra_sistema, get_provider
-from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_REVISOR, PROMPT_SISTEMA
-from techdigest.ai.summarizer import TETO_PRINCIPAL, TETO_RELACIONADO, QAReprovado, Summarizer
+from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA
+from techdigest.ai.summarizer import CORRECOES, TETO_PRINCIPAL, TETO_RELACIONADO, QAReprovado, Summarizer
 from techdigest.config import Settings
 from techdigest.processing import agrupamento as ag
 
@@ -65,6 +66,63 @@ def _argumentos() -> argparse.Namespace:
     if not args.amostra and not args.repetir:
         p.error("informe --amostra ou --repetir")
     return args
+
+
+def _memoria_do_processo(pid) -> dict[str, float] | None:
+    """Memória de um processo, em GiB: residente (rss), a parte anônima dela e o que está na swap."""
+    try:
+        with open(f"/proc/{pid}/status") as arquivo:
+            campos = {linha.split(":")[0]: linha.split()[1] for linha in arquivo if linha.startswith(("VmRSS", "RssAnon", "VmSwap"))}
+    except (OSError, IndexError):
+        return None   # o processo acabou, ou é uma thread do kernel
+    if "VmRSS" not in campos:
+        return None
+    return {"rss": int(campos["VmRSS"]) / 1048576, "anonima": int(campos.get("RssAnon", 0)) / 1048576,
+            "swap": int(campos.get("VmSwap", 0)) / 1048576}
+
+
+def _memoria_por_processo() -> dict[str, dict[str, float]]:
+    """Memória do processo deste script e dos processos do Ollama (servidor e executor do modelo), somados.
+
+    A parte do modelo que fica na GPU não aparece aqui. Traz também, quando existe, a RAM ocupada
+    pela swap comprimida (zram): com ela, o que vai para a swap continua ocupando memória.
+    """
+    medidas = {"script": _memoria_do_processo(os.getpid()) or {}, "ollama": {"rss": 0.0, "anonima": 0.0, "swap": 0.0, "processos": 0}}
+    for entrada in os.listdir("/proc"):
+        if not entrada.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entrada}/comm") as arquivo:
+                nome = arquivo.read().strip()
+        except OSError:
+            continue
+        if nome.startswith("ollama") and (memoria := _memoria_do_processo(entrada)):
+            for chave, valor in memoria.items():
+                medidas["ollama"][chave] += valor
+            medidas["ollama"]["processos"] += 1
+    try:
+        with open("/sys/block/zram0/mm_stat") as arquivo:
+            medidas["zram"] = {"ram": int(arquivo.read().split()[2]) / 1073741824}   # mem_used_total, em bytes
+    except (OSError, IndexError, ValueError):
+        pass
+    return {nome: {chave: round(valor, 2) for chave, valor in medida.items()} for nome, medida in medidas.items()}
+
+
+def _resumo_da_memoria(medidas: dict) -> str:
+    script, ollama = medidas.get("script", {}), medidas.get("ollama", {})
+    partes = [
+        f"script {script.get('rss', 0):.2f} GB (swap {script.get('swap', 0):.2f})",
+        f"ollama {ollama.get('rss', 0):.2f} GB (anônima {ollama.get('anonima', 0):.2f}, swap {ollama.get('swap', 0):.2f}, "
+        f"{ollama.get('processos', 0):.0f} processo(s))",
+    ]
+    if "zram" in medidas:
+        partes.append(f"zram ocupa {medidas['zram']['ram']:.2f} GB de RAM")
+    return " · ".join(partes)
+
+
+# Como cada chamada aparece no relatório, pelo prompt de sistema.
+ROTULOS = {PROMPT_SISTEMA: "geração", PROMPT_LADOS: "lados", PROMPT_REVISOR: CORRECOES["completa"],
+           PROMPT_RESUMO: CORRECOES["resumo"], PROMPT_ROTEIRO: CORRECOES["roteiro"]}
 
 
 def _estado_da_maquina() -> tuple[float, str]:
@@ -105,10 +163,12 @@ class ProviderMonitorado:
     def chat_json(self, system: str, user: str, **opcoes) -> dict:
         disponivel, resumo = _estado_da_maquina()
         chamada = {
-            "prompt": {PROMPT_SISTEMA: "geração", PROMPT_REVISOR: "revisão", PROMPT_LADOS: "lados"}.get(system, "outro"),
+            "prompt": ROTULOS.get(system, "outro"),
             "chars_sistema": len(system), "chars_entrada": len(user), "maquina_antes": resumo,
+            "memoria_disponivel": round(disponivel, 2), "memoria_por_processo": (memoria := _memoria_por_processo()),
         }
         print(f"      {chamada['prompt']}: {len(system) + len(user)} caracteres · antes: {resumo}", flush=True)
+        print(f"        memória por processo: {_resumo_da_memoria(memoria)}", flush=True)
         if disponivel < self.min_memoria:
             raise RodadaInterrompida(
                 f"\nPAREI: memória disponível em {disponivel:.1f} GiB, abaixo do mínimo de {self.min_memoria:.1f} GiB."
@@ -294,7 +354,7 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
         situacao = "aprovado"
     except QAReprovado as e:
         situacao = f"reprovado pelo QA ({e})"
-        episodio = next((ch["resposta"] for ch in reversed(monitor.chamadas[primeira:]) if "resposta" in ch), None)
+        episodio = summarizer.ultimo_diagnostico.get("episodio")   # a última versão inteira, com a correção já aplicada
     except Exception as e:
         situacao = f"falhou ({type(e).__name__}: {str(e)[:300]})"
         episodio = None
@@ -306,8 +366,14 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
         "situacao": situacao, "segundos": round(segundos, 1), "chars_por_token_no_inicio": round(proporcao, 2),
         "chamadas": chamadas,
         "problemas_antes_da_revisao": diagnostico.get("problemas"),
+        "tipo_de_correcao": diagnostico.get("correcao"),
         "problemas_depois_da_revisao": diagnostico.get("problemas_da_revisao"),
     })
+    primeira_versao = diagnostico.get("primeira_versao")
+    if isinstance(primeira_versao, dict) and diagnostico.get("correcao"):
+        relatorio["primeira_versao"] = {
+            "titulo": primeira_versao.get("titulo_reescrito"), "resumo_didatico": primeira_versao.get("resumo_didatico"),
+        }
     if diagnostico.get("lados") is not None:
         relatorio["lados"] = _lados(diagnostico["lados"], chamadas)
     for nome, entrada in (("cortes_na_geracao", diagnostico.get("entrada")), ("cortes_na_revisao", diagnostico.get("revisao"))):
@@ -323,13 +389,15 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
         alerta = "  ALERTA: perto do limite de num_ctx" if total >= ALERTA_DA_JANELA * settings.ollama_num_ctx else ""
         print(f"  {ch['prompt']}: {ch['tokens_entrada']} + {ch['tokens_saida']} tokens = {total} de {settings.ollama_num_ctx} "
               f"({total / settings.ollama_num_ctx:.0%}) · {ch['segundos']:.0f} s{alerta}")
-    for nome, rotulo in (("cortes_na_geracao", "geração"), ("cortes_na_revisao", "revisão")):
+    for nome, rotulo in (("cortes_na_geracao", "geração"), ("cortes_na_revisao", CORRECOES.get(relatorio["tipo_de_correcao"], "revisão"))):
         for corte in relatorio.get(nome, []):
             print(f"  texto na {rotulo}: {corte['fonte']} · {corte['incluido']} de {corte['texto']} caracteres "
                   f"(teto {corte['teto']}; o orçamento tirou {corte['cortado_pelo_orcamento']})")
-    print(f"  QA antes da revisão: {relatorio['problemas_antes_da_revisao'] or 'sem problemas'}")
+    print(f"  QA antes da correção: {relatorio['problemas_antes_da_revisao'] or 'sem problemas'}")
+    if relatorio["tipo_de_correcao"]:
+        print(f"  correção usada: {CORRECOES[relatorio['tipo_de_correcao']]}")
     if relatorio["problemas_depois_da_revisao"] is not None:
-        print(f"  QA depois da revisão: {relatorio['problemas_depois_da_revisao'] or 'sem problemas'}")
+        print(f"  QA depois da correção: {relatorio['problemas_depois_da_revisao'] or 'sem problemas'}")
     print(f"  situação: {situacao} · {segundos:.0f} s no total")
 
     if episodio is not None:

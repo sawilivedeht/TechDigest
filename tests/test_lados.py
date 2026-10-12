@@ -307,9 +307,10 @@ def test_bloco_diz_a_questao_os_lados_o_elenco_exato_e_o_alvo_de_palavras():
         "QUESTÃO: A Meta favoreceu um candidato?\n"
         "Lado 1 (resposta: Sim): A campanha acusa a Meta. Atores: campanha de Lula, PT. Veículos: Agência Brasil, CartaCapital.\n"
         "Lado 2 (resposta: Não): A Meta nega. Atores: Meta. Veículos: Agência Brasil.\n"
-        'ELENCO: Helena e exatamente 2 analistas, um por lado; "houve_divergencia": true. Helena apresenta a questão, e '
-        "cada analista responde por um lado, numa frase que nomeia um ator do lado, cita um veículo do lado e usa um "
-        'verbo de posição, como em "segundo <veículo>, <ator> afirma que...". Alvo: 320 a 400 palavras por personagem.'
+        'ELENCO: Helena e exatamente 2 analistas, um por lado; "houve_divergencia": true. Helena apresenta a questão '
+        "uma vez, na abertura, com palavras naturais, e não atribui as posições aos atores; cada analista sustenta a "
+        "posição do seu lado, numa frase que nomeia um ator do lado, cita um veículo do lado e usa um verbo de posição, "
+        'como em "segundo <veículo>, <ator> afirma que...". Alvo: 320 a 400 palavras por personagem.'
     )
     um = analise_da_resposta(UM_LADO, VEICULOS)
     assert bloco_dos_lados(um.lados, um.questao) == (
@@ -332,8 +333,9 @@ def test_bloco_traz_as_ressalvas_logo_depois_dos_lados():
         "Ressalva 2: Há risco fiscal. Veículos: Gazeta do Povo.\n"
         "ELENCO: Helena e exatamente 1 analista, que explica a posição e responde às ressalvas com o que as fontes dizem, "
         'sem tomar partido; "houve_divergencia": false. Ressalva não é lado nem ganha analista: Helena traz cada uma como '
-        "pergunta atribuída, sem avaliá-la, numa frase com o veículo, o grupo e um verbo de posição, como em "
-        '"Segundo <veículo>, <grupo> alertam que... Como você vê isso?". Alvo: 360 a 420 palavras por personagem.'
+        "pergunta atribuída, sem avaliá-la nem reformulá-la, numa frase com o veículo, o grupo e um verbo de posição, "
+        'seguida de uma pergunta aberta, como em "Segundo <veículo>, <grupo> alertam que... Como você vê isso?". '
+        "Alvo: 360 a 420 palavras por personagem."
     )
     dois = analisar_lados(Chamada(DOIS_LADOS), TEXTOS)
     com_ressalva = bloco_dos_lados(dois.lados, dois.questao, ressalvas[:1])

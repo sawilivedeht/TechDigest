@@ -322,8 +322,9 @@ def bloco_dos_lados(lados, questao: str = "", ressalvas=()) -> str:
     if n > 1:
         elenco = (
             f'ELENCO: Helena e exatamente {n} analistas, um por lado; "houve_divergencia": true. Helena apresenta a '
-            f"questão, e cada analista responde por um lado, numa frase que nomeia um ator do lado, cita um veículo do "
-            f'lado e usa um verbo de posição, como em "segundo <veículo>, <ator> afirma que...".'
+            f"questão uma vez, na abertura, com palavras naturais, e não atribui as posições aos atores; cada analista "
+            f"sustenta a posição do seu lado, numa frase que nomeia um ator do lado, cita um veículo do lado e usa um "
+            f'verbo de posição, como em "segundo <veículo>, <ator> afirma que...".'
         )
     elif ressalvas:
         elenco = (
@@ -334,9 +335,9 @@ def bloco_dos_lados(lados, questao: str = "", ressalvas=()) -> str:
         elenco = 'ELENCO: Helena e exatamente 1 analista, que explica o tema com ela, sem advogar; "houve_divergencia": false.'
     if ressalvas:
         elenco += (
-            " Ressalva não é lado nem ganha analista: Helena traz cada uma como pergunta atribuída, sem avaliá-la, numa "
-            'frase com o veículo, o grupo e um verbo de posição, como em "Segundo <veículo>, <grupo> alertam que... '
-            'Como você vê isso?".'
+            " Ressalva não é lado nem ganha analista: Helena traz cada uma como pergunta atribuída, sem avaliá-la nem "
+            "reformulá-la, numa frase com o veículo, o grupo e um verbo de posição, seguida de uma pergunta aberta, como "
+            'em "Segundo <veículo>, <grupo> alertam que... Como você vê isso?".'
         )
     elenco += f" Alvo: {ALVO_POR_PERSONAGEM[n]} palavras por personagem."
     cabecalho = f"\nLADOS DA PAUTA: {n} lado{'s' if n > 1 else ''}."

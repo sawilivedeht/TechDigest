@@ -27,6 +27,8 @@ from decimal import Decimal
 from pathlib import Path
 
 from techdigest.ai import qa
+from techdigest.ai.atribuicoes import GRUPOS as _GRUPOS
+from techdigest.ai.atribuicoes import atribuicoes_a_grupos as atribuicoes_vagas
 from techdigest.ai.summarizer import _limpar
 from techdigest.config import Settings
 
@@ -85,23 +87,6 @@ _FUNCIONAIS = _CONECTORES | {"o", "a", "os", "as", "um", "uma", "e", "em", "no",
                              "para", "com", "ao", "aos"}
 _ABREVIATURAS = TRATAMENTOS | {"s", "st", "sta", "av", "dep", "sen", "min", "gen", "cel"}
 
-# Grupo sem nome a quem o episódio atribui algo (no plural) -> radical que o confirma na pauta.
-_GRUPOS = {
-    "analistas": "analis", "análises": "analis",              # a análise é de quem analisa: a mesma família
-    "estudiosos": "estud", "estudos": "estud",
-    "pesquisadores": "pesquisa", "pesquisadoras": "pesquisa", "pesquisas": "pesquisa",
-    "especialistas": "especialista", "economistas": "economista", "juristas": "jurista", "cientistas": "cientista",
-    "observadores": "observador", "críticos": "critic", "autoridades": "autoridade", "entidades": "entidade",
-    "organizações": "organizac", "levantamentos": "levantamento", "relatórios": "relatorio",
-    "projeções": "projec", "estimativas": "estimativa",
-}
-_ALTERNATIVAS = "|".join(sorted(_GRUPOS, key=len, reverse=True))
-_VAGA_ANTES = re.compile(      # "segundo as análises", "para os analistas"
-    rf"\b(?:(?:segundo|conforme|de acordo com|na (?:visão|avaliação|opinião|leitura) d[eoa]s?)\s+"
-    rf"(?:(?:os|as|alguns|algumas|muitos|muitas|diversos|diversas|vários|várias)\s+)?"
-    rf"|para\s+(?:os|as|alguns|algumas|muitos|muitas)\s+)({_ALTERNATIVAS})\b", re.IGNORECASE)
-_VAGA_DEPOIS = re.compile(     # "especialistas afirmam", "os economistas também alertam"
-    rf"\b({_ALTERNATIVAS})\b(?:[ \t]+[^\W\d_]+){{0,4}}?[ \t]+[^\W\d_]{{3,}}(?:am|em)\b", re.IGNORECASE)
 
 # Juízo de valor na boca de Helena (texto sem acento). Só conta fora de citação e de fala atribuída.
 _JUIZOS = re.compile(
@@ -330,13 +315,7 @@ def nomes_proprios(texto: str, confirmados: frozenset[str] | set[str] = frozense
 
 # ── Atribuição vaga ───────────────────────────────────────────────────────────────────────
 
-def atribuicoes_vagas(texto: str) -> list[tuple[str, str, int]]:
-    """Atribuições a um grupo sem nome: (grupo, expressão como está escrita, posição)."""
-    achados: dict[int, tuple[str, str, int]] = {}
-    for padrao in (_VAGA_ANTES, _VAGA_DEPOIS):
-        for m in padrao.finditer(texto):
-            achados.setdefault(m.start(1), (m.group(1).lower(), m.group(), m.start()))
-    return [achados[posicao] for posicao in sorted(achados)]
+# As atribuições vagas vêm de techdigest.ai.atribuicoes (`atribuicoes_vagas`): o QA usa a mesma regra para reprovar.
 
 
 # ── A pauta como referência ───────────────────────────────────────────────────────────────

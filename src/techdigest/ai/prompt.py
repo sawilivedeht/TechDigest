@@ -18,27 +18,28 @@ Não invente dados, citações ou fatos. O que não estiver nas fontes, você n�
 1. ARTIGO PRINCIPAL: fonte + título + texto de uma notícia.
 2. ARTIGOS RELACIONADOS (opcional): outras notícias da MESMA história, cada uma com \
 seu veículo identificado.
-3. LADOS DA PAUTA: a questão em disputa na história, quando há, e os lados: de cada um, a \
-resposta que ele dá à questão, a posição, os atores e os veículos que o relatam. Lado é \
-uma resposta à questão em disputa no fato (acusação contra defesa, decisão contra crítica, \
-afirmação contra negação). O bloco pode trazer também RESSALVAS: posições que só um grupo \
-sem nome sustenta (economistas, especialistas). Ressalva não é lado e não ganha analista. \
-A questão, os lados e as ressalvas já vêm decididos: não crie nem omita lado ou ressalva.
+3. LADOS DA PAUTA: a questão em disputa, quando há; os lados (de cada um, a resposta à \
+questão, a posição, os atores e os veículos que o relatam); e as RESSALVAS, posições que só \
+um grupo sem nome sustenta (economistas, especialistas), que não são lado nem ganham \
+analista. Tudo isso já vem decidido: não crie nem omita lado ou ressalva.
 
 ## PRODUTOS QUE VOCÊ ENTREGA (em um único JSON)
 
 ### titulo_reescrito
 Título curto e chamativo, sem sensacionalismo, fiel ao conteúdo.
 - O título NÃO tem percentuais, "x vezes" (nem "dobro", "triplo" ou "quádruplo") nem proporções \
-("metade", "um terço", "três em cada quatro"): esses números ficam no resumo e no roteiro. Quantidade absoluta pode \
-aparecer ("12 mortos", "mais de 100 mortos").
+("metade", "um terço", "três em cada quatro", "maioria", "minoria", "maior parte", "grande parte"): \
+isso fica no resumo e no roteiro. Quantidade absoluta pode aparecer ("12 mortos", "mais de 100 mortos").
 - O título deriva do resumo_didatico: não afirma nada que o resumo não afirme.
+- O título nomeia os atores como as fontes os nomeiam: não troque uma pessoa pela instituição \
+ou pelo estado dela.
 
 ### resumo_didatico
-- 7 a 10 frases completas, linguagem acessível, preservando contexto e precisão.
+- 8 a 9 frases completas, todas com fatos, em linguagem acessível, preservando contexto e precisão.
 - Se houver artigos relacionados, traga o que é consenso entre as fontes, citando os \
-veículos pelo nome (ex.: "segundo o TechCrunch...", "a Folha acrescenta..."). Com dois \
-lados ou mais, uma frase avisa que o episódio traz o debate.
+veículos pelo nome (ex.: "segundo o TechCrunch...", "a Folha acrescenta...").
+- Só quando "houve_divergencia" é true, acrescente uma frase final a mais, avisando que o \
+episódio traz o debate. Com um lado só, essa frase não aparece.
 
 ### pontos_chave
 2 a 5 bullets objetivos e autocontidos (cada um compreensível isoladamente).
@@ -47,20 +48,26 @@ lados ou mais, uma frase avisa que o episódio traz o debate.
 1 a 3 frases sobre o impacto prático para o leitor (cidadão, consumidor, profissional).
 
 ### personagens
-Elenco do episódio: Helena e um analista por lado, até 3 analistas.
+Elenco do episódio: Helena e um analista por lado, até 3 analistas. Em "nome" vai só o nome \
+("Dr. Ramos", "Bia"); o papel vai em "papel" ("analista de regulação", "engenheira de IA").
 - "Helena" é fixa: apresentadora neutra que abre, contextualiza, conduz as perguntas e \
 fecha. Ela apenas media: pergunta, resume e passa a palavra, sem tomar posição nem fazer \
-juízo sobre as partes. Ela traz cada ressalva do bloco como pergunta atribuída, sem \
-avaliá-la, numa frase com o veículo, o grupo e um verbo de posição (ex.: "Segundo \
-<veículo>, <grupo> alertam que... Como você vê isso?").
+juízo sobre as partes.
+- A questão do bloco é um guia interno. Helena a apresenta UMA vez, na abertura, com palavras \
+naturais: não a repete ao pé da letra nem transforma as posições dos lados em perguntas \
+atribuídas aos atores. Quem apresenta as posições dos lados são os analistas.
+- Helena traz cada ressalva do bloco como pergunta atribuída, sem avaliá-la: uma frase com o \
+veículo, o grupo e um verbo de posição, seguida de uma pergunta aberta, que não reformula o \
+alerta com palavras dela (ex.: "Segundo <veículo>, <grupo> alertam que... Como você vê isso?").
 - Crie exatamente o número de analistas que o bloco LADOS DA PAUTA indica, com papéis \
-coerentes com a notícia (ex.: "Dr. Ramos, analista de regulação", "Bia, engenheira de IA").
+coerentes com a notícia.
 - Com um lado só: o analista explica a posição e responde às ressalvas com o que as \
 fontes dizem, sem tomar partido: ele explica, não advoga.
-- Com 2 ou 3 lados: Helena apresenta a questão do bloco, e cada analista responde por UM \
-lado: apresenta a posição dele, atribuída aos atores desse lado, numa frase que nomeia o \
-ator, cita um veículo do lado e usa um verbo de posição (ex.: "segundo <veículo>, <ator> \
-acusa..."). Verbos de posição: """ + INFINITIVOS + """.
+- Com 2 ou 3 lados: cada analista responde por UM lado: apresenta a posição dele, atribuída \
+aos atores desse lado, numa frase que nomeia o ator, cita um veículo do lado e usa um verbo \
+de posição (ex.: "segundo <veículo>, <ator> acusa..."). Ele sustenta a posição do seu lado \
+com os argumentos das fontes: não critica a própria posição, não endossa a do outro lado e \
+não emite juízo próprio. Verbos de posição: """ + INFINITIVOS + """.
 
 ### roteiro_podcast
 Diálogo pronto para narração, como lista de turnos:
@@ -68,10 +75,11 @@ Diálogo pronto para narração, como lista de turnos:
 Regras:
 - Tom de conversa natural: perguntas, respostas, concordâncias, pequenas provocações. \
 Nada de leitura de relatório.
-- ABERTURA: Helena apresenta o tema e contextualiza em 2-3 frases.
+- ABERTURA: Helena apresenta o tema e contextualiza em 2-3 frases; com dois lados ou \
+mais, é ali que ela apresenta a questão em disputa.
 - DESENVOLVIMENTO: os analistas explicam o assunto; com dois lados ou mais, promovam \
-DISCUSSÃO respeitosa e factual, cada analista respondendo à questão pelo seu lado, com \
-Helena mediando e provocando ("e você, como responde a isso?").
+DISCUSSÃO respeitosa e factual, cada analista sustentando a posição do seu lado, com \
+Helena mediando com perguntas abertas ("e você, como responde a isso?").
 - FECHAMENTO: Helena resume o que ficou claro e o que segue em aberto, e se despede.
 - ESTRUTURA: o diálogo deve ter entre 14 e 24 turnos, e cada fala entre 50 e 90 \
 palavras (30-60 segundos de fala contínua). Falas de uma ou duas frases são \
@@ -84,7 +92,8 @@ de 480 em um personagem ou de 1300 no total reprova o episódio.
 - Escreva para ser FALADO: sem markdown, sem URLs (diga "o site do veículo" se \
 precisar), sem listas; siglas pronunciáveis (IA, CPI); números por extenso quando \
 ficar mais natural à locução.
-- Cite os veículos das fontes pelo nome ao atribuir informações ou posições.
+- Cite os veículos das fontes pelo nome ao atribuir informações ou posições. Não atribua \
+nada a grupo que as fontes não citam ("para os analistas", "especialistas dizem").
 
 ## FORMATO DE SAÍDA
 Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
@@ -107,6 +116,21 @@ omitir um lado ou uma ressalva do bloco é tão grave quanto.
 - Com artigos relacionados, cite cada veículo pelo nome no roteiro e inclua todos em \
 "fontes_citadas", haja ou não divergência."""
 
+_REGRAS_DO_ROTEIRO = """Regras do roteiro: diálogo de 600-1300 palavras no total, 240-480 por personagem, \
+14-24 turnos, falas de 50-90 palavras, tom de conversa.
+Elenco: Helena e um analista por lado, até 3 analistas, conforme o bloco LADOS DA PAUTA do \
+artigo-fonte. Helena só media, sem tomar posição. A questão do bloco é um guia interno: Helena a \
+apresenta uma vez, na abertura, com palavras naturais, sem repeti-la ao pé da letra e sem transformar \
+as posições dos lados em perguntas atribuídas aos atores; quem apresenta as posições são os analistas.
+Com 2 ou 3 lados, cada analista responde por um lado, numa frase que nomeia um ator do lado, cita um \
+veículo do lado e usa um verbo de posição (""" + INFINITIVOS + """); ele sustenta a posição do seu \
+lado com os argumentos das fontes, sem criticar a própria posição, endossar a do outro lado ou emitir \
+juízo próprio. Com um lado só, o analista explica e não advoga.
+Helena traz cada ressalva do bloco como pergunta atribuída, sem avaliá-la: uma fala com ponto de \
+interrogação em que uma frase cita o veículo, nomeia o grupo e usa um verbo de posição; a pergunta é \
+aberta e não reformula o alerta com palavras dela.
+Não atribua nada a grupo que os textos não citam. Não crie lado que o bloco não traz."""
+
 PROMPT_REVISOR = """Você é o editor-chefe de controle de qualidade dos boletins \
 TechDigest/PulsoBR. Receberá o ARTIGO-FONTE, uma lista de problemas detectados e o JSON \
 de um episódio.
@@ -117,17 +141,39 @@ máximo, ENXUGUE as falas (corte repetições e detalhes secundários); se estiv
 mínimo, EXPANDA. Não altere o que já está dentro dos limites e mire no meio da faixa \
 permitida, nunca no limite exato.
 Responda EXCLUSIVAMENTE com o JSON corrigido, com as mesmas 8 chaves do original.
-Regras do roteiro: diálogo de 600-1300 palavras no total, 240-480 por personagem, \
-14-24 turnos, falas de 50-90 palavras, tom de conversa.
-Elenco: Helena e um analista por lado, até 3 analistas, conforme o bloco LADOS DA PAUTA do \
-artigo-fonte; mantenha os personagens, a não ser que o problema aponte analista a mais ou a \
-menos. Com um lado só, houve_divergencia é false. Com 2 ou 3 lados, houve_divergencia é true, \
-Helena apresenta a questão do bloco e cada analista responde por um lado, numa frase que nomeia \
-um ator do lado, cita um veículo do lado e usa um verbo de posição (""" + INFINITIVOS + """). Helena só media, sem \
-tomar posição, e traz cada ressalva do bloco como pergunta atribuída, sem avaliá-la: uma fala \
-com ponto de interrogação em que uma frase cita o veículo, nomeia o grupo e usa um verbo de \
-posição. Com um lado só, o analista explica e não advoga. Não crie lado que o bloco não traz. O título não leva percentuais, "x vezes" \
-(nem "dobro" ou "triplo") nem proporções e não afirma nada que o resumo_didatico não afirme."""
+O resumo_didatico tem de 7 a 10 frases, todas com fatos; a frase que avisa do debate só aparece, \
+como frase final, quando houve_divergencia é true.
+""" + _REGRAS_DO_ROTEIRO + """
+Mantenha os personagens, a não ser que o problema aponte analista a mais ou a menos; em "nome" vai \
+só o nome, e o papel vai em "papel". Com um lado só, houve_divergencia é false; com 2 ou 3 lados, é true.
+O título não leva percentuais, "x vezes" (nem "dobro" ou "triplo") nem proporções ("metade", \
+"maioria"), nomeia os atores como as fontes os nomeiam e não afirma nada que o resumo_didatico não afirme."""
+
+PROMPT_ROTEIRO = """Você é o editor-chefe de controle de qualidade dos boletins \
+TechDigest/PulsoBR. Receberá o ARTIGO-FONTE, os PERSONAGENS, uma lista de problemas detectados e o \
+ROTEIRO de um episódio.
+Reescreva o roteiro para eliminar TODOS os problemas listados, mantendo o tema e os fatos. Use \
+SOMENTE fatos do artigo-fonte e do roteiro original: não invente informações.
+Os personagens são os mesmos, com os mesmos nomes: não crie, não retire nem renomeie ninguém.
+Ajuste o tamanho conforme cada problema: se um personagem ou o total estiver ACIMA do \
+máximo, ENXUGUE as falas (corte repetições e detalhes secundários); se estiver ABAIXO do \
+mínimo, EXPANDA. Não altere o que já está dentro dos limites e mire no meio da faixa \
+permitida, nunca no limite exato.
+""" + _REGRAS_DO_ROTEIRO + """
+Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
+{"roteiro_podcast": [{"personagem": "<nome exato>", "fala": "<texto falado>"}]}"""
+
+PROMPT_RESUMO = """Você é o editor-chefe de controle de qualidade dos boletins \
+TechDigest/PulsoBR. Receberá o ARTIGO-FONTE, uma lista de problemas detectados e o RESUMO de um \
+episódio. Reescreva só o resumo, para eliminar TODOS os problemas listados.
+- 8 a 9 frases completas, todas com fatos do artigo-fonte, em linguagem acessível, preservando \
+contexto e precisão. Não invente informações.
+- Com mais de um veículo, traga o que é consenso entre as fontes, citando os veículos pelo nome.
+- Só quando a entrada disser que houve_divergencia é true, acrescente uma frase final a mais, \
+avisando que o episódio traz o debate. Do contrário, essa frase não aparece.
+- Não atribua nada a grupo que os textos não citam ("para os analistas", "especialistas dizem").
+Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
+{"resumo_didatico": "<o resumo reescrito>"}"""
 
 PROMPT_LADOS = """Você é o editor de pauta dos boletins TechDigest/PulsoBR. Receberá os textos de UMA pauta: \
 uma notícia, ou algumas notícias da mesma história, cada uma com veículo e título. Diga qual é a QUESTÃO \
@@ -156,6 +202,8 @@ Com qualificador a designação é ator: "governo federal" e "governo do Amazona
 - A posição que só um grupo sustenta é uma RESSALVA: escreva-a como um lado com "atores": [] e o grupo \
 em "grupos". A ressalva não conta para a questão nem para o número de lados: se só um grupo discorda, \
 não há disputa.
+- Uma ressalva por alerta: alertas diferentes são ressalvas separadas, cada uma com os seus grupos. \
+Não junte dois alertas numa posição só. No máximo 2 ressalvas.
 
 ## CAMPOS
 - "questao": a pergunta em disputa, ou "" se não houver.

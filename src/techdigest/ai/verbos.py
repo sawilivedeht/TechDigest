@@ -23,6 +23,8 @@ VERBOS_DE_POSICAO = {
     "acusar": ("acusa", "acusam", "acusou", "acusaram", "acusava", "acusavam", "acusando"),
     "alegar": ("alega", "alegam", "alegou", "alegaram", "alegava", "alegavam", "alegando"),
     "rebater": ("rebate", "rebatem", "rebateu", "rebateram", "rebatia", "rebatiam", "rebatendo"),
+    "avaliar": ("avalia", "avaliam", "avaliou", "avaliaram", "avaliava", "avaliavam", "avaliando"),
+    "ponderar": ("pondera", "ponderam", "ponderou", "ponderaram", "ponderava", "ponderavam", "ponderando"),
 }
 FORMAS_DE_POSICAO = frozenset(forma for formas in VERBOS_DE_POSICAO.values() for forma in formas)
 INFINITIVOS = ", ".join(VERBOS_DE_POSICAO)   # como a lista aparece nos prompts e nas mensagens do QA
