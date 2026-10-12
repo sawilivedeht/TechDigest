@@ -220,24 +220,37 @@ def _fontes(pauta: ag.Pauta) -> tuple[dict, list[dict]]:
 
 def _lados(analise, chamadas: list[dict]) -> dict:
     """Mostra o resultado da análise de lados e devolve o que vai para o relatório."""
-    chamada = next((ch for ch in chamadas if ch["prompt"] == "lados"), {})
+    feitas = [ch for ch in chamadas if ch["prompt"] == "lados"]
     registro = {
-        "quantos": len(analise.lados), "motivo": analise.motivo, "invalida_porque": analise.problemas,
+        "quantos": len(analise.lados), "questao": analise.questao, "motivo": analise.motivo,
+        "tentativas": len(feitas), "lado_de_emergencia": bool(analise.problemas), "invalida_porque": analise.problemas,
         "removidos": analise.removidos,
-        "lados": [{"posicao": lado.posicao, "atores": list(lado.atores), "veiculos": list(lado.veiculos)} for lado in analise.lados],
-        "resposta_do_llm": analise.resposta, "segundos": round(chamada.get("segundos", 0.0), 1),
-        "tokens_entrada": chamada.get("tokens_entrada"), "tokens_saida": chamada.get("tokens_saida"),
+        "lados": [{"resposta": lado.resposta, "posicao": lado.posicao, "atores": list(lado.atores), "veiculos": list(lado.veiculos)}
+                  for lado in analise.lados],
+        "resposta_do_llm": analise.resposta,
+        "primeira_tentativa": None if analise.primeira is None else {
+            "invalida_porque": analise.primeira.problemas, "removidos": analise.primeira.removidos,
+            "resposta_do_llm": analise.primeira.resposta,
+        },
+        "segundos": round(sum(ch.get("segundos", 0.0) for ch in feitas), 1),
+        "segundos_por_tentativa": [round(ch.get("segundos", 0.0), 1) for ch in feitas],
+        "tokens_entrada": [ch.get("tokens_entrada") for ch in feitas], "tokens_saida": [ch.get("tokens_saida") for ch in feitas],
     }
-    print(f"  lados: {registro['quantos']} · {registro['segundos']:.1f} s · "
-          f"{registro['tokens_entrada']} + {registro['tokens_saida']} tokens")
+    print(f"  lados: {registro['quantos']} · {registro['tentativas']} tentativa(s) · {registro['segundos']:.1f} s · "
+          f"tokens {registro['tokens_entrada']} + {registro['tokens_saida']}")
+    print(f"    questão: {registro['questao'] or '(sem disputa)'}")
     for i, lado in enumerate(registro["lados"], 1):
-        print(f"    lado {i}: {lado['posicao'] or '(sem posição: lado único de emergência)'}")
+        resposta = f"[{lado['resposta']}] " if lado["resposta"] else ""
+        print(f"    lado {i}: {resposta}{lado['posicao']}")
         print(f"            atores: {', '.join(lado['atores']) or '-'} · veículos: {', '.join(lado['veiculos'])}")
     print(f"    motivo: {registro['motivo'] or '-'}")
     for removido in analise.removidos:
         print(f"    removido: {removido}")
+    if analise.primeira is not None:
+        print(f"    PRIMEIRA TENTATIVA RECUSADA: {'; '.join(analise.primeira.problemas)}")
+        print(f"    resposta recusada: {json.dumps(analise.primeira.resposta, ensure_ascii=False)}")
     if analise.problemas:
-        print(f"    RESPOSTA INVÁLIDA, a pauta ficou com um lado só: {'; '.join(analise.problemas)}")
+        print(f"    AS DUAS TENTATIVAS FALHARAM, a pauta ficou com o lado de emergência: {'; '.join(analise.problemas)}")
         print(f"    resposta do LLM: {json.dumps(analise.resposta, ensure_ascii=False)}")
     return registro
 

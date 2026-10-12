@@ -59,7 +59,7 @@ class ProviderFalso:
     """Devolve as respostas em fila e guarda o que recebeu; conta 1 token a cada 4 caracteres.
 
     A análise de lados fica fora da fila: recebe sempre `lados` e é guardada em `analises`. Sem
-    `lados`, a resposta é inválida e a pauta segue com um lado só.
+    `lados`, a resposta é inválida nas duas tentativas e a pauta segue com o lado de emergência.
     """
 
     def __init__(self, *respostas, lados=None):
@@ -230,16 +230,18 @@ def test_proporcao_de_caracteres_por_token_vem_do_que_o_provider_mediu(ollama_81
 def test_process_de_fonte_unica_analisa_os_lados_e_gera_com_o_bloco(ollama_8192):
     principal = _artigo("G1", 3000)
     episodio = _episodio(["G1"])
-    provider = ProviderFalso(episodio)          # a análise de lados responde algo inválido: um lado só
+    provider = ProviderFalso(episodio)          # a análise de lados responde algo inválido duas vezes: lado de emergência
     s = Summarizer(provider=provider)
 
     assert s.process(principal) is episodio
     um_lado = lado_unico(["G1"])
     com_bloco = _entrada_antiga(principal).removesuffix(LEMBRETE) + bloco_dos_lados(um_lado) + "\n" + LEMBRETE
     assert provider.chamadas == [((PROMPT_SISTEMA, com_bloco), {})]                       # a geração segue sem argumentos novos
-    [((sistema, entrada), opcoes)] = provider.analises
+    ((sistema, entrada), opcoes), ((_, nova_tentativa), _) = provider.analises
     assert sistema == PROMPT_LADOS and opcoes == {"chaves": ("lados",), "temperatura": 0.1, "max_saida": 800}
     assert entrada == entrada_dos_lados([{"fonte": "G1", "titulo": "Título de G1", "texto": principal["text"]}])
+    assert nova_tentativa.startswith(entrada + "\n\nCORREÇÃO: a sua resposta anterior não valeu: resposta com 0 lados")
+    assert "\nLado 1: relato dos fatos, sem lados definidos. Veículos: G1.\n" in com_bloco
     assert s.ultimo_diagnostico["lados"].lados == um_lado and s.ultimo_diagnostico["lados"].problemas
     assert s.ultimo_diagnostico["problemas"] == [] and s.ultimo_diagnostico["revisao"] is None
 
@@ -273,9 +275,9 @@ def test_process_com_dois_veiculos_cobra_as_fontes_e_revisa_dentro_do_orcamento(
 
 
 def test_process_com_dois_lados_exige_um_analista_por_lado(ollama_8192):
-    dois_lados = {"lados": [
-        {"posicao": "A campanha acusa a Meta.", "atores": ["campanha de Lula"], "veiculos": ["CartaCapital"]},
-        {"posicao": "A Meta nega.", "atores": ["Meta"], "veiculos": ["Agência Brasil"]},
+    dois_lados = {"questao": "A Meta favoreceu um candidato?", "lados": [
+        {"resposta": "Sim", "posicao": "A campanha acusa a Meta.", "atores": ["campanha de Lula"], "veiculos": ["CartaCapital"]},
+        {"resposta": "Não", "posicao": "A Meta nega.", "atores": ["Meta"], "veiculos": ["Agência Brasil"]},
     ], "motivo": "Acusação contra defesa."}
     um_analista = _episodio(["Agência Brasil", "CartaCapital"])
     terco = " ".join(["palavra"] * max(qa.MIN_POR_PERSONAGEM, math.ceil(qa.MIN_TOTAL / 3)))
@@ -299,7 +301,8 @@ def test_process_com_dois_lados_exige_um_analista_por_lado(ollama_8192):
     ]
     (_, entrada), (_, revisao) = (args for args, _ in provider.chamadas)
     for mensagem in (entrada, revisao):                                   # o bloco vai na geração e na revisão
-        assert "\nLADOS DA PAUTA: 2 lados.\nLado 1: A campanha acusa a Meta. Atores: campanha de Lula. Veículos: CartaCapital.\n" in mensagem
+        assert ("\nLADOS DA PAUTA: 2 lados.\nQUESTÃO: A Meta favoreceu um candidato?\n"
+                "Lado 1 (resposta: Sim): A campanha acusa a Meta. Atores: campanha de Lula. Veículos: CartaCapital.\n") in mensagem
         assert 'ELENCO: Helena e exatamente 2 analistas, um por lado; "houve_divergencia": true.' in mensagem
     assert len(provider.analises) == 1                                    # os lados são analisados uma vez só, antes da geração
 

@@ -18,10 +18,10 @@ Não invente dados, citações ou fatos. O que não estiver nas fontes, você n�
 1. ARTIGO PRINCIPAL: fonte + título + texto de uma notícia.
 2. ARTIGOS RELACIONADOS (opcional): outras notícias da MESMA história, cada uma com \
 seu veículo identificado.
-3. LADOS DA PAUTA: quantos lados a história tem e, de cada um, a posição, os atores e os \
-veículos que o relatam. Lado é uma posição em disputa no fato (acusação contra defesa, \
-decisão contra crítica, afirmação contra negação). Os lados já vêm decididos: não crie \
-nem omita lado.
+3. LADOS DA PAUTA: a questão em disputa na história, quando há, e os lados: de cada um, a \
+resposta que ele dá à questão, a posição, os atores e os veículos que o relatam. Lado é \
+uma resposta à questão em disputa no fato (acusação contra defesa, decisão contra crítica, \
+afirmação contra negação). A questão e os lados já vêm decididos: não crie nem omita lado.
 
 ## PRODUTOS QUE VOCÊ ENTREGA (em um único JSON)
 
@@ -52,9 +52,10 @@ juízo sobre as partes.
 - Crie exatamente o número de analistas que o bloco LADOS DA PAUTA indica, com papéis \
 coerentes com a notícia (ex.: "Dr. Ramos, analista de regulação", "Bia, engenheira de IA").
 - Com um lado só: Helena e o analista aprofundam o tema.
-- Com 2 ou 3 lados: cada analista apresenta a posição de UM lado, atribuída aos atores \
-desse lado, numa frase que nomeia o ator, cita um veículo do lado e usa um verbo de \
-posição (ex.: "segundo <veículo>, <ator> acusa..."). Verbos de posição: """ + INFINITIVOS + """.
+- Com 2 ou 3 lados: Helena apresenta a questão do bloco, e cada analista responde por UM \
+lado: apresenta a posição dele, atribuída aos atores desse lado, numa frase que nomeia o \
+ator, cita um veículo do lado e usa um verbo de posição (ex.: "segundo <veículo>, <ator> \
+acusa..."). Verbos de posição: """ + INFINITIVOS + """.
 
 ### roteiro_podcast
 Diálogo pronto para narração, como lista de turnos:
@@ -64,8 +65,8 @@ Regras:
 Nada de leitura de relatório.
 - ABERTURA: Helena apresenta o tema e contextualiza em 2-3 frases.
 - DESENVOLVIMENTO: os analistas explicam o assunto; com dois lados ou mais, promovam \
-DISCUSSÃO respeitosa e factual, cada analista expondo a posição do seu lado, com Helena \
-mediando e provocando ("e você, como responde a isso?").
+DISCUSSÃO respeitosa e factual, cada analista respondendo à questão pelo seu lado, com \
+Helena mediando e provocando ("e você, como responde a isso?").
 - FECHAMENTO: Helena resume o que ficou claro e o que segue em aberto, e se despede.
 - ESTRUTURA: o diálogo deve ter entre 14 e 24 turnos, e cada fala entre 50 e 90 \
 palavras (30-60 segundos de fala contínua). Falas de uma ou duas frases são \
@@ -115,25 +116,29 @@ Regras do roteiro: diálogo de 600-1300 palavras no total, 240-480 por personage
 14-24 turnos, falas de 50-90 palavras, tom de conversa.
 Elenco: Helena e um analista por lado, até 3 analistas, conforme o bloco LADOS DA PAUTA do \
 artigo-fonte; mantenha os personagens, a não ser que o problema aponte analista a mais ou a \
-menos. Com um lado só, houve_divergencia é false. Com 2 ou 3 lados, houve_divergencia é true \
-e cada analista apresenta a posição do seu lado numa frase que nomeia um ator do lado, cita \
-um veículo do lado e usa um verbo de posição (""" + INFINITIVOS + """). Helena só media, sem \
+menos. Com um lado só, houve_divergencia é false. Com 2 ou 3 lados, houve_divergencia é true, \
+Helena apresenta a questão do bloco e cada analista responde por um lado, numa frase que nomeia \
+um ator do lado, cita um veículo do lado e usa um verbo de posição (""" + INFINITIVOS + """). Helena só media, sem \
 tomar posição. Não crie lado que o bloco não traz. O título não leva percentuais, "x vezes" \
 (nem "dobro" ou "triplo") nem proporções e não afirma nada que o resumo_didatico não afirme."""
 
 PROMPT_LADOS = """Você é o editor de pauta dos boletins TechDigest/PulsoBR. Receberá os textos de UMA pauta: \
-uma notícia, ou algumas notícias da mesma história, cada uma com veículo e título. Diga quantos LADOS \
-a história tem.
+uma notícia, ou algumas notícias da mesma história, cada uma com veículo e título. Diga qual é a QUESTÃO \
+em disputa na história e quais LADOS respondem a ela.
 
-## O QUE É UM LADO
-Lado é um campo da disputa no fato, não um argumento: acusação contra defesa, decisão contra crítica, \
-afirmação contra negação. Quem sustenta um lado é um ator ou um veículo.
-Atores que concordam ficam no MESMO lado, mesmo com argumentos diferentes (ex.: quem critica a decisão \
-e quem defende o canal atingido por ela). Um terceiro lado só existe se a posição dele se opõe às \
-outras duas.
-NÃO criam lado: informação complementar, detalhes diferentes entre os textos, a simples sequência dos \
+## A QUESTÃO
+A questão é UMA pergunta só, que os atores da história respondem de formas opostas (ex.: "O canal deve \
+ser suspenso?"). Ela resume a disputa no fato: acusação contra defesa, decisão contra crítica, afirmação \
+contra negação.
+NÃO criam disputa: informação complementar, detalhes diferentes entre os textos, a simples sequência dos \
 fatos, o contexto ou o histórico do assunto.
-Na dúvida, a história tem UM lado só.
+Sem disputa, a questão fica vazia ("") e a história tem UM lado só. Na dúvida, não há disputa.
+
+## OS LADOS
+Cada lado é uma resposta diferente à questão. Todos os atores que dão a mesma resposta ficam no MESMO \
+lado, mesmo com argumentos diferentes (ex.: quem critica a decisão e quem defende o canal atingido por \
+ela dão a mesma resposta). Nunca um lado por ator.
+Com questão, são 2 ou 3 lados; o terceiro só existe se a resposta dele se opõe às outras duas.
 
 ## QUEM É ATOR
 - Ator é quem sustenta a posição, pelo nome ou por uma designação específica, na forma que os textos \
@@ -141,10 +146,13 @@ mais usam (ex.: "Lula", "Nunes Marques", "Meta", "campanha de Lula"). Não expan
 - NÃO são atores: coletivo sem nome (economistas, especialistas, analistas, críticos, observadores) e \
 designação vaga sem qualificador ("o governo", "a empresa"). Com qualificador a designação vale: \
 "governo federal" e "governo do Amazonas" são atores.
-- Uma posição sustentada só por quem não é ator NÃO forma lado: é uma ressalva ao lado que existe.
+- Uma posição sustentada só por quem não é ator NÃO forma lado: é uma ressalva ao lado que existe. Se \
+só quem não é ator discorda, não há disputa.
 
-## REGRAS
-- De 1 a 3 lados. Se houver mais de 3 campos, junte os mais próximos.
+## CAMPOS
+- "questao": a pergunta em disputa, ou "" se não houver.
+- "resposta": a resposta daquele lado à questão, em poucas palavras (ex.: "Sim", "Não"). Com um lado \
+só, fica "".
 - "posicao": uma frase com o que aquele lado sustenta. Com um lado só, é o fato central da história.
 - "atores": os atores do lado. Cada lado tem pelo menos um ator que não está em nenhum outro lado.
 - "veiculos": os veículos, entre os recebidos, cujo texto relata a posição daquele lado. Um mesmo \
@@ -153,8 +161,9 @@ o nome do veículo como foi recebido.
 - Use só o que está nos textos: não invente ator nem posição.
 
 ## FORMATO DE SAÍDA
-Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
-{"lados": [{"posicao": "<uma frase>", "atores": ["<ator>"], "veiculos": ["<veículo>"]}], \
+Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor, com a questão em primeiro lugar:
+{"questao": "<a pergunta em disputa, ou vazio se não houver>", "lados": [{"resposta": "<a resposta \
+deste lado à questão>", "posicao": "<uma frase>", "atores": ["<ator>"], "veiculos": ["<veículo>"]}], \
 "motivo": "<uma frase que explica a contagem dos lados>"}"""
 
 PROMPT_AGRUPADOR = """Você é o editor de pauta dos boletins TechDigest/PulsoBR. Um filtro automático \

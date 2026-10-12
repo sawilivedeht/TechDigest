@@ -132,7 +132,7 @@ def _aviso(artigos: list[dict]) -> str:
 
 
 def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limite: int | None = None,
-                   lados: list | None = None) -> Entrada:
+                   lados: list | None = None, questao: str = "") -> Entrada:
     """Monta a mensagem do episódio dentro de `limite` caracteres (None = sem limite).
 
     Cada artigo é um dict com "source", "title" e "text"; os relacionados podem trazer também
@@ -144,8 +144,8 @@ def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limi
     fim de parágrafo. Relacionado que ficaria com menos de MIN_TRECHO caracteres sai da entrada, e
     o aviso conta e nomeia só os que entraram.
 
-    `lados` é o resultado da análise de lados: com ele, o bloco LADOS DA PAUTA entra antes do
-    lembrete. O espaço do bloco (MAX_BLOCO) é reservado sempre, com ou sem `lados`, para que os
+    `lados` e `questao` são o resultado da análise de lados: com eles, o bloco LADOS DA PAUTA
+    entra antes do lembrete. O espaço do bloco (MAX_BLOCO) é reservado sempre, com ou sem `lados`, para que os
     trechos sejam os mesmos na chamada sem o bloco (a que alimenta a análise de lados) e na
     chamada com ele (a do episódio).
     """
@@ -180,7 +180,7 @@ def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limi
         concedidos[0] = min(MIN_TRECHO, len(textos[0]))
     trechos = [_cortar_em_paragrafo(texto, cabe) for texto, cabe in zip(textos, concedidos)]
 
-    finais = avisos + ([bloco_dos_lados(lados)] if lados else []) + [LEMBRETE]
+    finais = avisos + ([bloco_dos_lados(lados, questao)] if lados else []) + [LEMBRETE]
     incluido = {id(a): len(t) for a, t in zip(artigos, trechos)}
     return Entrada(
         texto="\n".join([c + t for c, t in zip(cabecalhos, trechos)] + finais),
@@ -241,7 +241,7 @@ class Summarizer:
             len(principal["text"]), len(previa.fontes) - 1,
         )
         analise = analisar_lados(self._chamar, previa.textos)
-        return montar_entrada(principal, relacionados, limite, analise.lados), analise
+        return montar_entrada(principal, relacionados, limite, analise.lados, analise.questao), analise
 
     def process(self, principal: dict, relacionados: list[dict] | None = None) -> dict:
         """Devolve um episódio que passou no QA; do contrário levanta QAReprovado (item é pulado)."""
@@ -267,7 +267,8 @@ class Summarizer:
             + "\n\nEPISÓDIO ORIGINAL:\n" + json.dumps(result, ensure_ascii=False)
         )
         fonte = montar_entrada(
-            principal, relacionados, self._limite_da_entrada(PROMPT_REVISOR, extra=len(antes) + len(depois)), analise.lados,
+            principal, relacionados, self._limite_da_entrada(PROMPT_REVISOR, extra=len(antes) + len(depois)),
+            analise.lados, analise.questao,
         )
         self.ultimo_diagnostico["revisao"] = fonte
         try:
