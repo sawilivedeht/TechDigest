@@ -283,7 +283,8 @@ def test_um_ator_pode_trazer_mais_de_um_trecho_e_o_lado_deixa_de_ser_fino():
                       _evidencia("Lula", "Não", DA_CARTA, "CartaCapital"))
     analise = analise_da_resposta(resposta, TEXTOS)
     assert [lado.trechos for lado in analise.lados] == [(DA_AB, "Meta alega problemas técnicos"), (DA_CARTA,)]
-    assert lados_finos(analise.lados) == [False, True] and analise.ajustes == []
+    assert lados_finos(analise.lados) == [False, True]
+    assert analise.ajustes == ["ator do lado 2 saiu: não está em respostas_por_ator (campanha de Flávio Bolsonaro)"]
 
 
 def test_lado_com_um_so_trecho_de_evidencia_e_fino():
