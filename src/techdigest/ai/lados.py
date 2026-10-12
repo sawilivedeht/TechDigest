@@ -236,34 +236,45 @@ def _responde(resposta_do_ator: str, resposta_do_lado: str) -> bool:
 def _conferir_atores(rascunhos: list[_Rascunho], evidencias: list[Evidencia]) -> list[str]:
     """Deixa em cada lado só os atores cuja resposta, comprovada por um trecho, é a do lado.
 
-    O ator sem resposta listada ou sem trecho comprovado sai. O ator que está num lado de resposta
-    diferente da dele vai para o lado da resposta dele, se existir, ou sai. Devolve o que mudou.
+    Um ator pode ter mais de uma entrada, uma por trecho. O ator sem resposta listada ou sem
+    trecho comprovado sai. O ator que está num lado de resposta diferente da dele vai para o lado
+    da resposta dele, se existir, ou sai. Cada lado fica com os trechos comprovados dos atores que
+    ficaram nele. Devolve o que mudou.
     """
-    def evidencia_de(ator: str) -> Evidencia | None:
+    def evidencias_de(ator: str) -> list[Evidencia]:
         iguais = [e for e in evidencias if palavras_do_ator(e.ator) == palavras_do_ator(ator)]
-        return next(iter(iguais or [e for e in evidencias if mesmo_ator(e.ator, ator)]), None)
+        return iguais or [e for e in evidencias if mesmo_ator(e.ator, ator)]
 
-    ajustes, ficam = [], {r.numero: [] for r in rascunhos}   # por lado: (ator, trecho)
+    ajustes, ficam = [], {r.numero: [] for r in rascunhos}   # por lado: (ator, trechos)
     for r in rascunhos:
         for ator in r.atores:
-            evidencia = evidencia_de(ator)
-            if evidencia is None:
+            listadas = evidencias_de(ator)
+            comprovadas = [e for e in listadas if e.comprovada]
+            if not listadas:
                 ajustes.append(f"ator do lado {r.numero} saiu: não está em respostas_por_ator ({ator})")
-            elif not evidencia.comprovada:
-                ajustes.append(f"ator do lado {r.numero} saiu: o trecho não está no texto de {evidencia.veiculo or 'nenhum veículo'} ({ator})")
-            elif _responde(evidencia.resposta, r.resposta):
-                ficam[r.numero].append((ator, evidencia.trecho))
-            elif destino := next((o for o in rascunhos if o is not r and _responde(evidencia.resposta, o.resposta)), None):
-                ficam[destino.numero].append((ator, evidencia.trecho))
-                ajustes.append(f"ator passou do lado {r.numero} para o lado {destino.numero}, o da resposta dele ({ator}: {evidencia.resposta})")
-            else:
-                ajustes.append(f"ator do lado {r.numero} saiu: nenhum lado tem a resposta dele ({ator}: {evidencia.resposta})")
+                continue
+            if not comprovadas:
+                ajustes.append(f"ator do lado {r.numero} saiu: o trecho não está no texto de {listadas[0].veiculo or 'nenhum veículo'} ({ator})")
+                continue
+            do_lado = [e.trecho for e in comprovadas if _responde(e.resposta, r.resposta)]
+            if do_lado:
+                ficam[r.numero].append((ator, do_lado))
+                continue
+            dele = comprovadas[0].resposta
+            destino = next((o for o in rascunhos if o is not r and _responde(dele, o.resposta)), None)
+            if destino is None:
+                ajustes.append(f"ator do lado {r.numero} saiu: nenhum lado tem a resposta dele ({ator}: {dele})")
+                continue
+            ficam[destino.numero].append((ator, [e.trecho for e in comprovadas if _responde(e.resposta, destino.resposta)]))
+            ajustes.append(f"ator passou do lado {r.numero} para o lado {destino.numero}, o da resposta dele ({ator}: {dele})")
     for r in rascunhos:
         r.atores, r.trechos = [], []
-        for ator, trecho in ficam[r.numero]:
+        for ator, trechos in ficam[r.numero]:
             if not any(mesmo_ator(ator, outro) for outro in r.atores):
                 r.atores.append(ator)
-                r.trechos.append(trecho)
+                for trecho in trechos:
+                    if trecho not in r.trechos:
+                        r.trechos.append(trecho)
     return ajustes
 
 

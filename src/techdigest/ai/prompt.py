@@ -219,15 +219,22 @@ ela dão a mesma resposta). Nunca um lado por ator.
 Com questão, são 2 ou 3 lados; o terceiro só existe se a resposta dele se opõe às outras duas.
 
 ## A RESPOSTA DE CADA ATOR
-Com questão, antes de montar os lados, liste em "respostas_por_ator" cada ator nomeado com:
+Com questão, antes de montar os lados, liste em "respostas_por_ator" cada ator nomeado que toma posição \
+na disputa, inclusive quem pediu ou tomou a decisão em disputa. Cada entrada traz:
 - "resposta": a resposta dele à questão, em poucas palavras (ex.: "Sim", "Não");
 - "trecho": um trecho de até 200 caracteres, copiado AO PÉ DA LETRA do texto de um veículo recebido, \
 que comprove essa resposta. Copie, não resuma nem corrija;
 - "veiculo": o veículo de onde o trecho saiu.
+Quando os textos trazem mais de um trecho que sustenta a resposta de um ator, repita o ator em até 3 \
+entradas, uma por trecho diferente. Se só há um trecho, liste um só: o número de trechos mostra quanto \
+material as fontes têm para cada lado.
 Quem pede ou toma uma decisão responde a favor dela; quem a critica responde contra.
-Os lados saem dessa lista: cada lado é uma das respostas, com as mesmas palavras, e reúne os atores \
-que a deram. Ator sem trecho que comprove a resposta não entra em lado nenhum.
-Sem questão, "respostas_por_ator" fica [].
+Com questão, cada lado com atores é uma das respostas dessa lista, com as mesmas palavras, e reúne os \
+atores que a deram. Ator sem trecho que comprove a resposta não entra em lado nenhum.
+Sem questão, "respostas_por_ator" fica [] e a história tem UM lado, como sempre: o fato central, com os \
+atores que o sustentam.
+A ressalva (posição que só um grupo sustenta) não entra em "respostas_por_ator": ela continua em "lados", \
+com "atores": [] e o grupo em "grupos", haja ou não questão.
 
 ## ATORES E GRUPOS
 - Ator é quem sustenta a posição, pelo nome ou por uma designação específica, na forma que os textos \

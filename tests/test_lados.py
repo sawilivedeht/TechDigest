@@ -276,6 +276,16 @@ def test_sem_questao_os_atores_ficam_como_vieram():
     assert um.lados == [Lado("Uma posição.", ("Terra de Direitos", "Justiça Global"), ("Agência Brasil", "CartaCapital"))]
 
 
+def test_um_ator_pode_trazer_mais_de_um_trecho_e_o_lado_deixa_de_ser_fino():
+    resposta = _canal(_evidencia("Nunes Marques", "Sim"), _evidencia("Nunes Marques", "Sim", "Meta alega problemas técnicos"),
+                      _evidencia("Nunes Marques", "Sim"),                                  # trecho repetido não conta duas vezes
+                      _evidencia("Nunes Marques", "Sim", "um trecho que não está em texto nenhum"),
+                      _evidencia("Lula", "Não", DA_CARTA, "CartaCapital"))
+    analise = analise_da_resposta(resposta, TEXTOS)
+    assert [lado.trechos for lado in analise.lados] == [(DA_AB, "Meta alega problemas técnicos"), (DA_CARTA,)]
+    assert lados_finos(analise.lados) == [False, True] and analise.ajustes == []
+
+
 def test_lado_com_um_so_trecho_de_evidencia_e_fino():
     analise = analise_da_resposta(DOIS_LADOS, TEXTOS)
     assert [lado.fino for lado in analise.lados] == [False, True] == lados_finos(analise.lados)     # dois trechos de um lado, um do outro
