@@ -19,7 +19,8 @@ MIN_FRASES_RESUMO, MAX_FRASES_RESUMO = settings.qa_min_frases, settings.qa_max_f
 HELENA = "helena"
 _ARTIGOS = {"o", "a", "os", "as"}
 _PREPOSICOES = {"de", "do", "da", "dos", "das"}
-_SEM_PESO = _ARTIGOS | _PREPOSICOES | {"e", "em", "no", "na", "nos", "nas"}   # não contam na comparação de atores
+# Não contam como palavras na comparação de atores: partículas (da, de, do, das, dos, e), artigos e "em".
+_SEM_PESO = _ARTIGOS | _PREPOSICOES | {"e", "em", "no", "na", "nos", "nas"}
 _ABREVIATURA = re.compile(r"(?:^|[\s(\"'“‘])(?:dr|dra|sr|sra|prof|profa|sen|dep|min|gov|pres|gen|cel|[^\W\d_])\.$", re.IGNORECASE)
 
 # Título sem percentuais nem proporções. Os padrões valem sobre o título sem acento e em minúsculas.
@@ -36,6 +37,7 @@ _APROXIMADOR = r"\b(?:quase|mais de|menos de|cerca de|perto de|pelo menos|ao men
 _PROPORCOES_NO_TITULO = [re.compile(padrao) for padrao in (
     rf"(?:(?:{_APROXIMADOR})?{_NUMERO}\s*)?(?:%|\bpor cento\b|\bpontos? percentua(?:l|is)\b)",   # percentuais
     rf"(?:{_APROXIMADOR})?{_NUMERO}\s+vezes\b",                                                    # "3 vezes", "três vezes"
+    r"\b(?:dobro|triplo|quadruplo)\b",                                                            # valem por "x vezes"
     rf"{_UM_OU_NUMERO}\s+(?:em|a|de|entre)\s+cada\b(?:\s+{_NUMERO})?",                            # "três em cada quatro"
     rf"\b(?:a|em|de)\s+cada\s+{_NUMERO}",                                                         # "a cada 9 horas"
     r"\bmetade\b",
@@ -92,10 +94,11 @@ def _dobrar(texto: str) -> str:
 def proporcoes_no_titulo(titulo) -> list[str]:
     """Os trechos do título que a regra do título bloqueia; lista vazia = aprovado.
 
-    Bloqueia percentuais, "x vezes" e proporções ("metade", "um terço", "três em cada quatro",
-    "6 de 11", "a cada 9 horas"). Quantidade absoluta passa, em algarismos ou por extenso, mesmo
-    com "quase", "mais de" e parecidos ("12 mortos", "doze mortos", "mais de 100 mortos"), assim
-    como ano, ordinal e nome com algarismo ("Eleições 2026", "1º turno", "escala 6x1").
+    Bloqueia percentuais, "x vezes" (e "dobro", "triplo", "quádruplo") e proporções ("metade", "um
+    terço", "três em cada quatro", "6 de 11", "a cada 9 horas"). Quantidade absoluta passa, em
+    algarismos ou por extenso, mesmo com "quase", "mais de" e parecidos ("12 mortos", "doze
+    mortos", "mais de 100 mortos"), assim como ano, ordinal e nome com algarismo ("Eleições 2026",
+    "1º turno", "escala 6x1").
     """
     titulo = unicodedata.normalize("NFC", str(titulo))
     dobrado = _dobrar(titulo)
@@ -141,7 +144,8 @@ def frases(texto) -> list[str]:
     return [p for p in partes if p]
 
 
-def _palavras_do_ator(nome) -> set[str]:
+def palavras_do_ator(nome) -> set[str]:
+    """As palavras que contam no nome de um ator: sem acento nem caixa, e sem artigo nem partícula."""
     return {p for p in _palavras_do_nome(nome) if p not in _SEM_PESO}
 
 
@@ -150,7 +154,7 @@ def mesmo_ator(a, b) -> bool:
 
     "Lula" e "campanha de Lula" contam como o mesmo ator: um nome dentro do outro não separa dois lados.
     """
-    menor, maior = sorted((_palavras_do_ator(a), _palavras_do_ator(b)), key=len)
+    menor, maior = sorted((palavras_do_ator(a), palavras_do_ator(b)), key=len)
     return bool(menor) and menor <= maior
 
 
@@ -162,7 +166,7 @@ def ator_citado(ator, texto, alheios=()) -> bool:
     "Lula" vale por "campanha de Lula" quando o outro lado tem a "campanha de Flávio Bolsonaro".
     Nome de uma ou duas palavras tem de aparecer inteiro.
     """
-    proprias = _palavras_do_ator(ator) - {p for outro in alheios for p in _palavras_do_ator(outro)}
+    proprias = palavras_do_ator(ator) - {p for outro in alheios for p in palavras_do_ator(outro)}
     return bool(proprias) and len(proprias & set(_palavras_do_nome(texto))) > len(proprias) / 2
 
 
@@ -252,7 +256,7 @@ def problemas(result: dict, veiculos, lados) -> list[str]:
     if proporcoes:
         probs.append(
             f"título com percentual ou proporção ({'; '.join(proporcoes)}): o título não leva percentuais, \"x vezes\" "
-            f"nem proporções (quantidades absolutas podem ficar); reescreva-o a partir do resumo_didatico"
+            f"(nem \"dobro\" ou \"triplo\") nem proporções (quantidades absolutas podem ficar); reescreva-o a partir do resumo_didatico"
         )
 
     frases_do_resumo = sum(result["resumo_didatico"].count(p) for p in ".!?")

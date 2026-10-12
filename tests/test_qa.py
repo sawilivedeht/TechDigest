@@ -128,6 +128,9 @@ def test_titulo_do_episodio_2_reprova_e_os_outros_quatro_passam():
     ("Mais de 40% dos eleitores seguem indecisos", ["Mais de 40%"]),
     ("Ataques a mulheres crescem 11 vezes", ["11 vezes"]),                            # "x vezes"
     ("Chineses compram três vezes mais que os americanos", ["três vezes"]),
+    ("Violência política chega ao dobro de 2022", ["dobro"]),                         # valem por "x vezes"
+    ("Preço da memória é o triplo do previsto", ["triplo"]),
+    ("Queimadas atingem o quádruplo da área", ["quádruplo"]),
     ("Metade dos eleitores rejeita a proposta", ["Metade"]),                          # proporções
     ("Mulheres são um terço das candidaturas", ["um terço"]),
     ("Dois terços do Senado apoiam a PEC", ["Dois terços"]),
@@ -158,6 +161,7 @@ def test_titulo_com_percentual_ou_proporcao_e_bloqueado(titulo, bloqueado):
     "Pixel 9 de 128 GB cai de preço",                      # "9 de 128" é modelo e memória, não proporção
     "Hotel cobra caro por um quarto de casal",             # "um quarto de" não é fração
     "Às vezes, um acordo basta",                           # "um" é artigo, e "às vezes" não é "x vezes"
+    "Senado dobra a aposta e triplica o fundo eleitoral",  # os verbos passam: só "dobro", "triplo" e "quádruplo" reprovam
     "Governo cria força-tarefa em setembro e dezembro",    # "sete" e "dez" dentro de outras palavras
 ])
 def test_titulo_com_ano_ordinal_ou_quantidade_absoluta_passa(titulo):
@@ -273,6 +277,18 @@ def test_veiculo_verbo_e_ator_tem_de_estar_na_mesma_frase_e_o_ator_tem_de_ser_so
     assert qa.mesmo_ator("Lula", "campanha de Lula") and qa.mesmo_ator("campanha do presidente Lula", "campanha de Lula")
     assert not qa.mesmo_ator("Flávio Bolsonaro", "Jair Bolsonaro") and not qa.mesmo_ator("", "Meta")
     assert qa.ator_citado("campanha de Lula", "a campanha do presidente Lula") and not qa.ator_citado("Meta", "a metade")
+
+
+def test_particulas_nao_contam_como_palavras_do_nome():
+    assert qa.palavras_do_ator("Luiz Inácio Lula da Silva") == {"luiz", "inacio", "lula", "silva"}
+    assert qa.palavras_do_ator("Federação dos Bancos e das Financeiras do Brasil") == {"federacao", "bancos", "financeiras", "brasil"}
+    # "Lula" contra "Luiz Inácio Lula da Silva": é o mesmo ator, porque um nome está dentro do outro...
+    assert qa.mesmo_ator("Lula", "Luiz Inácio Lula da Silva")
+    # ...mas "Lula" sozinho não nomeia o ator de nome completo: é 1 das 4 palavras, e é preciso mais da metade
+    assert not qa.ator_citado("Luiz Inácio Lula da Silva", "Segundo o G1, Lula critica a decisão.")
+    assert not qa.ator_citado("Luiz Inácio Lula da Silva", "Lula da Silva critica a decisão.")     # 2 de 4: o "da" não soma
+    assert qa.ator_citado("Luiz Inácio Lula da Silva", "Luiz Inácio Lula critica a decisão.")      # 3 de 4
+    assert qa.ator_citado("Lula", "Luiz Inácio Lula da Silva critica a decisão.")                  # no sentido contrário, vale
 
 
 def test_ator_de_nome_comprido_pode_ser_citado_pela_forma_curta():

@@ -4,7 +4,9 @@ import logging
 import pytest
 
 from techdigest.ai import lados as modulo
-from techdigest.ai.lados import Lado, analisar_lados, bloco_dos_lados, entrada_dos_lados, lado_unico, problemas_da_analise
+from techdigest.ai.lados import (
+    Lado, analisar_lados, analise_da_resposta, ator_generico, bloco_dos_lados, entrada_dos_lados, lado_unico,
+)
 from techdigest.ai.prompt import PROMPT_LADOS
 
 VEICULOS = ["Agência Brasil", "CartaCapital"]
@@ -42,7 +44,7 @@ class Chamada:
 # ── Validação ─────────────────────────────────────────────────────────────────────────────
 
 def test_resposta_valida_vira_lados_com_a_grafia_da_pauta():
-    assert problemas_da_analise(DOIS_LADOS, VEICULOS) == []
+    assert analise_da_resposta(DOIS_LADOS, VEICULOS).problemas == []
     analise = analisar_lados(Chamada(DOIS_LADOS), TEXTOS)
     assert analise.lados == [
         Lado("A campanha acusa a Meta.", ("campanha de Lula", "PT"), ("Agência Brasil", "CartaCapital")),   # um veículo pode relatar dois lados
@@ -53,7 +55,7 @@ def test_resposta_valida_vira_lados_com_a_grafia_da_pauta():
 
 def test_um_lado_so_e_valido_e_o_motivo_e_opcional():
     um = {"lados": [_lado(veiculos=VEICULOS)]}
-    assert problemas_da_analise(um, VEICULOS) == []
+    assert analise_da_resposta(um, VEICULOS).problemas == []
     assert analisar_lados(Chamada(um), TEXTOS).lados == [Lado("Uma posição.", ("Meta",), ("Agência Brasil", "CartaCapital"))]
 
 
@@ -74,7 +76,7 @@ def test_um_lado_so_e_valido_e_o_motivo_e_opcional():
     ({"lados": ["Meta contra Lula"]}, "lado 1 não é um objeto"),
 ])
 def test_resposta_invalida_cai_em_um_lado_so_com_aviso_no_log(resposta, problema, caplog):
-    assert problema in problemas_da_analise(resposta, VEICULOS)
+    assert problema in analise_da_resposta(resposta, VEICULOS).problemas
     with caplog.at_level(logging.WARNING, logger="techdigest.ai.lados"):
         analise = analisar_lados(Chamada(resposta), TEXTOS)
     assert analise.lados == [Lado("", (), ("Agência Brasil", "CartaCapital"))] == lado_unico(VEICULOS)
@@ -88,6 +90,78 @@ def test_chamada_que_falha_cai_em_um_lado_so_com_aviso_no_log(caplog):
     assert analise.lados == lado_unico(VEICULOS)
     assert analise.problemas == ["a chamada falhou (ValueError: Modelo retornou resposta VAZIA.)"]
     assert "A pauta segue com um lado só." in caplog.text
+
+
+# ── Atores genéricos ──────────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("ator", [
+    "economistas", "especialistas", "analistas", "críticos", "observadores",    # coletivo sem nome
+    "o governo", "a empresa", "O Governo",                                      # designação vaga sem qualificador
+    "Especialistas e analistas", "alguns economistas", "um especialista",
+])
+def test_coletivo_sem_nome_e_designacao_vaga_sao_atores_genericos(ator):
+    assert ator_generico(ator)
+
+
+@pytest.mark.parametrize("ator", [
+    "Governo federal", "governo do Amazonas", "governo Lula",                   # com qualificador, vale
+    "Meta", "campanha de Lula", "Nunes Marques", "Grupo Prerrogativas",
+    "comandante do Corpo de Bombeiros do Amazonas", "economistas do Ipea",
+])
+def test_nome_ou_designacao_com_qualificador_nao_e_generico(ator):
+    assert not ator_generico(ator)
+
+
+def test_termos_genericos_vao_sem_acento_e_em_minusculas():
+    assert all(termo == termo.lower() and termo.isascii() for termo in modulo.TERMOS_GENERICOS)
+    assert {"economistas", "especialistas", "analistas", "criticos", "observadores", "governo", "empresa"} <= modulo.TERMOS_GENERICOS
+
+
+def test_lado_so_com_ator_generico_e_removido_e_os_demais_ficam(caplog):
+    resposta = {"lados": [_lado("Flávio propõe.", ["Flávio Bolsonaro"]), _lado("Alertam para o risco.", ["economistas"], ["CartaCapital"])],
+                "motivo": "Proposta contra alerta."}
+    with caplog.at_level(logging.INFO, logger="techdigest.ai.lados"):
+        analise = analisar_lados(Chamada(resposta), TEXTOS)
+    # sobrou um lado só: ele fica com todos os veículos da pauta, inclusive o que só o lado removido citava
+    assert analise.lados == [Lado("Flávio propõe.", ("Flávio Bolsonaro",), ("Agência Brasil", "CartaCapital"))]
+    assert analise.problemas == [] and analise.removidos == ["lado 2, só com ator genérico (economistas)"]
+    assert "saiu o que só tem ator genérico (lado 2, só com ator genérico (economistas))" in caplog.text
+
+    tres = {"lados": [_lado("A Meta nega.", ["Meta"]), _lado("Críticos veem risco.", ["críticos", "o governo"], VEICULOS),
+                      _lado("A campanha acusa.", ["campanha de Lula"], ["CartaCapital"])]}
+    analise = analise_da_resposta(tres, VEICULOS)
+    assert [lado.atores for lado in analise.lados] == [("Meta",), ("campanha de Lula",)]
+    assert [lado.veiculos for lado in analise.lados] == [("Agência Brasil",), ("CartaCapital",)]   # com dois lados, cada um mantém os seus
+    assert analise.problemas == [] and analise.removidos == ["lado 2, só com ator genérico (críticos, o governo)"]
+
+
+def test_ator_generico_sai_do_lado_que_tem_outro_ator():
+    resposta = {"lados": [_lado("A Meta nega.", ["Meta", "especialistas"]), _lado("A campanha acusa.", ["campanha de Lula"], ["CartaCapital"])]}
+    analise = analise_da_resposta(resposta, VEICULOS)
+    assert [lado.atores for lado in analise.lados] == [("Meta",), ("campanha de Lula",)]
+    assert analise.problemas == [] and analise.removidos == ["ator genérico do lado 1 (especialistas)"]
+
+
+def test_se_todos_os_lados_sao_de_ator_generico_vale_um_lado_so(caplog):
+    resposta = {"lados": [_lado("O governo defende.", ["o governo"], VEICULOS), _lado("Criticam.", ["especialistas"], VEICULOS)]}
+    with caplog.at_level(logging.WARNING, logger="techdigest.ai.lados"):
+        analise = analisar_lados(Chamada(resposta), TEXTOS)
+    assert analise.lados == lado_unico(VEICULOS) and analise.problemas == ["nenhum lado com ator específico"]
+    assert len(analise.removidos) == 2 and "a pauta segue com um lado só" in caplog.text
+
+
+def test_os_lados_que_ficam_ainda_passam_pela_validacao():
+    # quatro lados com um genérico: ficam três, e a resposta vale
+    quatro = {"lados": [_lado(atores=[a], veiculos=VEICULOS) for a in ("Meta", "PT", "analistas", "TSE")]}
+    assert len(analise_da_resposta(quatro, VEICULOS).lados) == 3
+    # o veículo que só o lado removido citava fica sem lado quando sobram dois: um lado só, com aviso
+    orfao = {"lados": [_lado(atores=["Meta"]), _lado(atores=["PT"]), _lado(atores=["analistas"], veiculos=["CartaCapital"])]}
+    analise = analise_da_resposta(orfao, VEICULOS)
+    assert analise.lados == lado_unico(VEICULOS) and analise.problemas == ["veículo da pauta em nenhum lado (CartaCapital)"]
+    # o número do lado na mensagem é o da resposta do LLM
+    repetido = {"lados": [_lado(atores=["fontes"], veiculos=VEICULOS), _lado(atores=["Meta", "PT"], veiculos=VEICULOS),
+                          _lado(atores=["PT"], veiculos=VEICULOS)]}
+    assert analise_da_resposta(repetido, VEICULOS).problemas == ["lado 3 sem ator que não esteja em outro lado"]
 
 
 # ── A chamada ─────────────────────────────────────────────────────────────────────────────

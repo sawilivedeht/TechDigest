@@ -27,8 +27,8 @@ nem omita lado.
 
 ### titulo_reescrito
 Título curto e chamativo, sem sensacionalismo, fiel ao conteúdo.
-- O título NÃO tem percentuais, "x vezes" nem proporções ("metade", "um terço", "três em \
-cada quatro"): esses números ficam no resumo e no roteiro. Quantidade absoluta pode \
+- O título NÃO tem percentuais, "x vezes" (nem "dobro", "triplo" ou "quádruplo") nem proporções \
+("metade", "um terço", "três em cada quatro"): esses números ficam no resumo e no roteiro. Quantidade absoluta pode \
 aparecer ("12 mortos", "mais de 100 mortos").
 - O título deriva do resumo_didatico: não afirma nada que o resumo não afirme.
 
@@ -119,26 +119,34 @@ menos. Com um lado só, houve_divergencia é false. Com 2 ou 3 lados, houve_dive
 e cada analista apresenta a posição do seu lado numa frase que nomeia um ator do lado, cita \
 um veículo do lado e usa um verbo de posição (""" + INFINITIVOS + """). Helena só media, sem \
 tomar posição. Não crie lado que o bloco não traz. O título não leva percentuais, "x vezes" \
-nem proporções e não afirma nada que o resumo_didatico não afirme."""
+(nem "dobro" ou "triplo") nem proporções e não afirma nada que o resumo_didatico não afirme."""
 
 PROMPT_LADOS = """Você é o editor de pauta dos boletins TechDigest/PulsoBR. Receberá os textos de UMA pauta: \
 uma notícia, ou algumas notícias da mesma história, cada uma com veículo e título. Diga quantos LADOS \
 a história tem.
 
 ## O QUE É UM LADO
-Lado é uma posição em disputa no fato, de um ator ou de um veículo: acusação contra defesa, decisão \
-contra crítica, afirmação contra negação.
+Lado é um campo da disputa no fato, não um argumento: acusação contra defesa, decisão contra crítica, \
+afirmação contra negação. Quem sustenta um lado é um ator ou um veículo.
+Atores que concordam ficam no MESMO lado, mesmo com argumentos diferentes (ex.: quem critica a decisão \
+e quem defende o canal atingido por ela). Um terceiro lado só existe se a posição dele se opõe às \
+outras duas.
 NÃO criam lado: informação complementar, detalhes diferentes entre os textos, a simples sequência dos \
 fatos, o contexto ou o histórico do assunto.
 Na dúvida, a história tem UM lado só.
 
+## QUEM É ATOR
+- Ator é quem sustenta a posição, pelo nome ou por uma designação específica, na forma que os textos \
+mais usam (ex.: "Lula", "Nunes Marques", "Meta", "campanha de Lula"). Não expanda para o nome completo.
+- NÃO são atores: coletivo sem nome (economistas, especialistas, analistas, críticos, observadores) e \
+designação vaga sem qualificador ("o governo", "a empresa"). Com qualificador a designação vale: \
+"governo federal" e "governo do Amazonas" são atores.
+- Uma posição sustentada só por quem não é ator NÃO forma lado: é uma ressalva ao lado que existe.
+
 ## REGRAS
-- De 1 a 3 lados. Se houver mais de 3 posições, junte as parecidas até chegar a 3.
+- De 1 a 3 lados. Se houver mais de 3 campos, junte os mais próximos.
 - "posicao": uma frase com o que aquele lado sustenta. Com um lado só, é o fato central da história.
-- "atores": quem sustenta a posição, pelo nome ou por uma designação específica e curta, como aparece \
-nos textos (ex.: "Meta", "campanha de Lula", "Nunes Marques"). Nunca termos genéricos como "o governo", \
-"a empresa", "especialistas" ou "críticos". Cada lado tem pelo menos um ator que não está em nenhum \
-outro lado.
+- "atores": os atores do lado. Cada lado tem pelo menos um ator que não está em nenhum outro lado.
 - "veiculos": os veículos, entre os recebidos, cujo texto relata a posição daquele lado. Um mesmo \
 veículo pode relatar mais de um lado, e todo veículo recebido aparece em pelo menos um lado. Escreva \
 o nome do veículo como foi recebido.

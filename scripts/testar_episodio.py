@@ -223,6 +223,7 @@ def _lados(analise, chamadas: list[dict]) -> dict:
     chamada = next((ch for ch in chamadas if ch["prompt"] == "lados"), {})
     registro = {
         "quantos": len(analise.lados), "motivo": analise.motivo, "invalida_porque": analise.problemas,
+        "removidos": analise.removidos,
         "lados": [{"posicao": lado.posicao, "atores": list(lado.atores), "veiculos": list(lado.veiculos)} for lado in analise.lados],
         "resposta_do_llm": analise.resposta, "segundos": round(chamada.get("segundos", 0.0), 1),
         "tokens_entrada": chamada.get("tokens_entrada"), "tokens_saida": chamada.get("tokens_saida"),
@@ -233,6 +234,8 @@ def _lados(analise, chamadas: list[dict]) -> dict:
         print(f"    lado {i}: {lado['posicao'] or '(sem posição: lado único de emergência)'}")
         print(f"            atores: {', '.join(lado['atores']) or '-'} · veículos: {', '.join(lado['veiculos'])}")
     print(f"    motivo: {registro['motivo'] or '-'}")
+    for removido in analise.removidos:
+        print(f"    removido: {removido}")
     if analise.problemas:
         print(f"    RESPOSTA INVÁLIDA, a pauta ficou com um lado só: {'; '.join(analise.problemas)}")
         print(f"    resposta do LLM: {json.dumps(analise.resposta, ensure_ascii=False)}")

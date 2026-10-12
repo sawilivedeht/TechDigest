@@ -5,10 +5,10 @@ vão para o episódio. O número de lados define o elenco (um analista por lado)
 houve_divergencia; quem confere isso no episódio é `qa.problemas_dos_analistas`.
 """
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from techdigest.ai.prompt import PROMPT_LADOS
-from techdigest.ai.qa import atores_exclusivos, mesmo_veiculo, veiculos_distintos
+from techdigest.ai.qa import atores_exclusivos, mesmo_veiculo, palavras_do_ator, veiculos_distintos
 
 logger = logging.getLogger("techdigest.ai.lados")
 
@@ -21,6 +21,20 @@ MAX_POSICAO = 220           # caracteres da frase de cada lado no bloco
 MIN_POSICAO = 60
 # Alvo de palavras por personagem conforme o número de analistas: com Helena, o total cabe em 600-1300.
 ALVO_POR_PERSONAGEM = {1: "360 a 420", 2: "320 a 400", 3: "260 a 310"}
+# Termos que não fazem um ator, sem acento: coletivo sem nome ("economistas"), designação vaga sem
+# qualificador ("o governo", "a empresa") e os quantificadores que os acompanham ("alguns analistas").
+# É genérico o ator que só tem palavras daqui: "governo federal" e "governo do Amazonas" valem.
+TERMOS_GENERICOS = frozenset({
+    "economista", "economistas", "especialista", "especialistas", "analista", "analistas", "critico", "criticos",
+    "observador", "observadores", "pesquisador", "pesquisadores", "estudioso", "estudiosos", "cientista", "cientistas",
+    "jurista", "juristas", "tecnico", "tecnicos", "comentarista", "comentaristas", "autoridade", "autoridades",
+    "fonte", "fontes", "opositor", "opositores", "adversario", "adversarios", "aliado", "aliados",
+    "apoiador", "apoiadores", "parlamentar", "parlamentares", "politico", "politicos",
+    "governo", "governos", "empresa", "empresas", "companhia", "companhias", "entidade", "entidades",
+    "organizacao", "organizacoes", "instituicao", "instituicoes", "orgao", "orgaos",
+    "um", "uma", "uns", "umas", "algum", "alguma", "alguns", "algumas", "varios", "varias", "outro", "outra",
+    "outros", "outras", "muitos", "muitas", "diversos", "diversas",
+})
 
 
 @dataclass(frozen=True)
@@ -37,6 +51,7 @@ class Analise:
     lados: list[Lado]
     motivo: str = ""
     problemas: list[str] = field(default_factory=list)   # por que a resposta não valeu (e a pauta ficou com um lado só)
+    removidos: list[str] = field(default_factory=list)   # os atores genéricos e os lados que saíram com eles
     resposta: dict | None = None
 
 
@@ -65,19 +80,12 @@ def _ler(lados: list[dict], da_pauta: list[str]) -> list[Lado]:
     ]
 
 
-def problemas_da_analise(resposta, veiculos) -> list[str]:
-    """Por que a resposta do LLM não serve para a pauta destes veículos; lista vazia = válida.
+def ator_generico(nome) -> bool:
+    """Se o nome não chega a ser um ator: só tem termos de TERMOS_GENERICOS (sem contar artigo nem partícula)."""
+    return palavras_do_ator(nome) <= TERMOS_GENERICOS
 
-    Vale de 1 a 3 lados, cada um com posição, pelo menos um ator e pelo menos um veículo, todos da
-    pauta (pela comparação tolerante de `qa.mesmo_veiculo`); cada lado com um ator que nenhum
-    outro lado tem; e todo veículo da pauta em pelo menos um lado.
-    """
-    lados = resposta.get("lados") if isinstance(resposta, dict) else None
-    if not isinstance(lados, list):
-        return ["resposta sem a lista de lados"]
-    if not 1 <= len(lados) <= MAX_LADOS:
-        return [f"resposta com {len(lados)} lados (vale de 1 a {MAX_LADOS})"]
-    da_pauta = veiculos_distintos(veiculos)
+
+def _problemas_dos_campos(lados: list, da_pauta: list[str]) -> list[str]:
     probs = []
     for i, lado in enumerate(lados, 1):
         if not isinstance(lado, dict):
@@ -92,19 +100,70 @@ def problemas_da_analise(resposta, veiculos) -> list[str]:
             probs.append(f"lado {i} sem veículo")
         elif fora := [v for v in citados if not any(mesmo_veiculo(v, p) for p in da_pauta)]:
             probs.append(f"lado {i} com veículo fora da pauta ({', '.join(fora)})")
-    if probs:
-        return probs
-    lidos = _ler(lados, da_pauta)
-    probs += [f"lado {i} sem ator que não esteja em outro lado" for i, proprios in enumerate(atores_exclusivos(lidos), 1) if not proprios]
-    sem_lado = [v for v in da_pauta if not any(v in lado.veiculos for lado in lidos)]
-    if sem_lado:
-        probs.append(f"veículo da pauta em nenhum lado ({', '.join(sem_lado)})")
     return probs
+
+
+def _sem_genericos(lidos: list[Lado]) -> tuple[dict[int, Lado], list[str]]:
+    """Tira os atores genéricos; o lado que fica sem ator sai. Devolve os lados que ficam, pelo número, e o que saiu."""
+    ficam, removidos = {}, []
+    for i, lado in enumerate(lidos, 1):
+        genericos = [a for a in lado.atores if ator_generico(a)]
+        especificos = tuple(a for a in lado.atores if a not in genericos)
+        if not especificos:
+            removidos.append(f"lado {i}, só com ator genérico ({', '.join(genericos)})")
+            continue
+        if genericos:
+            removidos.append(f"ator genérico do lado {i} ({', '.join(genericos)})")
+        ficam[i] = replace(lado, atores=especificos)
+    return ficam, removidos
 
 
 def lado_unico(veiculos) -> list[Lado]:
     """A saída de emergência: um lado só, com todos os veículos da pauta."""
     return [Lado(posicao="", atores=(), veiculos=tuple(veiculos_distintos(veiculos)))]
+
+
+def analise_da_resposta(resposta, veiculos) -> Analise:
+    """A análise que vale para a pauta destes veículos, a partir da resposta do LLM (função pura).
+
+    Cada lado tem posição, pelo menos um ator e pelo menos um veículo, todos da pauta (pela
+    comparação tolerante de `qa.mesmo_veiculo`). Ator genérico (`ator_generico`) não conta: sai da
+    lista, e o lado que fica sem ator é removido; se sobrar um lado só, ele fica com todos os
+    veículos da pauta. Dos lados que ficam, vale de 1 a 3, cada um com um ator que nenhum outro
+    tem, e todo veículo da pauta em pelo menos um deles.
+
+    Resposta que não cumpre isso (ou que só tem lados de ator genérico) vira o lado único de
+    emergência, com o motivo em `problemas`.
+    """
+    da_pauta = veiculos_distintos(veiculos)
+
+    def invalida(*probs: str, removidos=()) -> Analise:
+        return Analise(lado_unico(da_pauta), problemas=list(probs), removidos=list(removidos), resposta=resposta)
+
+    lados = resposta.get("lados") if isinstance(resposta, dict) else None
+    if not isinstance(lados, list):
+        return invalida("resposta sem a lista de lados")
+    if probs := _problemas_dos_campos(lados, da_pauta):
+        return invalida(*probs)
+    ficam, removidos = _sem_genericos(_ler(lados, da_pauta))
+    if lados and not ficam:
+        return invalida("nenhum lado com ator específico", removidos=removidos)
+    if not 1 <= len(ficam) <= MAX_LADOS:
+        return invalida(f"resposta com {len(ficam)} lados (vale de 1 a {MAX_LADOS})", removidos=removidos)
+    if len(ficam) == 1 and len(lados) > 1:   # o que os lados removidos traziam é ressalva do que ficou
+        ficam = {i: replace(lado, veiculos=tuple(da_pauta)) for i, lado in ficam.items()}
+    validos = list(ficam.values())
+    probs = [
+        f"lado {i} sem ator que não esteja em outro lado"
+        for i, proprios in zip(ficam, atores_exclusivos(validos)) if not proprios
+    ]
+    sem_lado = [v for v in da_pauta if not any(v in lado.veiculos for lado in validos)]
+    if sem_lado:
+        probs.append(f"veículo da pauta em nenhum lado ({', '.join(sem_lado)})")
+    if probs:
+        return invalida(*probs, removidos=removidos)
+    motivo = resposta.get("motivo")
+    return Analise(validos, motivo.strip() if isinstance(motivo, str) else "", removidos=removidos, resposta=resposta)
 
 
 def analisar_lados(chamar, textos) -> Analise:
@@ -122,14 +181,14 @@ def analisar_lados(chamar, textos) -> Analise:
         problema = f"a chamada falhou ({type(e).__name__}: {str(e)[:200]})"
         logger.warning("Análise de lados: %s. A pauta segue com um lado só.", problema)
         return Analise(lado_unico(veiculos), problemas=[problema])
-    probs = problemas_da_analise(resposta, veiculos)
-    if probs:
-        logger.warning("Análise de lados inválida (%s): a pauta segue com um lado só.", "; ".join(probs))
-        return Analise(lado_unico(veiculos), problemas=probs, resposta=resposta)
-    lados = _ler(resposta["lados"], veiculos_distintos(veiculos))
-    logger.info("Lados da pauta: %d (%s)", len(lados), " × ".join(", ".join(lado.atores) for lado in lados))
-    motivo = resposta.get("motivo")
-    return Analise(lados, motivo.strip() if isinstance(motivo, str) else "", resposta=resposta)
+    analise = analise_da_resposta(resposta, veiculos)
+    if analise.removidos:
+        logger.info("Análise de lados: saiu o que só tem ator genérico (%s).", "; ".join(analise.removidos))
+    if analise.problemas:
+        logger.warning("Análise de lados inválida (%s): a pauta segue com um lado só.", "; ".join(analise.problemas))
+    else:
+        logger.info("Lados da pauta: %d (%s)", len(analise.lados), " × ".join(", ".join(lado.atores) for lado in analise.lados))
+    return analise
 
 
 def _encurtar(texto: str, limite: int) -> str:
