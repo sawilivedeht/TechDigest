@@ -1,4 +1,4 @@
-"""Testes de ai/lados.py sem LLM: a validação da resposta, a nova tentativa, o lado de emergência e o bloco da entrada."""
+"""Testes de ai/lados.py sem LLM: a validação da resposta, as ressalvas, a nova tentativa, o lado neutro e o bloco da entrada."""
 import json
 import logging
 
@@ -6,7 +6,7 @@ import pytest
 
 from techdigest.ai import lados as modulo
 from techdigest.ai.lados import (
-    Lado, analisar_lados, analise_da_resposta, ator_generico, bloco_dos_lados, entrada_dos_lados, lado_unico,
+    Lado, Ressalva, analisar_lados, analise_da_resposta, ator_generico, bloco_dos_lados, entrada_dos_lados, lado_unico,
     pedido_de_correcao,
 )
 from techdigest.ai.prompt import PROMPT_LADOS
@@ -19,8 +19,10 @@ TEXTOS = [
 EMERGENCIA = [Lado("relato dos fatos, sem lados definidos", (), ("Agência Brasil", "CartaCapital"))]
 
 
-def _lado(posicao="Uma posição.", atores=("Meta",), veiculos=("Agência Brasil",), resposta=None) -> dict:
+def _lado(posicao="Uma posição.", atores=("Meta",), veiculos=("Agência Brasil",), resposta=None, grupos=None) -> dict:
     lado = {"posicao": posicao, "atores": list(atores), "veiculos": list(veiculos)}
+    if grupos is not None:
+        lado["grupos"] = list(grupos)
     return lado if resposta is None else {"resposta": resposta, **lado}
 
 
@@ -91,27 +93,30 @@ def test_sem_disputa_a_questao_fica_vazia_e_ha_um_lado_so():
      "lado 1 com veículo fora da pauta (Folha de S.Paulo)"),
     (_disputa(_lado(), _lado(atores=["PT"])), "veículo da pauta em nenhum lado (CartaCapital)"),
     ({"lados": [_lado(posicao=" ", veiculos=VEICULOS)]}, "lado 1 sem posição"),
-    ({"lados": [_lado(atores=[], veiculos=VEICULOS)]}, "lado 1 sem ator"),
+    ({"lados": [{**_lado(veiculos=VEICULOS), "atores": "Meta"}]}, 'lado 1 com "atores" fora do formato (é uma lista de nomes)'),
+    ({"lados": [_lado(veiculos=VEICULOS, grupos=[1])]}, 'lado 1 com "grupos" fora do formato (é uma lista de nomes)'),
     ({"lados": [_lado(veiculos=[])]}, "lado 1 sem veículo"),
+    # cada ressalva precisa de pelo menos um veículo da pauta
+    ({"lados": [_lado(veiculos=VEICULOS), _lado(atores=[], veiculos=[], grupos=["economistas"])]}, "lado 2 sem veículo"),
+    ({"lados": [_lado(veiculos=VEICULOS), _lado(atores=[], veiculos=["Folha"], grupos=["economistas"])]},
+     "lado 2 com veículo fora da pauta (Folha)"),
     ({"lados": ["Meta contra Lula"]}, "lado 1 não é um objeto"),
     # a questão e os lados andam juntos
     ({"questao": "", "lados": [_lado(veiculos=VEICULOS), _lado(atores=["PT"], veiculos=VEICULOS)]},
      "questão vazia com 2 lados (questão vazia exige exatamente 1 lado)"),
-    ({"questao": "A Meta favoreceu um candidato?", "lados": [_lado(veiculos=VEICULOS)]},
-     "questão preenchida com 1 lado (questão preenchida exige de 2 a 3 lados; sem disputa, a questão fica vazia)"),
     ({"questao": "Houve favorecimento?", "lados": [_lado(veiculos=VEICULOS, resposta="Sim"), _lado(atores=["PT"], veiculos=VEICULOS)]},
      "lado 2 sem resposta à questão"),
     ({"questao": "Houve favorecimento?",
       "lados": [_lado(veiculos=VEICULOS, resposta="Não."), _lado(atores=["PT"], veiculos=VEICULOS, resposta="nao")]},
      "lados 1 e 2 com a mesma resposta à questão (Não.)"),
 ])
-def test_resposta_invalida_nas_duas_tentativas_vira_o_lado_de_emergencia(resposta, problema, caplog):
+def test_resposta_invalida_nas_duas_tentativas_vira_o_lado_neutro(resposta, problema, caplog):
     assert problema in analise_da_resposta(resposta, VEICULOS).problemas
     chamada = Chamada(resposta)
     with caplog.at_level(logging.WARNING, logger="techdigest.ai.lados"):
         analise = analisar_lados(chamada, TEXTOS)
-    # o lado único não vai vazio para a geração: leva a posição de emergência
-    assert analise.lados == EMERGENCIA == lado_unico(VEICULOS) and analise.questao == ""
+    # o lado único não vai vazio para a geração: leva a posição de emergência (e nenhuma ressalva)
+    assert analise.lados == EMERGENCIA == lado_unico(VEICULOS) and analise.questao == "" and analise.ressalvas == []
     assert problema in analise.problemas and analise.resposta is resposta
     assert len(chamada.recebido) == 2 and problema in analise.primeira.problemas
     assert "Nova tentativa, com o erro anexado." in caplog.text
@@ -132,7 +137,8 @@ def test_resposta_invalida_ganha_nova_tentativa_com_o_erro_anexado():
         "\n\nCORREÇÃO: a sua resposta anterior não valeu: resposta com 4 lados (vale de 1 a 3).\n"
         "Resposta anterior: " + json.dumps(QUATRO_LADOS, ensure_ascii=False) + "\n"
         "Responda de novo, com o JSON completo. Uma questão só; cada lado é uma resposta diferente a ela; agrupe os "
-        "atores pela resposta que dão à questão, nunca um lado por ator; sem disputa, a questão fica vazia e há um lado só."
+        "atores pela resposta que dão à questão, nunca um lado por ator; sem disputa, a questão fica vazia e há um lado só; "
+        'coletivo sem nome vai em "grupos", nunca em "atores".'
     )
 
 
@@ -155,10 +161,7 @@ def test_duas_chamadas_que_falham_viram_o_lado_de_emergencia(caplog):
     assert "a pauta segue com um lado só, sem lados definidos" in caplog.text
 
 
-def test_o_pedido_de_correcao_diz_o_que_nao_conta_como_ator_e_corta_a_resposta_comprida():
-    so_genericos = _disputa(_lado(atores=["o governo"], veiculos=VEICULOS), _lado(atores=["especialistas"], veiculos=VEICULOS))
-    pedido = pedido_de_correcao(analise_da_resposta(so_genericos, VEICULOS))
-    assert "não valeu: nenhum lado com ator específico.\nNão contam como atores: lado 1, só com ator genérico (o governo); " in pedido
+def test_o_pedido_de_correcao_corta_a_resposta_comprida():
     comprida = {"lados": [_lado(posicao="x" * 5000, veiculos=[])]}
     assert len(pedido_de_correcao(analise_da_resposta(comprida, VEICULOS))) < modulo.MAX_ANTERIOR + 500
 
@@ -188,50 +191,88 @@ def test_termos_genericos_vao_sem_acento_e_em_minusculas():
     assert {"economistas", "especialistas", "analistas", "criticos", "observadores", "governo", "empresa"} <= modulo.TERMOS_GENERICOS
 
 
-def test_lado_so_com_ator_generico_e_removido_e_os_demais_ficam(caplog):
-    resposta = {**_disputa(_lado("Flávio propõe.", ["Flávio Bolsonaro"]), _lado("Alertam para o risco.", ["economistas"], ["CartaCapital"]),
-                           questao="A flexibilização é boa para o Brasil?"),
-                "motivo": "Proposta contra alerta."}
+# ── Ressalvas ─────────────────────────────────────────────────────────────────────────────
+
+FLAVIO = _lado("Flávio propõe flexibilizar o Mercosul.", ["Flávio Bolsonaro", "Milei"], ["Agência Brasil"], "Sim")
+ALERTA = "A flexibilização pode enfraquecer a tarifa comum."
+
+
+def test_lado_com_atores_vazios_e_grupos_vira_ressalva_e_a_questao_sai(caplog):
+    resposta = {"questao": "A flexibilização é boa para o Brasil?", "motivo": "Proposta contra alerta.",
+                "lados": [FLAVIO, _lado(ALERTA, [], ["CartaCapital"], "Não", grupos=["economistas"])]}
     chamada = Chamada(resposta)
     with caplog.at_level(logging.INFO, logger="techdigest.ai.lados"):
         analise = analisar_lados(chamada, TEXTOS)
-    # sobrou um lado só: a disputa era com quem não é ator, então a questão sai e o lado fica com todos os veículos
-    assert analise.lados == [Lado("Flávio propõe.", ("Flávio Bolsonaro",), ("Agência Brasil", "CartaCapital"))]
-    assert analise.questao == "" and analise.problemas == [] and len(chamada.recebido) == 1
-    assert analise.removidos == ["lado 2, só com ator genérico (economistas)"]
-    assert "saiu o que só tem ator genérico (lado 2, só com ator genérico (economistas))" in caplog.text
-
-    tres = _disputa(_lado("A Meta nega.", ["Meta"]), _lado("Críticos veem risco.", ["críticos", "o governo"], VEICULOS),
-                    _lado("A campanha acusa.", ["campanha de Lula"], ["CartaCapital"]))
-    analise = analise_da_resposta(tres, VEICULOS)
-    assert [lado.atores for lado in analise.lados] == [("Meta",), ("campanha de Lula",)]
-    assert [lado.veiculos for lado in analise.lados] == [("Agência Brasil",), ("CartaCapital",)]   # com dois lados, cada um mantém os seus
-    assert [lado.resposta for lado in analise.lados] == ["Resposta 1", "Resposta 3"] and analise.questao    # e a questão continua
-    assert analise.problemas == [] and analise.removidos == ["lado 2, só com ator genérico (críticos, o governo)"]
+    # sobrou um lado com ator nomeado: a questão e a resposta dele saem, e a ressalva guarda o grupo e o veículo
+    assert analise.lados == [Lado("Flávio propõe flexibilizar o Mercosul.", ("Flávio Bolsonaro", "Milei"), ("Agência Brasil",))]
+    assert analise.ressalvas == [Ressalva(("economistas",), ALERTA, ("CartaCapital",))]     # o veículo só da ressalva conta como coberto
+    assert analise.questao == "" and analise.problemas == [] and analise.ajustes == []
+    assert len(chamada.recebido) == 1                                                       # não é resposta inválida: não há nova tentativa
+    assert "Lados da pauta: 1 (Flávio Bolsonaro, Milei) · ressalvas: economistas" in caplog.text
 
 
-def test_ator_generico_sai_do_lado_que_tem_outro_ator():
-    resposta = _disputa(_lado("A Meta nega.", ["Meta", "especialistas"]), _lado("A campanha acusa.", ["campanha de Lula"], ["CartaCapital"]))
+def test_lado_so_com_atores_genericos_vira_ressalva_com_os_termos_em_grupos():
+    resposta = _disputa(FLAVIO, _lado(ALERTA, ["economistas", "o governo"], VEICULOS, grupos=["analistas", "economistas"]))
+    analise = analise_da_resposta(resposta, VEICULOS)
+    assert [lado.atores for lado in analise.lados] == [("Flávio Bolsonaro", "Milei")]
+    assert analise.ressalvas == [Ressalva(("analistas", "economistas", "o governo"), ALERTA, ("Agência Brasil", "CartaCapital"))]
+    assert analise.ajustes == ["ator genérico do lado 2 passou a grupo (economistas, o governo)"] and analise.problemas == []
+
+
+def test_lado_sem_ator_nem_grupo_tambem_vira_ressalva():
+    analise = analise_da_resposta(_disputa(FLAVIO, _lado(ALERTA, [], ["CartaCapital"])), VEICULOS)
+    assert analise.ressalvas == [Ressalva((), ALERTA, ("CartaCapital",))] and len(analise.lados) == 1
+    assert analise.ajustes == ["lado 2, sem ator nem grupo, virou ressalva"]
+
+
+def test_em_lado_misto_o_grupo_sai_e_nao_vira_ressalva():
+    resposta = _disputa(_lado("A Meta nega.", ["Meta", "especialistas"], grupos=["analistas"]),
+                        _lado("A campanha acusa.", ["campanha de Lula"], ["CartaCapital"]))
     analise = analise_da_resposta(resposta, VEICULOS)
     assert [lado.atores for lado in analise.lados] == [("Meta",), ("campanha de Lula",)]
-    assert analise.problemas == [] and analise.removidos == ["ator genérico do lado 1 (especialistas)"]
+    assert analise.ressalvas == [] and analise.problemas == [] and analise.questao        # com dois lados nomeados, a questão fica
+    assert analise.ajustes == ["ator genérico do lado 1 passou a grupo (especialistas)"]
 
 
-def test_se_todos_os_lados_sao_de_ator_generico_a_resposta_nao_vale():
-    resposta = _disputa(_lado("O governo defende.", ["o governo"], VEICULOS), _lado("Criticam.", ["especialistas"], VEICULOS))
-    analise = analise_da_resposta(resposta, VEICULOS)
-    assert analise.lados == EMERGENCIA and analise.problemas == ["nenhum lado com ator específico"]
-    assert len(analise.removidos) == 2
+def test_com_mais_de_duas_ressalvas_ficam_as_duas_primeiras(caplog):
+    resposta = {"lados": [_lado(veiculos=VEICULOS), *(_lado(f"Ressalva {g}.", [], VEICULOS, grupos=[g])
+                                                      for g in ("economistas", "juristas", "moradores"))]}
+    with caplog.at_level(logging.WARNING, logger="techdigest.ai.lados"):
+        analise = analisar_lados(Chamada(resposta), TEXTOS)
+    assert [r.grupos for r in analise.ressalvas] == [("economistas",), ("juristas",)]
+    assert [r.grupos for r in analise.descartadas] == [("moradores",)] and analise.problemas == []
+    assert analise.ajustes == ["1 ressalva(s) a mais: ficam as 2 primeiras"]
+    assert "1 ressalva(s) a mais na pauta; ficam as 2 primeiras" in caplog.text
 
 
-def test_os_lados_que_ficam_ainda_passam_pela_validacao():
-    # quatro lados com um genérico: ficam três, e a resposta vale
+def test_sem_nenhum_lado_nomeado_fica_o_lado_neutro_com_as_ressalvas():
+    resposta = _disputa(_lado("O governo defende a medida.", ["o governo"], VEICULOS), _lado("Criticam a medida.", [], VEICULOS, grupos=["especialistas"]))
+    chamada = Chamada(resposta)
+    analise = analisar_lados(chamada, TEXTOS)
+    assert analise.lados == EMERGENCIA and analise.questao == "" and analise.problemas == [] and len(chamada.recebido) == 1
+    assert analise.ressalvas == [
+        Ressalva(("o governo",), "O governo defende a medida.", ("Agência Brasil", "CartaCapital")),
+        Ressalva(("especialistas",), "Criticam a medida.", ("Agência Brasil", "CartaCapital")),
+    ]
+    assert analise.ajustes == ["ator genérico do lado 1 passou a grupo (o governo)", "nenhum lado com ator nomeado: a pauta fica com o lado neutro"]
+
+
+def test_a_questao_so_fica_com_dois_lados_nomeados_ou_mais():
+    # um lado nomeado, com ou sem ressalva: a questão sai, sem recusa
+    um = analise_da_resposta({"questao": "A Meta favoreceu um candidato?", "lados": [_lado(veiculos=VEICULOS, resposta="Não")]}, VEICULOS)
+    assert um.problemas == [] and um.questao == "" and um.lados == [Lado("Uma posição.", ("Meta",), ("Agência Brasil", "CartaCapital"))]
+    # dois lados nomeados e uma ressalva: a questão fica
+    tres = analise_da_resposta(_disputa(_lado("A Meta nega.", ["Meta"]), _lado("Veem risco.", ["críticos"], VEICULOS),
+                                        _lado("A campanha acusa.", ["campanha de Lula"], ["CartaCapital"])), VEICULOS)
+    assert tres.questao == "A Meta favoreceu um candidato?" and [lado.resposta for lado in tres.lados] == ["Resposta 1", "Resposta 3"]
+    assert [r.grupos for r in tres.ressalvas] == [("críticos",)] and tres.problemas == []
+
+
+def test_os_lados_nomeados_ainda_passam_pela_validacao():
+    # quatro lados, um deles só de grupo: ficam três lados e uma ressalva, e a resposta vale
     quatro = _disputa(*(_lado(atores=[a], veiculos=VEICULOS) for a in ("Meta", "PT", "analistas", "TSE")))
-    assert len(analise_da_resposta(quatro, VEICULOS).lados) == 3
-    # o veículo que só o lado removido citava fica sem lado quando sobram dois
-    orfao = _disputa(_lado(atores=["Meta"]), _lado(atores=["PT"]), _lado(atores=["analistas"], veiculos=["CartaCapital"]))
-    analise = analise_da_resposta(orfao, VEICULOS)
-    assert analise.lados == EMERGENCIA and analise.problemas == ["veículo da pauta em nenhum lado (CartaCapital)"]
+    analise = analise_da_resposta(quatro, VEICULOS)
+    assert len(analise.lados) == 3 and len(analise.ressalvas) == 1 and analise.problemas == []
     # o número do lado na mensagem é o da resposta do LLM
     repetido = _disputa(_lado(atores=["fontes"], veiculos=VEICULOS), _lado(atores=["Meta", "PT"], veiculos=VEICULOS),
                         _lado(atores=["PT"], veiculos=VEICULOS))
@@ -274,18 +315,37 @@ def test_bloco_diz_a_questao_os_lados_o_elenco_exato_e_o_alvo_de_palavras():
     assert bloco_dos_lados(um.lados, um.questao) == (
         "\nLADOS DA PAUTA: 1 lado.\n"
         "Lado 1: Uma posição. Atores: Meta. Veículos: Agência Brasil, CartaCapital.\n"
-        'ELENCO: Helena e exatamente 1 analista, que aprofunda o tema com ela; "houve_divergencia": false. '
+        'ELENCO: Helena e exatamente 1 analista, que explica o tema com ela, sem advogar; "houve_divergencia": false. '
         "Alvo: 360 a 420 palavras por personagem."
     )
     tres = [Lado("p", (f"Ator {i}",), ("G1",), f"Resposta {i}") for i in range(3)]
     assert "exatamente 3 analistas, um por lado" in bloco_dos_lados(tres, "Q?") and "Alvo: 260 a 310" in bloco_dos_lados(tres, "Q?")
 
 
-def test_bloco_do_lado_de_emergencia_leva_a_posicao_e_os_veiculos():
+def test_bloco_traz_as_ressalvas_logo_depois_dos_lados():
+    lados = [Lado("Flávio propõe flexibilizar o Mercosul.", ("Flávio Bolsonaro", "Milei"), ("Gazeta do Povo",))]
+    ressalvas = [Ressalva(("economistas",), ALERTA, ("Gazeta do Povo",)), Ressalva((), "Há risco fiscal", ("Gazeta do Povo",))]
+    assert bloco_dos_lados(lados, "", ressalvas) == (
+        "\nLADOS DA PAUTA: 1 lado.\n"
+        "Lado 1: Flávio propõe flexibilizar o Mercosul. Atores: Flávio Bolsonaro, Milei. Veículos: Gazeta do Povo.\n"
+        "Ressalva 1: A flexibilização pode enfraquecer a tarifa comum. Grupos: economistas. Veículos: Gazeta do Povo.\n"
+        "Ressalva 2: Há risco fiscal. Veículos: Gazeta do Povo.\n"
+        "ELENCO: Helena e exatamente 1 analista, que explica a posição e responde às ressalvas com o que as fontes dizem, "
+        'sem tomar partido; "houve_divergencia": false. Ressalva não é lado nem ganha analista: Helena traz cada uma como '
+        "pergunta atribuída, sem avaliá-la, numa frase com o veículo, o grupo e um verbo de posição, como em "
+        '"Segundo <veículo>, <grupo> alertam que... Como você vê isso?". Alvo: 360 a 420 palavras por personagem.'
+    )
+    dois = analisar_lados(Chamada(DOIS_LADOS), TEXTOS)
+    com_ressalva = bloco_dos_lados(dois.lados, dois.questao, ressalvas[:1])
+    assert "Veículos: Agência Brasil.\nRessalva 1: A flexibilização" in com_ressalva                   # depois do último lado
+    assert 'afirma que...". Ressalva não é lado nem ganha analista: Helena traz cada uma' in com_ressalva
+
+
+def test_bloco_do_lado_neutro_leva_a_posicao_e_os_veiculos():
     assert bloco_dos_lados(lado_unico(VEICULOS)) == (
         "\nLADOS DA PAUTA: 1 lado.\n"
         "Lado 1: relato dos fatos, sem lados definidos. Veículos: Agência Brasil, CartaCapital.\n"
-        'ELENCO: Helena e exatamente 1 analista, que aprofunda o tema com ela; "houve_divergencia": false. '
+        'ELENCO: Helena e exatamente 1 analista, que explica o tema com ela, sem advogar; "houve_divergencia": false. '
         "Alvo: 360 a 420 palavras por personagem."
     )
 

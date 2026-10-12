@@ -126,7 +126,7 @@ def test_reparticao_da_metade_ao_principal_e_repassa_a_sobra():
     assert _repartir([9000], 4000) == [4000]
 
 
-@pytest.mark.parametrize("limite", [3500, 5000, 8000, 11000, 30000])
+@pytest.mark.parametrize("limite", [2300 + MAX_BLOCO, 5000, 8000, 11000, 30000])   # o menor ainda dá para os três textos
 def test_partes_fixas_ficam_inteiras_e_o_total_cabe_no_limite(limite):
     principal = _artigo("Valor", 9000)
     relacionados = [_artigo("G1", 6000, relacao="mesmo_acontecimento"), _artigo("Folha", 6000, relacao="mesmo_acontecimento")]
@@ -307,15 +307,39 @@ def test_process_com_dois_lados_exige_um_analista_por_lado(ollama_8192):
     assert len(provider.analises) == 1                                    # os lados são analisados uma vez só, antes da geração
 
 
+def test_process_com_ressalva_cobra_a_pergunta_atribuida_da_helena(ollama_8192):
+    um_lado_e_uma_ressalva = {"questao": "A flexibilização é boa para o Brasil?", "lados": [
+        {"resposta": "Sim", "posicao": "Flávio propõe flexibilizar o Mercosul.", "atores": ["Flávio Bolsonaro"], "grupos": [], "veiculos": ["G1"]},
+        {"resposta": "Não", "posicao": "A mudança pode enfraquecer a tarifa comum.", "atores": [], "grupos": ["economistas"], "veiculos": ["G1"]},
+    ]}
+    sem_pergunta = _episodio(["G1"])
+    com_pergunta = json.loads(json.dumps(sem_pergunta))
+    com_pergunta["roteiro_podcast"][0]["fala"] += " Segundo o G1, economistas alertam que a tarifa comum pode enfraquecer. Como você vê isso?"
+    provider = ProviderFalso(sem_pergunta, com_pergunta, lados=um_lado_e_uma_ressalva)
+    s = Summarizer(provider=provider)
+
+    assert s.process(_artigo("G1", 2000)) is com_pergunta                    # um lado e uma ressalva: um analista, sem divergência
+    analise = s.ultimo_diagnostico["lados"]
+    assert len(analise.lados) == 1 and analise.questao == "" and [r.grupos for r in analise.ressalvas] == [("economistas",)]
+    [problema] = s.ultimo_diagnostico["problemas"]
+    assert problema.startswith("ressalva 1 (economistas; G1): não aparece numa frase da Helena")
+    (_, entrada), (_, revisao) = (args for args, _ in provider.chamadas)
+    for mensagem in (entrada, revisao):                                      # a ressalva vai no bloco, na geração e na revisão
+        assert "\nRessalva 1: A mudança pode enfraquecer a tarifa comum. Grupos: economistas. Veículos: G1.\n" in mensagem
+    assert len(provider.analises) == 1
+
+
 def test_a_lista_de_veiculos_nunca_chega_como_none_ao_qa(ollama_8192, monkeypatch):
     recebidos = []
-    monkeypatch.setattr(summarizer, "problemas", lambda result, veiculos, lados: recebidos.append((veiculos, lados)) or [])
+    monkeypatch.setattr(
+        summarizer, "problemas", lambda result, veiculos, lados, ressalvas: recebidos.append((veiculos, lados, ressalvas)) or [],
+    )
 
     Summarizer(provider=ProviderFalso(_episodio([]))).process(_artigo("G1", 2000))                 # como o pipeline chama: só o principal
     Summarizer(provider=ProviderFalso(_episodio([]))).process(_artigo("G1", 2000), [_artigo("Folha", 2000), _artigo("G1", 2000)])
     assert recebidos == [
-        (["G1"], lado_unico(["G1"])),
-        (["G1", "Folha", "G1"], lado_unico(["G1", "Folha"])),
+        (["G1"], lado_unico(["G1"]), []),
+        (["G1", "Folha", "G1"], lado_unico(["G1", "Folha"]), []),
     ]
     with pytest.raises(TypeError):                                        # e não há mais valor padrão para esquecer a lista
         summarizer._qa(_episodio([]))

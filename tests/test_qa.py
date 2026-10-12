@@ -1,10 +1,10 @@
-"""Testes das regras de ai/qa.py que não dependem dos limites QA_* do .env: fontes, título e analistas por lado."""
+"""Testes das regras de ai/qa.py que não dependem dos limites QA_* do .env: fontes, título, analistas por lado e ressalvas."""
 import math
 
 import pytest
 
 from techdigest.ai import qa
-from techdigest.ai.lados import Lado, lado_unico
+from techdigest.ai.lados import Lado, Ressalva, lado_unico
 from techdigest.ai.verbos import FORMAS_DE_POSICAO, VERBOS_DE_POSICAO, verbos_de_posicao
 
 # Os títulos dos cinco episódios gerados em 11/10/2026 (data/agrupamento/episodios/).
@@ -17,6 +17,7 @@ TITULOS_REAIS = {
 }
 
 UM_LADO = lado_unico(["G1"])
+SEM_RESSALVAS: list = []
 # Os lados das pautas dos episódios 3 e 5, como a análise de lados deve devolvê-los.
 LADOS_DA_META = [
     Lado("A campanha de Lula acusa a Meta de reduzir o alcance do presidente.", ("campanha de Lula", "PT"), ("CartaCapital", "Agência Brasil")),
@@ -73,28 +74,30 @@ EPISODIO_5 = _debate(
 
 # ── Fontes ────────────────────────────────────────────────────────────────────────────────
 
-def test_veiculos_e_lados_sao_obrigatorios():
+def test_veiculos_lados_e_ressalvas_sao_obrigatorios():
     with pytest.raises(TypeError):
         qa.problemas(_episodio([]))
     with pytest.raises(TypeError):
         qa.problemas(_episodio([]), ["G1"])
+    with pytest.raises(TypeError):
+        qa.problemas(_episodio([]), ["G1"], UM_LADO)
 
 
 def test_episodio_de_um_veiculo_so_nao_cobra_fontes_citadas():
-    assert qa.problemas(_episodio([]), ["G1"], UM_LADO) == []
-    assert qa.problemas(_episodio(["outra coisa"]), ["Agência Brasil", "agencia brasil"], UM_LADO) == []   # dois textos, um veículo
+    assert qa.problemas(_episodio([]), ["G1"], UM_LADO, SEM_RESSALVAS) == []
+    assert qa.problemas(_episodio(["outra coisa"]), ["Agência Brasil", "agencia brasil"], UM_LADO, SEM_RESSALVAS) == []   # dois textos, um veículo
 
 
 def test_com_dois_veiculos_todos_tem_de_estar_em_fontes_citadas():
-    assert qa.problemas(_episodio(["G1", "Folha de S.Paulo"]), ["G1", "Folha de S.Paulo"], UM_LADO) == []
-    [problema] = qa.problemas(_episodio(["G1"]), ["G1", "Folha de S.Paulo", "Estadão"], UM_LADO)
+    assert qa.problemas(_episodio(["G1", "Folha de S.Paulo"]), ["G1", "Folha de S.Paulo"], UM_LADO, SEM_RESSALVAS) == []
+    [problema] = qa.problemas(_episodio(["G1"]), ["G1", "Folha de S.Paulo", "Estadão"], UM_LADO, SEM_RESSALVAS)
     assert problema.startswith("fontes_citadas sem Folha de S.Paulo, Estadão (o episódio tem 3 veículos como fonte")
-    assert len(qa.problemas(_episodio("G1 e Folha"), ["G1", "Folha"], UM_LADO)) == 1               # lista malformada não vale
+    assert len(qa.problemas(_episodio("G1 e Folha"), ["G1", "Folha"], UM_LADO, SEM_RESSALVAS)) == 1               # lista malformada não vale
 
 
 def test_comparacao_de_veiculos_e_tolerante_mas_por_palavras_inteiras():
     veiculos = ["O GLOBO", "Agência Brasil", "Folha de S.Paulo"]
-    assert qa.problemas(_episodio(["o globo", "AGENCIA BRASIL (EBC)", "Folha"]), veiculos, UM_LADO) == []
+    assert qa.problemas(_episodio(["o globo", "AGENCIA BRASIL (EBC)", "Folha"]), veiculos, UM_LADO, SEM_RESSALVAS) == []
     assert qa.mesmo_veiculo("Valor", "Valor Econômico") and qa.mesmo_veiculo("g1", "G1")
     assert not qa.mesmo_veiculo("ge", "Agência Brasil")           # "ge" está dentro de "Agência", mas não é palavra
     assert not qa.mesmo_veiculo("G1", "") and not qa.mesmo_veiculo("Estadão", "O Estado de S. Paulo")
@@ -116,9 +119,9 @@ def test_titulo_do_episodio_2_reprova_e_os_outros_quatro_passam():
     assert qa.proporcoes_no_titulo(TITULOS_REAIS[2]) == ["quase 60%"]
     assert [qa.proporcoes_no_titulo(TITULOS_REAIS[n]) for n in (1, 3, 4, 5)] == [[], [], [], []]
 
-    [problema] = qa.problemas(_episodio([], titulo_reescrito=TITULOS_REAIS[2]), ["G1"], UM_LADO)
+    [problema] = qa.problemas(_episodio([], titulo_reescrito=TITULOS_REAIS[2]), ["G1"], UM_LADO, SEM_RESSALVAS)
     assert problema.startswith("título com percentual ou proporção (quase 60%): o título não leva percentuais")
-    assert qa.problemas(_episodio([], titulo_reescrito=TITULOS_REAIS[5]), ["G1"], UM_LADO) == []
+    assert qa.problemas(_episodio([], titulo_reescrito=TITULOS_REAIS[5]), ["G1"], UM_LADO, SEM_RESSALVAS) == []
 
 
 @pytest.mark.parametrize("titulo, bloqueado", [
@@ -328,8 +331,87 @@ def test_tres_lados_pedem_uma_correspondencia_um_a_um():
 def test_problemas_inclui_as_regras_dos_analistas():
     episodio = {**_episodio(["Agência Brasil", "CartaCapital"]), **EPISODIO_3,
                 "personagens": [{"nome": "Helena"}, {"nome": "Dr. Marcos"}]}
-    problemas = qa.problemas(episodio, ["Agência Brasil", "CartaCapital"], LADOS_DA_META)
+    problemas = qa.problemas(episodio, ["Agência Brasil", "CartaCapital"], LADOS_DA_META, SEM_RESSALVAS)
     assert any(p.startswith("1 analista(s) (Dr. Marcos) para 2 lado(s)") for p in problemas)
     # o mesmo roteiro, numa pauta de um lado só, reprova pelo houve_divergencia
     assert any(p.startswith("houve_divergencia tem de ser false") for p in
-               qa.problemas(episodio, ["Agência Brasil", "CartaCapital"], lado_unico(["Agência Brasil", "CartaCapital"])))
+               qa.problemas(episodio, ["Agência Brasil", "CartaCapital"], lado_unico(["Agência Brasil", "CartaCapital"]), SEM_RESSALVAS))
+
+
+# ── Ressalvas ─────────────────────────────────────────────────────────────────────────────
+
+RESSALVA = Ressalva(("economistas",), "A flexibilização pode enfraquecer a Tarifa Externa Comum.", ("Gazeta do Povo",))
+PERGUNTA = "Segundo a Gazeta do Povo, economistas alertam que a mudança pode enfraquecer a tarifa comum. Como você vê isso?"
+
+
+def _conversa(*turnos) -> dict:
+    """Um episódio de um lado só: só o que as regras de analistas e de ressalvas leem."""
+    return _debate(*turnos, houve_divergencia=False)
+
+
+def test_ressalva_trazida_pela_helena_como_pergunta_atribuida_passa():
+    episodio = _conversa(("Helena", "Vamos ao tema. " + PERGUNTA), ("Ramos", "As fontes dizem que o risco existe."))
+    assert qa.problemas_das_ressalvas(episodio, [RESSALVA]) == []
+    assert qa.perguntas_das_ressalvas(episodio, [RESSALVA]) == [[
+        ("Segundo a Gazeta do Povo, economistas alertam que a mudança pode enfraquecer a tarifa comum.", True),
+    ]]
+    assert qa.problemas_das_ressalvas(_conversa(("Helena", "Olá."), ("Ramos", "Olá.")), []) == []      # sem ressalva, nada a cobrar
+
+
+@pytest.mark.parametrize("turnos, falta", [
+    # a ressalva não aparece nas falas da Helena
+    ([("Helena", "Como você vê a proposta?"), ("Ramos", "Ela muda a política externa.")],
+     "não aparece numa frase da Helena com o veículo, o grupo e um verbo de posição"),
+    # a frase da Helena tem o grupo e o verbo, mas não o veículo
+    ([("Helena", "Economistas alertam que a mudança pode enfraquecer a tarifa comum. Como você vê isso?"), ("Ramos", "Há risco.")],
+     "não aparece numa frase da Helena com o veículo, o grupo e um verbo de posição"),
+    # a ressalva só está na fala do analista
+    ([("Helena", "E os riscos?"), ("Ramos", PERGUNTA)],
+     "não aparece numa frase da Helena com o veículo, o grupo e um verbo de posição"),
+    # veículo, grupo e verbo em frases diferentes
+    ([("Helena", "A Gazeta do Povo ouviu economistas. Eles alertam para o risco. Como você vê isso?"), ("Ramos", "Há risco.")],
+     "não aparece numa frase da Helena com o veículo, o grupo e um verbo de posição"),
+    # a frase está lá, mas a fala da Helena não tem pergunta
+    ([("Helena", "Segundo a Gazeta do Povo, economistas alertam que a mudança pode enfraquecer a tarifa comum."), ("Ramos", "Há risco.")],
+     "a fala da Helena que a traz não tem pergunta"),
+    # a pergunta está em outra fala da Helena
+    ([("Helena", "Segundo a Gazeta do Povo, economistas alertam para o risco."), ("Ramos", "Há risco."), ("Helena", "E o que vem agora?")],
+     "a fala da Helena que a traz não tem pergunta"),
+])
+def test_ressalva_sem_pergunta_atribuida_da_helena_reprova(turnos, falta):
+    [problema] = qa.problemas_das_ressalvas(_conversa(*turnos), [RESSALVA])
+    assert problema.startswith(f"ressalva 1 (economistas; Gazeta do Povo): {falta}. Helena apresenta cada ressalva como pergunta atribuída")
+    assert 'como em "Segundo <veículo>, <grupo> alertam que... Como você vê isso?"' in problema
+
+
+def test_cada_ressalva_e_cobrada_e_a_regra_entra_em_problemas():
+    outra = Ressalva(("especialistas em segurança",), "O plano não reduz o crime.", ("G1",))
+    episodio = _conversa(("Helena", PERGUNTA), ("Ramos", "As fontes dizem que o risco existe."))
+    [problema] = qa.problemas_das_ressalvas(episodio, [RESSALVA, outra])
+    assert problema.startswith("ressalva 2 (especialistas em segurança; G1): não aparece numa frase da Helena")
+
+    completo = _episodio(["Gazeta do Povo"])
+    assert any(p.startswith("ressalva 1 (economistas; Gazeta do Povo)") for p in qa.problemas(completo, ["Gazeta do Povo"], UM_LADO, [RESSALVA]))
+    completo["roteiro_podcast"][0]["fala"] += " " + PERGUNTA
+    assert qa.problemas(completo, ["Gazeta do Povo"], UM_LADO, [RESSALVA]) == []
+
+
+def test_termo_do_grupo_vale_em_qualquer_numero_e_genero():
+    assert qa.termo_do_grupo("alguns especialistas em segurança") == "especialistas" and qa.termo_do_grupo("os") == ""
+    for forma in ("pesquisador", "pesquisadora", "pesquisadores", "pesquisadoras"):
+        assert qa.grupo_citado("pesquisadores", f"Segundo o G1, {forma} alertam para o risco.")
+        assert qa.grupo_citado(forma, "os pesquisadores")
+    assert qa.grupo_citado("economistas", "um economista") and qa.grupo_citado("Críticos", "as críticas")
+    assert qa.grupo_citado("organizações", "a organização") and qa.grupo_citado("juízes", "a juíza")
+    assert qa.grupo_citado("especialistas em segurança", "especialistas") and not qa.grupo_citado("especialistas em segurança", "a segurança")
+    assert not qa.grupo_citado("críticos", "o candidato critica a medida")       # a forma do verbo de posição não é o termo do grupo
+    assert not qa.grupo_citado("economistas", "a economia") and not qa.grupo_citado("", "economistas")
+
+
+def test_ressalva_sem_grupo_pede_o_veiculo_o_verbo_e_a_pergunta():
+    sem_grupo = Ressalva((), "A mudança pode enfraquecer a tarifa comum.", ("Gazeta do Povo",))
+    com = _conversa(("Helena", "A Gazeta do Povo aponta que a mudança pode enfraquecer a tarifa comum. Como você vê isso?"), ("Ramos", "Há risco."))
+    sem = _conversa(("Helena", "A mudança pode enfraquecer a tarifa comum. Como você vê isso?"), ("Ramos", "Há risco."))
+    assert qa.problemas_das_ressalvas(com, [sem_grupo]) == []
+    assert qa.problemas_das_ressalvas(sem, [sem_grupo])[0].startswith("ressalva 1 (sem grupo; Gazeta do Povo): não aparece")
+

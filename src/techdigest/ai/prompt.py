@@ -21,7 +21,9 @@ seu veículo identificado.
 3. LADOS DA PAUTA: a questão em disputa na história, quando há, e os lados: de cada um, a \
 resposta que ele dá à questão, a posição, os atores e os veículos que o relatam. Lado é \
 uma resposta à questão em disputa no fato (acusação contra defesa, decisão contra crítica, \
-afirmação contra negação). A questão e os lados já vêm decididos: não crie nem omita lado.
+afirmação contra negação). O bloco pode trazer também RESSALVAS: posições que só um grupo \
+sem nome sustenta (economistas, especialistas). Ressalva não é lado e não ganha analista. \
+A questão, os lados e as ressalvas já vêm decididos: não crie nem omita lado ou ressalva.
 
 ## PRODUTOS QUE VOCÊ ENTREGA (em um único JSON)
 
@@ -48,10 +50,13 @@ lados ou mais, uma frase avisa que o episódio traz o debate.
 Elenco do episódio: Helena e um analista por lado, até 3 analistas.
 - "Helena" é fixa: apresentadora neutra que abre, contextualiza, conduz as perguntas e \
 fecha. Ela apenas media: pergunta, resume e passa a palavra, sem tomar posição nem fazer \
-juízo sobre as partes.
+juízo sobre as partes. Ela traz cada ressalva do bloco como pergunta atribuída, sem \
+avaliá-la, numa frase com o veículo, o grupo e um verbo de posição (ex.: "Segundo \
+<veículo>, <grupo> alertam que... Como você vê isso?").
 - Crie exatamente o número de analistas que o bloco LADOS DA PAUTA indica, com papéis \
 coerentes com a notícia (ex.: "Dr. Ramos, analista de regulação", "Bia, engenheira de IA").
-- Com um lado só: Helena e o analista aprofundam o tema.
+- Com um lado só: o analista explica a posição e responde às ressalvas com o que as \
+fontes dizem, sem tomar partido: ele explica, não advoga.
 - Com 2 ou 3 lados: Helena apresenta a questão do bloco, e cada analista responde por UM \
 lado: apresenta a posição dele, atribuída aos atores desse lado, numa frase que nomeia o \
 ator, cita um veículo do lado e usa um verbo de posição (ex.: "segundo <veículo>, <ator> \
@@ -98,7 +103,7 @@ Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
 com um lado só, é false.
 - Todo personagem que fala no roteiro deve estar declarado em "personagens", e vice-versa.
 - Inventar lado, ator ou posição que as fontes não trazem é falha grave de edição, e \
-omitir um lado do bloco é tão grave quanto.
+omitir um lado ou uma ressalva do bloco é tão grave quanto.
 - Com artigos relacionados, cite cada veículo pelo nome no roteiro e inclua todos em \
 "fontes_citadas", haja ou não divergência."""
 
@@ -119,7 +124,9 @@ artigo-fonte; mantenha os personagens, a não ser que o problema aponte analista
 menos. Com um lado só, houve_divergencia é false. Com 2 ou 3 lados, houve_divergencia é true, \
 Helena apresenta a questão do bloco e cada analista responde por um lado, numa frase que nomeia \
 um ator do lado, cita um veículo do lado e usa um verbo de posição (""" + INFINITIVOS + """). Helena só media, sem \
-tomar posição. Não crie lado que o bloco não traz. O título não leva percentuais, "x vezes" \
+tomar posição, e traz cada ressalva do bloco como pergunta atribuída, sem avaliá-la: uma fala \
+com ponto de interrogação em que uma frase cita o veículo, nomeia o grupo e usa um verbo de \
+posição. Com um lado só, o analista explica e não advoga. Não crie lado que o bloco não traz. O título não leva percentuais, "x vezes" \
 (nem "dobro" ou "triplo") nem proporções e não afirma nada que o resumo_didatico não afirme."""
 
 PROMPT_LADOS = """Você é o editor de pauta dos boletins TechDigest/PulsoBR. Receberá os textos de UMA pauta: \
@@ -140,21 +147,24 @@ lado, mesmo com argumentos diferentes (ex.: quem critica a decisão e quem defen
 ela dão a mesma resposta). Nunca um lado por ator.
 Com questão, são 2 ou 3 lados; o terceiro só existe se a resposta dele se opõe às outras duas.
 
-## QUEM É ATOR
+## ATORES E GRUPOS
 - Ator é quem sustenta a posição, pelo nome ou por uma designação específica, na forma que os textos \
 mais usam (ex.: "Lula", "Nunes Marques", "Meta", "campanha de Lula"). Não expanda para o nome completo.
-- NÃO são atores: coletivo sem nome (economistas, especialistas, analistas, críticos, observadores) e \
-designação vaga sem qualificador ("o governo", "a empresa"). Com qualificador a designação vale: \
-"governo federal" e "governo do Amazonas" são atores.
-- Uma posição sustentada só por quem não é ator NÃO forma lado: é uma ressalva ao lado que existe. Se \
-só quem não é ator discorda, não há disputa.
+- Grupo é um coletivo sem nome (economistas, especialistas, analistas, críticos, observadores) ou uma \
+designação vaga sem qualificador ("o governo", "a empresa"). Grupo vai em "grupos", NUNCA em "atores". \
+Com qualificador a designação é ator: "governo federal" e "governo do Amazonas".
+- A posição que só um grupo sustenta é uma RESSALVA: escreva-a como um lado com "atores": [] e o grupo \
+em "grupos". A ressalva não conta para a questão nem para o número de lados: se só um grupo discorda, \
+não há disputa.
 
 ## CAMPOS
 - "questao": a pergunta em disputa, ou "" se não houver.
 - "resposta": a resposta daquele lado à questão, em poucas palavras (ex.: "Sim", "Não"). Com um lado \
 só, fica "".
 - "posicao": uma frase com o que aquele lado sustenta. Com um lado só, é o fato central da história.
-- "atores": os atores do lado. Cada lado tem pelo menos um ator que não está em nenhum outro lado.
+- "atores": os atores do lado. Cada lado que responde à questão tem pelo menos um ator que não está em \
+nenhum outro lado.
+- "grupos": os grupos sem nome que sustentam a posição, ou [] se não houver.
 - "veiculos": os veículos, entre os recebidos, cujo texto relata a posição daquele lado. Um mesmo \
 veículo pode relatar mais de um lado, e todo veículo recebido aparece em pelo menos um lado. Escreva \
 o nome do veículo como foi recebido.
@@ -163,7 +173,8 @@ o nome do veículo como foi recebido.
 ## FORMATO DE SAÍDA
 Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor, com a questão em primeiro lugar:
 {"questao": "<a pergunta em disputa, ou vazio se não houver>", "lados": [{"resposta": "<a resposta \
-deste lado à questão>", "posicao": "<uma frase>", "atores": ["<ator>"], "veiculos": ["<veículo>"]}], \
+deste lado à questão>", "posicao": "<uma frase>", "atores": ["<ator>"], "grupos": ["<grupo sem nome>"], \
+"veiculos": ["<veículo>"]}], \
 "motivo": "<uma frase que explica a contagem dos lados>"}"""
 
 PROMPT_AGRUPADOR = """Você é o editor de pauta dos boletins TechDigest/PulsoBR. Um filtro automático \

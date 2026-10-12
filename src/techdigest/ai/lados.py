@@ -1,4 +1,5 @@
-"""Análise de lados: a questão em disputa na pauta, quem responde a ela de cada lado e que veículo relata cada um.
+"""Análise de lados: a questão em disputa na pauta, quem responde a ela de cada lado, que veículo relata cada um
+e as ressalvas de grupos sem nome.
 
 Roda em toda pauta, inclusive nas de um veículo só, antes da geração e sobre os mesmos trechos que
 vão para o episódio. O número de lados define o elenco (um analista por lado) e o valor de
@@ -11,27 +12,31 @@ import unicodedata
 from dataclasses import dataclass, field, replace
 
 from techdigest.ai.prompt import PROMPT_LADOS
-from techdigest.ai.qa import atores_exclusivos, mesmo_veiculo, palavras_do_ator, veiculos_distintos
+from techdigest.ai.qa import (
+    QUANTIFICADORES, atores_exclusivos, mesmo_veiculo, palavras_do_ator, termo_do_grupo, veiculos_distintos,
+)
 
 logger = logging.getLogger("techdigest.ai.lados")
 
 CHAVES_LADOS = ("lados",)
 MAX_LADOS = 3
+MAX_RESSALVAS = 2           # acima disso ficam as primeiras, com aviso no log
 TEMPERATURA_LADOS = 0.1     # baixa, para a contagem dos lados variar pouco entre execuções
 MAX_SAIDA_LADOS = 800       # tokens: a resposta é um JSON curto
-MAX_BLOCO = 1200            # caracteres do bloco de lados na entrada do episódio; o orçamento reserva sempre isto
+MAX_BLOCO = 1600            # caracteres do bloco de lados na entrada do episódio; o orçamento reserva sempre isto
 MAX_POSICAO = 220           # caracteres da frase de cada lado no bloco
 MIN_POSICAO = 60
 MAX_QUESTAO = 160           # caracteres da questão no bloco
 MAX_RESPOSTA = 60           # caracteres da resposta de cada lado no bloco
 MAX_ANTERIOR = 2000         # caracteres da resposta recusada que voltam ao LLM na nova tentativa
-# A posição do lado único de emergência, quando as duas tentativas da análise não valem.
+# A posição do lado neutro: quando nenhum lado tem ator nomeado ou quando as duas tentativas da análise não valem.
 POSICAO_DE_EMERGENCIA = "relato dos fatos, sem lados definidos"
 # Alvo de palavras por personagem conforme o número de analistas: com Helena, o total cabe em 600-1300.
 ALVO_POR_PERSONAGEM = {1: "360 a 420", 2: "320 a 400", 3: "260 a 310"}
 # Termos que não fazem um ator, sem acento: coletivo sem nome ("economistas"), designação vaga sem
 # qualificador ("o governo", "a empresa") e os quantificadores que os acompanham ("alguns analistas").
 # É genérico o ator que só tem palavras daqui: "governo federal" e "governo do Amazonas" valem.
+# O ator genérico passa a grupo, e a posição que só grupos sustentam vira ressalva.
 TERMOS_GENERICOS = frozenset({
     "economista", "economistas", "especialista", "especialistas", "analista", "analistas", "critico", "criticos",
     "observador", "observadores", "pesquisador", "pesquisadores", "estudioso", "estudiosos", "cientista", "cientistas",
@@ -40,13 +45,12 @@ TERMOS_GENERICOS = frozenset({
     "apoiador", "apoiadores", "parlamentar", "parlamentares", "politico", "politicos",
     "governo", "governos", "empresa", "empresas", "companhia", "companhias", "entidade", "entidades",
     "organizacao", "organizacoes", "instituicao", "instituicoes", "orgao", "orgaos",
-    "um", "uma", "uns", "umas", "algum", "alguma", "alguns", "algumas", "varios", "varias", "outro", "outra",
-    "outros", "outras", "muitos", "muitas", "diversos", "diversas",
-})
+}) | QUANTIFICADORES
 # O que a nova tentativa lembra ao LLM, depois do erro da primeira.
 LEMBRETE_DA_CORRECAO = (
     "Responda de novo, com o JSON completo. Uma questão só; cada lado é uma resposta diferente a ela; agrupe os "
-    "atores pela resposta que dão à questão, nunca um lado por ator; sem disputa, a questão fica vazia e há um lado só."
+    "atores pela resposta que dão à questão, nunca um lado por ator; sem disputa, a questão fica vazia e há um lado só; "
+    'coletivo sem nome vai em "grupos", nunca em "atores".'
 )
 
 
@@ -54,7 +58,8 @@ LEMBRETE_DA_CORRECAO = (
 class Lado:
     """Uma resposta à questão da pauta ou, sem disputa, o fato central da história.
 
-    No lado único de emergência, `posicao` é POSICAO_DE_EMERGENCIA e `atores` vem vazio.
+    Só conta como lado a posição que tem ator nomeado. No lado neutro, `posicao` é
+    POSICAO_DE_EMERGENCIA e `atores` vem vazio.
     """
     posicao: str
     atores: tuple[str, ...]
@@ -62,14 +67,27 @@ class Lado:
     resposta: str = ""          # a resposta do lado à questão; vazia quando a pauta tem um lado só
 
 
+@dataclass(frozen=True)
+class Ressalva:
+    """Uma posição que só um grupo sem nome sustenta ("economistas alertam que...").
+
+    Não é lado e não ganha analista: entra no episódio como pergunta atribuída da Helena.
+    """
+    grupos: tuple[str, ...]     # vazio quando o LLM não nomeou nem ator nem grupo
+    posicao: str
+    veiculos: tuple[str, ...]   # com a grafia da pauta
+
+
 @dataclass
 class Analise:
-    """Os lados que valem para a pauta e o que o LLM respondeu."""
+    """Os lados e as ressalvas que valem para a pauta e o que o LLM respondeu."""
     lados: list[Lado]
-    questao: str = ""                                    # a pergunta em disputa; vazia quando a pauta tem um lado só
+    questao: str = ""                                    # a pergunta em disputa; só fica com 2 lados ou mais
     motivo: str = ""
-    problemas: list[str] = field(default_factory=list)   # por que a resposta não valeu (e a pauta ficou com o lado de emergência)
-    removidos: list[str] = field(default_factory=list)   # os atores genéricos e os lados que saíram com eles
+    ressalvas: list[Ressalva] = field(default_factory=list)
+    problemas: list[str] = field(default_factory=list)   # por que a resposta não valeu (e a pauta ficou com o lado neutro)
+    ajustes: list[str] = field(default_factory=list)     # o que o código mudou na resposta (ator que passou a grupo...)
+    descartadas: list[Ressalva] = field(default_factory=list)   # as ressalvas além de MAX_RESSALVAS
     resposta: dict | None = None
     primeira: "Analise | None" = None                    # a primeira tentativa, quando ela não valeu e houve outra
 
@@ -100,22 +118,13 @@ def _mesma_resposta(a: str, b: str) -> bool:
     return palavras(a) == palavras(b)
 
 
-def _ler(lados: list[dict], da_pauta: list[str]) -> list[Lado]:
-    """Os lados de uma resposta já conferida, com os veículos na grafia e na ordem da pauta."""
-    return [
-        Lado(
-            posicao=_linha(lado["posicao"]),
-            atores=_sem_repetir(lado["atores"]),
-            veiculos=tuple(v for v in da_pauta if any(mesmo_veiculo(v, citado) for citado in lado["veiculos"])),
-            resposta=_linha(lado.get("resposta")),
-        )
-        for lado in lados
-    ]
-
-
 def ator_generico(nome) -> bool:
     """Se o nome não chega a ser um ator: só tem termos de TERMOS_GENERICOS (sem contar artigo nem partícula)."""
     return palavras_do_ator(nome) <= TERMOS_GENERICOS
+
+
+def _lista_de_nomes(valor) -> bool:
+    return valor is None or (isinstance(valor, list) and all(isinstance(item, str) for item in valor))
 
 
 def _problemas_dos_campos(lados: list, da_pauta: list[str]) -> list[str]:
@@ -124,11 +133,13 @@ def _problemas_dos_campos(lados: list, da_pauta: list[str]) -> list[str]:
         if not isinstance(lado, dict):
             probs.append(f"lado {i} não é um objeto")
             continue
-        posicao, atores, citados = lado.get("posicao"), lado.get("atores"), lado.get("veiculos")
+        posicao, citados = lado.get("posicao"), lado.get("veiculos")
         if not (isinstance(posicao, str) and posicao.strip()):
             probs.append(f"lado {i} sem posição")
-        if not (isinstance(atores, list) and atores and all(isinstance(a, str) and a.strip() for a in atores)):
-            probs.append(f"lado {i} sem ator")
+        probs += [
+            f'lado {i} com "{campo}" fora do formato (é uma lista de nomes)'
+            for campo in ("atores", "grupos") if not _lista_de_nomes(lado.get(campo))
+        ]
         if not (isinstance(citados, list) and citados and all(isinstance(v, str) for v in citados)):
             probs.append(f"lado {i} sem veículo")
         elif fora := [v for v in citados if not any(mesmo_veiculo(v, p) for p in da_pauta)]:
@@ -136,19 +147,30 @@ def _problemas_dos_campos(lados: list, da_pauta: list[str]) -> list[str]:
     return probs
 
 
-def _sem_genericos(lidos: list[Lado]) -> tuple[dict[int, Lado], list[str]]:
-    """Tira os atores genéricos; o lado que fica sem ator sai. Devolve os lados que ficam, pelo número, e o que saiu."""
-    ficam, removidos = {}, []
-    for i, lado in enumerate(lidos, 1):
-        genericos = [a for a in lado.atores if ator_generico(a)]
-        especificos = tuple(a for a in lado.atores if a not in genericos)
-        if not especificos:
-            removidos.append(f"lado {i}, só com ator genérico ({', '.join(genericos)})")
-            continue
+def _separar(lados: list[dict], da_pauta: list[str]) -> tuple[dict[int, Lado], list[Ressalva], list[str]]:
+    """Separa os lados de uma resposta já conferida: os que têm ator nomeado, pelo número, e as ressalvas.
+
+    O ator genérico passa de "atores" para "grupos". O lado que fica sem ator nomeado (só com
+    grupos, ou sem nada) vira ressalva; no lado que tem ator nomeado, os grupos saem, porque
+    concordam com ele. O terceiro valor diz o que foi mudado.
+    """
+    nomeados, ressalvas, ajustes = {}, [], []
+    for i, lado in enumerate(lados, 1):
+        atores = _sem_repetir(lado.get("atores") or [])
+        genericos = tuple(a for a in atores if ator_generico(a))
+        especificos = tuple(a for a in atores if a not in genericos)
+        grupos = tuple(g for g in _sem_repetir([*(lado.get("grupos") or []), *genericos]) if termo_do_grupo(g))
+        posicao = _linha(lado["posicao"])
+        veiculos = tuple(v for v in da_pauta if any(mesmo_veiculo(v, citado) for citado in lado["veiculos"]))
         if genericos:
-            removidos.append(f"ator genérico do lado {i} ({', '.join(genericos)})")
-        ficam[i] = replace(lado, atores=especificos)
-    return ficam, removidos
+            ajustes.append(f"ator genérico do lado {i} passou a grupo ({', '.join(genericos)})")
+        if especificos:
+            nomeados[i] = Lado(posicao, especificos, veiculos, _linha(lado.get("resposta")))
+            continue
+        if not grupos:
+            ajustes.append(f"lado {i}, sem ator nem grupo, virou ressalva")
+        ressalvas.append(Ressalva(grupos, posicao, veiculos))
+    return nomeados, ressalvas, ajustes
 
 
 def _problemas_das_respostas(ficam: dict[int, Lado]) -> list[str]:
@@ -163,71 +185,73 @@ def _problemas_das_respostas(ficam: dict[int, Lado]) -> list[str]:
 
 
 def lado_unico(veiculos) -> list[Lado]:
-    """A saída de emergência: um lado só, sem atores, com todos os veículos da pauta e a posição de emergência."""
+    """O lado neutro: um lado só, sem atores, com todos os veículos da pauta e a posição de emergência."""
     return [Lado(posicao=POSICAO_DE_EMERGENCIA, atores=(), veiculos=tuple(veiculos_distintos(veiculos)))]
 
 
 def analise_da_resposta(resposta, veiculos) -> Analise:
     """A análise que vale para a pauta destes veículos, a partir da resposta do LLM (função pura).
 
-    Cada lado tem posição, pelo menos um ator e pelo menos um veículo, todos da pauta (pela
-    comparação tolerante de `qa.mesmo_veiculo`). Ator genérico (`ator_generico`) não conta: sai da
-    lista, e o lado que fica sem ator é removido. Dos lados que ficam, vale de 1 a 3, cada um com
-    um ator que nenhum outro tem, e todo veículo da pauta em pelo menos um deles.
+    Cada lado da resposta tem posição e pelo menos um veículo, todos da pauta (pela comparação
+    tolerante de `qa.mesmo_veiculo`). Só conta como lado o que tem ator nomeado: o ator genérico
+    (`ator_generico`) passa a grupo, e a posição que só grupos sustentam vira ressalva (ver
+    `_separar`). Ficam no máximo MAX_RESSALVAS ressalvas, as primeiras.
 
-    A questão e os lados andam juntos: questão vazia exige exatamente 1 lado, e questão preenchida
-    exige 2 ou 3, cada um com a sua resposta, diferente das outras. Se a remoção dos genéricos
-    deixar um lado só, a disputa era com quem não é ator: a questão sai, e o lado fica com todos
-    os veículos da pauta.
+    Dos lados com ator nomeado, vale até 3, cada um com um ator que nenhum outro tem. A questão só
+    fica com 2 lados ou mais, e aí cada lado tem a sua resposta, diferente das outras; com um lado
+    só, a questão sai. Sem nenhum lado com ator nomeado, a pauta fica com o lado neutro e mantém
+    as ressalvas. Todo veículo da pauta tem de estar em algum lado ou ressalva.
 
-    Resposta que não cumpre isso vira o lado único de emergência, com o motivo em `problemas`.
+    Resposta que não cumpre isso vira o lado neutro, sem ressalvas, com o motivo em `problemas`.
     """
     da_pauta = veiculos_distintos(veiculos)
 
-    def invalida(*probs: str, removidos=()) -> Analise:
-        return Analise(lado_unico(da_pauta), problemas=list(probs), removidos=list(removidos), resposta=resposta)
+    def invalida(*probs: str) -> Analise:
+        return Analise(lado_unico(da_pauta), problemas=list(probs), resposta=resposta)
 
     lados = resposta.get("lados") if isinstance(resposta, dict) else None
     if not isinstance(lados, list):
         return invalida("resposta sem a lista de lados")
+    if not lados:
+        return invalida(f"resposta com 0 lados (vale de 1 a {MAX_LADOS})")
     if probs := _problemas_dos_campos(lados, da_pauta):
         return invalida(*probs)
-    questao = _linha(resposta.get("questao"))
-    ficam, removidos = _sem_genericos(_ler(lados, da_pauta))
-    if lados and not ficam:
-        return invalida("nenhum lado com ator específico", removidos=removidos)
-    if not 1 <= len(ficam) <= MAX_LADOS:
-        return invalida(f"resposta com {len(ficam)} lados (vale de 1 a {MAX_LADOS})", removidos=removidos)
-    if len(ficam) > 1:
+    nomeados, ressalvas, ajustes = _separar(lados, da_pauta)
+    if len(nomeados) > MAX_LADOS:
+        return invalida(f"resposta com {len(nomeados)} lados (vale de 1 a {MAX_LADOS})")
+    questao, probs = _linha(resposta.get("questao")), []
+    if len(nomeados) > 1:
         if not questao:
-            return invalida(f"questão vazia com {len(ficam)} lados (questão vazia exige exatamente 1 lado)", removidos=removidos)
-        probs = _problemas_das_respostas(ficam)
-    elif len(lados) > 1:   # sobrou um lado só: o que os lados removidos traziam é ressalva dele
-        questao, probs = "", []
-        ficam = {i: replace(lado, resposta="", veiculos=tuple(da_pauta)) for i, lado in ficam.items()}
-    elif questao:
-        return invalida("questão preenchida com 1 lado (questão preenchida exige de 2 a 3 lados; sem disputa, a questão fica vazia)")
-    else:
-        probs = []
-        ficam = {i: replace(lado, resposta="") for i, lado in ficam.items()}
-    validos = list(ficam.values())
-    probs += [
-        f"lado {i} sem ator que não esteja em outro lado"
-        for i, proprios in zip(ficam, atores_exclusivos(validos)) if not proprios
-    ]
-    sem_lado = [v for v in da_pauta if not any(v in lado.veiculos for lado in validos)]
+            return invalida(f"questão vazia com {len(nomeados)} lados (questão vazia exige exatamente 1 lado)")
+        probs = _problemas_das_respostas(nomeados)
+        probs += [
+            f"lado {i} sem ator que não esteja em outro lado"
+            for i, proprios in zip(nomeados, atores_exclusivos(list(nomeados.values()))) if not proprios
+        ]
+        validos = list(nomeados.values())
+    else:   # sem disputa entre atores nomeados, a questão sai
+        questao = ""
+        validos = [replace(lado, resposta="") for lado in nomeados.values()]
+    sem_lado = [v for v in da_pauta if not any(v in item.veiculos for item in (*validos, *ressalvas))]
     if sem_lado:
         probs.append(f"veículo da pauta em nenhum lado ({', '.join(sem_lado)})")
     if probs:
-        return invalida(*probs, removidos=removidos)
-    return Analise(validos, questao, _linha(resposta.get("motivo")), removidos=removidos, resposta=resposta)
+        return invalida(*probs)
+    if not validos:
+        ajustes.append("nenhum lado com ator nomeado: a pauta fica com o lado neutro")
+        validos = lado_unico(da_pauta)
+    descartadas = ressalvas[MAX_RESSALVAS:]
+    if descartadas:
+        ajustes.append(f"{len(descartadas)} ressalva(s) a mais: ficam as {MAX_RESSALVAS} primeiras")
+    return Analise(
+        validos, questao, _linha(resposta.get("motivo")), ressalvas=ressalvas[:MAX_RESSALVAS],
+        ajustes=ajustes, descartadas=descartadas, resposta=resposta,
+    )
 
 
 def pedido_de_correcao(recusada: Analise) -> str:
     """O que a nova tentativa acrescenta à entrada: o erro da resposta recusada, a própria resposta e o lembrete."""
     partes = [f"CORREÇÃO: a sua resposta anterior não valeu: {'; '.join(recusada.problemas)}."]
-    if recusada.removidos:
-        partes.append(f"Não contam como atores: {'; '.join(recusada.removidos)}.")
     if recusada.resposta is not None:
         partes.append(f"Resposta anterior: {json.dumps(recusada.resposta, ensure_ascii=False)[:MAX_ANTERIOR]}")
     partes.append(LEMBRETE_DA_CORRECAO)
@@ -257,8 +281,12 @@ def analisar_lados(chamar, textos) -> Analise:
     if analise.problemas:
         logger.warning("Análise de lados: a resposta não valeu (%s). Nova tentativa, com o erro anexado.", "; ".join(analise.problemas))
         analise = replace(_tentar(chamar, f"{entrada}\n\n{pedido_de_correcao(analise)}", veiculos), primeira=analise)
-    if analise.removidos:
-        logger.info("Análise de lados: saiu o que só tem ator genérico (%s).", "; ".join(analise.removidos))
+    if analise.ajustes:
+        logger.info("Análise de lados: ajustes na resposta (%s).", "; ".join(analise.ajustes))
+    if analise.descartadas:
+        logger.warning(
+            "Análise de lados: %d ressalva(s) a mais na pauta; ficam as %d primeiras.", len(analise.descartadas), MAX_RESSALVAS,
+        )
     if analise.problemas:
         logger.warning(
             "Análise de lados inválida nas duas tentativas (%s): a pauta segue com um lado só, sem lados definidos.",
@@ -266,8 +294,10 @@ def analisar_lados(chamar, textos) -> Analise:
         )
     else:
         logger.info(
-            "Lados da pauta: %d (%s)%s", len(analise.lados), " × ".join(", ".join(lado.atores) for lado in analise.lados),
+            "Lados da pauta: %d (%s)%s%s", len(analise.lados),
+            " × ".join(", ".join(lado.atores) or "sem atores" for lado in analise.lados),
             f" · questão: {analise.questao}" if analise.questao else "",
+            f" · ressalvas: {'; '.join(', '.join(r.grupos) or 'sem grupo' for r in analise.ressalvas)}" if analise.ressalvas else "",
         )
     return analise
 
@@ -282,40 +312,60 @@ def _frase(texto: str) -> str:
     return texto if texto.endswith((".", "!", "?", "…")) else texto + "."
 
 
-def bloco_dos_lados(lados, questao: str = "") -> str:
-    """O bloco LADOS DA PAUTA da entrada do episódio: a questão, os lados, o elenco exato e o alvo de palavras.
+def bloco_dos_lados(lados, questao: str = "", ressalvas=()) -> str:
+    """O bloco LADOS DA PAUTA da entrada do episódio: a questão, os lados, as ressalvas, o elenco exato e o alvo de palavras.
 
     Nunca passa de MAX_BLOCO caracteres, que é o que o orçamento da entrada reserva para ele: se
     for preciso, as frases de posição encolhem.
     """
     n = len(lados)
-    if n == 1:
-        elenco = 'ELENCO: Helena e exatamente 1 analista, que aprofunda o tema com ela; "houve_divergencia": false.'
-    else:
+    if n > 1:
         elenco = (
             f'ELENCO: Helena e exatamente {n} analistas, um por lado; "houve_divergencia": true. Helena apresenta a '
             f"questão, e cada analista responde por um lado, numa frase que nomeia um ator do lado, cita um veículo do "
             f'lado e usa um verbo de posição, como em "segundo <veículo>, <ator> afirma que...".'
+        )
+    elif ressalvas:
+        elenco = (
+            "ELENCO: Helena e exatamente 1 analista, que explica a posição e responde às ressalvas com o que as fontes "
+            'dizem, sem tomar partido; "houve_divergencia": false.'
+        )
+    else:
+        elenco = 'ELENCO: Helena e exatamente 1 analista, que explica o tema com ela, sem advogar; "houve_divergencia": false.'
+    if ressalvas:
+        elenco += (
+            " Ressalva não é lado nem ganha analista: Helena traz cada uma como pergunta atribuída, sem avaliá-la, numa "
+            'frase com o veículo, o grupo e um verbo de posição, como em "Segundo <veículo>, <grupo> alertam que... '
+            'Como você vê isso?".'
         )
     elenco += f" Alvo: {ALVO_POR_PERSONAGEM[n]} palavras por personagem."
     cabecalho = f"\nLADOS DA PAUTA: {n} lado{'s' if n > 1 else ''}."
     if questao:
         cabecalho += f"\nQUESTÃO: {_encurtar(questao, MAX_QUESTAO)}"
 
-    def descrever(i: int, lado: Lado, teto: int) -> str:
+    def lado_descrito(i: int, lado: Lado, teto: int) -> str:
         resposta = f" (resposta: {_encurtar(lado.resposta, MAX_RESPOSTA).rstrip('.')})" if lado.resposta else ""
         atores = f" Atores: {', '.join(lado.atores)}." if lado.atores else ""
         return f"Lado {i}{resposta}: {_frase(_encurtar(lado.posicao, teto))}{atores} Veículos: {', '.join(lado.veiculos)}."
 
+    def ressalva_descrita(i: int, ressalva: Ressalva, teto: int) -> str:
+        grupos = f" Grupos: {', '.join(ressalva.grupos)}." if ressalva.grupos else ""
+        return f"Ressalva {i}: {_frase(_encurtar(ressalva.posicao, teto))}{grupos} Veículos: {', '.join(ressalva.veiculos)}."
+
     def montar(teto: int) -> str:
-        return "\n".join([cabecalho, *(descrever(i, lado, teto) for i, lado in enumerate(lados, 1)), elenco])
+        return "\n".join([
+            cabecalho,
+            *(lado_descrito(i, lado, teto) for i, lado in enumerate(lados, 1)),
+            *(ressalva_descrita(i, ressalva, teto) for i, ressalva in enumerate(ressalvas, 1)),
+            elenco,
+        ])
 
     teto = MAX_POSICAO
     bloco = montar(teto)
     while len(bloco) > MAX_BLOCO and teto > MIN_POSICAO:
         teto -= 20
         bloco = montar(teto)
-    if len(bloco) > MAX_BLOCO:   # listas de atores longas demais: o que fica de fora é o fim do último lado
+    if len(bloco) > MAX_BLOCO:   # listas de atores longas demais: o que fica de fora é o fim da última linha
         logger.warning("Bloco de lados com %d caracteres: cortado em %d.", len(bloco), MAX_BLOCO)
         linhas = bloco[len(cabecalho) + 1:].split("\n")[:-1]
         bloco = "\n".join([cabecalho, elenco, *linhas])[:MAX_BLOCO - 1] + "…"

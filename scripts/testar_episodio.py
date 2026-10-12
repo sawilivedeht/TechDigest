@@ -224,13 +224,15 @@ def _lados(analise, chamadas: list[dict]) -> dict:
     registro = {
         "quantos": len(analise.lados), "questao": analise.questao, "motivo": analise.motivo,
         "tentativas": len(feitas), "lado_de_emergencia": bool(analise.problemas), "invalida_porque": analise.problemas,
-        "removidos": analise.removidos,
+        "ajustes": analise.ajustes,
+        "ressalvas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos)} for r in analise.ressalvas],
+        "ressalvas_descartadas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos)}
+                                  for r in analise.descartadas],
         "lados": [{"resposta": lado.resposta, "posicao": lado.posicao, "atores": list(lado.atores), "veiculos": list(lado.veiculos)}
                   for lado in analise.lados],
         "resposta_do_llm": analise.resposta,
         "primeira_tentativa": None if analise.primeira is None else {
-            "invalida_porque": analise.primeira.problemas, "removidos": analise.primeira.removidos,
-            "resposta_do_llm": analise.primeira.resposta,
+            "invalida_porque": analise.primeira.problemas, "resposta_do_llm": analise.primeira.resposta,
         },
         "segundos": round(sum(ch.get("segundos", 0.0) for ch in feitas), 1),
         "segundos_por_tentativa": [round(ch.get("segundos", 0.0), 1) for ch in feitas],
@@ -243,9 +245,12 @@ def _lados(analise, chamadas: list[dict]) -> dict:
         resposta = f"[{lado['resposta']}] " if lado["resposta"] else ""
         print(f"    lado {i}: {resposta}{lado['posicao']}")
         print(f"            atores: {', '.join(lado['atores']) or '-'} · veículos: {', '.join(lado['veiculos'])}")
+    for i, ressalva in enumerate(registro["ressalvas"], 1):
+        print(f"    ressalva {i}: {ressalva['posicao']}")
+        print(f"            grupos: {', '.join(ressalva['grupos']) or '-'} · veículos: {', '.join(ressalva['veiculos'])}")
     print(f"    motivo: {registro['motivo'] or '-'}")
-    for removido in analise.removidos:
-        print(f"    removido: {removido}")
+    for ajuste in analise.ajustes:
+        print(f"    ajuste: {ajuste}")
     if analise.primeira is not None:
         print(f"    PRIMEIRA TENTATIVA RECUSADA: {'; '.join(analise.primeira.problemas)}")
         print(f"    resposta recusada: {json.dumps(analise.primeira.resposta, ensure_ascii=False)}")
@@ -349,6 +354,20 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
         print(f"  resumo_didatico: {relatorio['resumo_didatico']}")
         for fala in relatorio["primeiras_falas"]:
             print(f"  [{fala.get('personagem')}] {fala.get('fala')}")
+        analise = diagnostico.get("lados")
+        if analise is not None and analise.ressalvas:
+            try:
+                achadas = qa.perguntas_das_ressalvas(episodio, analise.ressalvas)
+            except (KeyError, TypeError, AttributeError):   # episódio fora do formato: não há falas para conferir
+                achadas = [[] for _ in analise.ressalvas]
+            relatorio["perguntas_das_ressalvas"] = [
+                [{"frase": frase, "fala_com_pergunta": com_pergunta} for frase, com_pergunta in da_ressalva] for da_ressalva in achadas
+            ]
+            for i, da_ressalva in enumerate(achadas, 1):
+                if not da_ressalva:
+                    print(f"  ressalva {i}: NENHUMA frase da Helena com veículo, grupo e verbo de posição")
+                for frase, com_pergunta in da_ressalva:
+                    print(f"  ressalva {i}, na fala da Helena ({'com' if com_pergunta else 'SEM'} pergunta): {frase}")
         slug = re.sub(r"\W+", "-", str(episodio.get("titulo_reescrito", "")).lower())[:40].strip("-")
         arquivo = pasta / f"{carimbo}_{n}_{caso}{'' if situacao == 'aprovado' else '_reprovado'}_{slug}.json"
         arquivo.write_text(json.dumps(episodio, ensure_ascii=False, indent=1), encoding="utf-8")

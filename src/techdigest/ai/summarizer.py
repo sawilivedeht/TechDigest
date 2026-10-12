@@ -51,10 +51,10 @@ def _limpar(texto: str) -> str:
     return texto.strip()
 
 
-def _qa(result: dict, veiculos: list[str], lados: list) -> list[str]:
+def _qa(result: dict, veiculos: list[str], lados: list, ressalvas: list) -> list[str]:
     """Roda o QA sem deixar um JSON malformado derrubar o fluxo (vira problema, não exceção)."""
     try:
-        return problemas(result, veiculos, lados)
+        return problemas(result, veiculos, lados, ressalvas)
     except (KeyError, TypeError, AttributeError) as e:
         return [f"estrutura inválida para o QA ({type(e).__name__}: {e})"]
 
@@ -132,7 +132,7 @@ def _aviso(artigos: list[dict]) -> str:
 
 
 def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limite: int | None = None,
-                   lados: list | None = None, questao: str = "") -> Entrada:
+                   lados: list | None = None, questao: str = "", ressalvas=()) -> Entrada:
     """Monta a mensagem do episódio dentro de `limite` caracteres (None = sem limite).
 
     Cada artigo é um dict com "source", "title" e "text"; os relacionados podem trazer também
@@ -144,8 +144,8 @@ def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limi
     fim de parágrafo. Relacionado que ficaria com menos de MIN_TRECHO caracteres sai da entrada, e
     o aviso conta e nomeia só os que entraram.
 
-    `lados` e `questao` são o resultado da análise de lados: com eles, o bloco LADOS DA PAUTA
-    entra antes do lembrete. O espaço do bloco (MAX_BLOCO) é reservado sempre, com ou sem `lados`, para que os
+    `lados`, `questao` e `ressalvas` são o resultado da análise de lados: com eles, o bloco LADOS
+    DA PAUTA entra antes do lembrete. O espaço do bloco (MAX_BLOCO) é reservado sempre, com ou sem `lados`, para que os
     trechos sejam os mesmos na chamada sem o bloco (a que alimenta a análise de lados) e na
     chamada com ele (a do episódio).
     """
@@ -180,7 +180,7 @@ def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limi
         concedidos[0] = min(MIN_TRECHO, len(textos[0]))
     trechos = [_cortar_em_paragrafo(texto, cabe) for texto, cabe in zip(textos, concedidos)]
 
-    finais = avisos + ([bloco_dos_lados(lados, questao)] if lados else []) + [LEMBRETE]
+    finais = avisos + ([bloco_dos_lados(lados, questao, ressalvas)] if lados else []) + [LEMBRETE]
     incluido = {id(a): len(t) for a, t in zip(artigos, trechos)}
     return Entrada(
         texto="\n".join([c + t for c, t in zip(cabecalhos, trechos)] + finais),
@@ -241,7 +241,7 @@ class Summarizer:
             len(principal["text"]), len(previa.fontes) - 1,
         )
         analise = analisar_lados(self._chamar, previa.textos)
-        return montar_entrada(principal, relacionados, limite, analise.lados, analise.questao), analise
+        return montar_entrada(principal, relacionados, limite, analise.lados, analise.questao, analise.ressalvas), analise
 
     def process(self, principal: dict, relacionados: list[dict] | None = None) -> dict:
         """Devolve um episódio que passou no QA; do contrário levanta QAReprovado (item é pulado)."""
@@ -253,7 +253,7 @@ class Summarizer:
 
         result = self._chamar(PROMPT_SISTEMA, entrada.texto)
 
-        probs = _qa(result, entrada.fontes, analise.lados)
+        probs = _qa(result, entrada.fontes, analise.lados, analise.ressalvas)
         self.ultimo_diagnostico["problemas"] = probs
         if not probs:
             return result
@@ -268,7 +268,7 @@ class Summarizer:
         )
         fonte = montar_entrada(
             principal, relacionados, self._limite_da_entrada(PROMPT_REVISOR, extra=len(antes) + len(depois)),
-            analise.lados, analise.questao,
+            analise.lados, analise.questao, analise.ressalvas,
         )
         self.ultimo_diagnostico["revisao"] = fonte
         try:
@@ -279,7 +279,7 @@ class Summarizer:
                 f"1ª versão reprovada: {probs}"
             ) from e
 
-        probs2 = _qa(corrigido, entrada.fontes, analise.lados)
+        probs2 = _qa(corrigido, entrada.fontes, analise.lados, analise.ressalvas)
         self.ultimo_diagnostico["problemas_da_revisao"] = probs2
         if not probs2:
             logger.info("Revisão aprovada pelo QA.")

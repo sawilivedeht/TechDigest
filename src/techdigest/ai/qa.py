@@ -3,7 +3,7 @@ import logging
 import re
 import unicodedata
 
-from techdigest.ai.verbos import INFINITIVOS, verbos_de_posicao
+from techdigest.ai.verbos import FORMAS_DE_POSICAO, INFINITIVOS, verbos_de_posicao
 from techdigest.config import Settings
 
 logger = logging.getLogger("techdigest.ai.qa")
@@ -21,6 +21,11 @@ _ARTIGOS = {"o", "a", "os", "as"}
 _PREPOSICOES = {"de", "do", "da", "dos", "das"}
 # Não contam como palavras na comparação de atores: partículas (da, de, do, das, dos, e), artigos e "em".
 _SEM_PESO = _ARTIGOS | _PREPOSICOES | {"e", "em", "no", "na", "nos", "nas"}
+# Quantificadores que acompanham um grupo sem nome ("alguns economistas"): não são o termo do grupo.
+QUANTIFICADORES = frozenset({
+    "um", "uma", "uns", "umas", "algum", "alguma", "alguns", "algumas", "varios", "varias", "outro", "outra",
+    "outros", "outras", "muitos", "muitas", "diversos", "diversas",
+})
 _ABREVIATURA = re.compile(r"(?:^|[\s(\"'“‘])(?:dr|dra|sr|sra|prof|profa|sen|dep|min|gov|pres|gen|cel|[^\W\d_])\.$", re.IGNORECASE)
 
 # Título sem percentuais nem proporções. Os padrões valem sobre o título sem acento e em minúsculas.
@@ -242,13 +247,96 @@ def problemas_dos_analistas(result: dict, lados) -> list[str]:
     return probs
 
 
-def problemas(result: dict, veiculos, lados) -> list[str]:
+def _raiz(palavra: str) -> str:
+    """A palavra (sem acento, em minúsculas) sem as marcas de número e de gênero.
+
+    "pesquisador", "pesquisadora", "pesquisadores" e "pesquisadoras" têm a mesma raiz, assim como
+    "crítico" e "críticas" ou "organização" e "organizações". Não cobre plural irregular nem
+    palavra em "-ês" ("portugueses").
+    """
+    if palavra.endswith(("oes", "aes")):
+        palavra = palavra[:-3] + "ao"
+    elif palavra.endswith(("ais", "eis", "ois", "uis")):
+        palavra = palavra[:-2] + "l"
+    elif palavra.endswith("ns"):
+        palavra = palavra[:-2] + "m"
+    elif palavra.endswith(("res", "zes")):
+        palavra = palavra[:-2]
+    elif palavra.endswith("s"):
+        palavra = palavra[:-1]
+    return palavra[:-1] if palavra.endswith(("o", "a", "e")) else palavra
+
+
+def termo_do_grupo(grupo) -> str:
+    """A palavra principal de um grupo sem nome: a primeira que não é artigo, partícula nem quantificador.
+
+    Para "especialistas em segurança" e para "alguns especialistas", é "especialistas".
+    """
+    return next((p for p in _palavras_do_nome(grupo) if p not in _SEM_PESO and p not in QUANTIFICADORES), "")
+
+
+def grupo_citado(grupo, texto) -> bool:
+    """Se o texto traz o termo do grupo, em qualquer número ou gênero ("pesquisadores", "pesquisadora").
+
+    Forma de verbo de posição não conta como termo: em "o candidato critica", "critica" não é "críticos".
+    """
+    raiz = _raiz(termo_do_grupo(grupo))
+    palavras = re.findall(r"[^\W\d_]+", unicodedata.normalize("NFC", str(texto)).lower())
+    return bool(raiz) and any(_raiz(_dobrar(p)) == raiz for p in palavras if p not in FORMAS_DE_POSICAO)
+
+
+def _de_helena(result: dict) -> list[str]:
+    return [turno["fala"] for turno in result["roteiro_podcast"] if _palavras_do_nome(turno["personagem"]) == [HELENA]]
+
+
+def perguntas_das_ressalvas(result: dict, ressalvas) -> list[list[tuple[str, bool]]]:
+    """Para cada ressalva, as frases da Helena que a trazem e se a fala de cada uma tem ponto de interrogação.
+
+    Trazer a ressalva é citar um veículo dela, nomear um dos grupos (ver `grupo_citado`) e usar um
+    verbo de posição, tudo na mesma frase. Ressalva sem grupo só pede o veículo e o verbo.
+    """
+    achadas: list[list[tuple[str, bool]]] = []
+    for ressalva in ressalvas:
+        achadas.append([
+            (frase, "?" in fala)
+            for fala in _de_helena(result) for frase in frases(fala)
+            if verbos_de_posicao(frase) and any(veiculo_citado(v, frase) for v in ressalva.veiculos)
+            and (not ressalva.grupos or any(grupo_citado(g, frase) for g in ressalva.grupos))
+        ])
+    return achadas
+
+
+def problemas_das_ressalvas(result: dict, ressalvas) -> list[str]:
+    """Cada ressalva da pauta (ver `ai/lados.py`) é uma pergunta atribuída da Helena; lista vazia = aprovado.
+
+    A regra confere a forma: a frase com veículo, grupo e verbo de posição, numa fala da Helena
+    que tenha ponto de interrogação. Não confere se a Helena avalia a ressalva.
+    """
+    probs = []
+    for i, (ressalva, achadas) in enumerate(zip(ressalvas, perguntas_das_ressalvas(result, ressalvas)), 1):
+        if any(tem_pergunta for _, tem_pergunta in achadas):
+            continue
+        descricao = f"ressalva {i} ({', '.join(ressalva.grupos) or 'sem grupo'}; {', '.join(ressalva.veiculos)})"
+        falta = (
+            "a fala da Helena que a traz não tem pergunta" if achadas
+            else "não aparece numa frase da Helena com o veículo, o grupo e um verbo de posição"
+        )
+        probs.append(
+            f"{descricao}: {falta}. Helena apresenta cada ressalva como pergunta atribuída, numa fala com ponto de "
+            f"interrogação em que uma frase cita o veículo, nomeia o grupo e usa um verbo de posição ({INFINITIVOS}), "
+            f"como em \"Segundo <veículo>, <grupo> alertam que... Como você vê isso?\""
+        )
+    return probs
+
+
+def problemas(result: dict, veiculos, lados, ressalvas) -> list[str]:
     """Retorna lista de violações; lista vazia = aprovado.
 
     `veiculos` são os veículos dos textos que entraram no episódio: com dois ou mais distintos,
-    todos têm de aparecer em fontes_citadas. `lados` é o resultado da análise de lados da pauta
-    (`ai/lados.py`), que define o elenco (ver `problemas_dos_analistas`). Os dois são
-    obrigatórios: quem monta as listas é o Summarizer, para toda pauta.
+    todos têm de aparecer em fontes_citadas. `lados` e `ressalvas` são o resultado da análise de
+    lados da pauta (`ai/lados.py`): os lados definem o elenco (ver `problemas_dos_analistas`) e
+    cada ressalva pede uma pergunta atribuída da Helena (ver `problemas_das_ressalvas`). Os três
+    são obrigatórios: quem monta as listas é o Summarizer, para toda pauta.
     """
     probs = []
 
@@ -288,5 +376,6 @@ def problemas(result: dict, veiculos, lados) -> list[str]:
             )
 
     probs += problemas_dos_analistas(result, lados)
+    probs += problemas_das_ressalvas(result, ressalvas)
 
     return probs
