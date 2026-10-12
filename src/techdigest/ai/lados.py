@@ -256,16 +256,15 @@ def _conferir_atores(rascunhos: list[_Rascunho], evidencias: list[Evidencia]) ->
             if not comprovadas:
                 ajustes.append(f"ator do lado {r.numero} saiu: o trecho não está no texto de {listadas[0].veiculo or 'nenhum veículo'} ({ator})")
                 continue
-            do_lado = [e.trecho for e in comprovadas if _responde(e.resposta, r.resposta)]
-            if do_lado:
-                ficam[r.numero].append((ator, do_lado))
+            if any(_responde(e.resposta, r.resposta) for e in comprovadas):
+                ficam[r.numero].append((ator, [e.trecho for e in comprovadas]))   # todo trecho comprovado dele conta para o lado
                 continue
             dele = comprovadas[0].resposta
             destino = next((o for o in rascunhos if o is not r and _responde(dele, o.resposta)), None)
             if destino is None:
                 ajustes.append(f"ator do lado {r.numero} saiu: nenhum lado tem a resposta dele ({ator}: {dele})")
                 continue
-            ficam[destino.numero].append((ator, [e.trecho for e in comprovadas if _responde(e.resposta, destino.resposta)]))
+            ficam[destino.numero].append((ator, [e.trecho for e in comprovadas]))
             ajustes.append(f"ator passou do lado {r.numero} para o lado {destino.numero}, o da resposta dele ({ator}: {dele})")
     for r in rascunhos:
         r.atores, r.trechos = [], []

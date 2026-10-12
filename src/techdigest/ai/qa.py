@@ -66,7 +66,7 @@ _PROPORCOES_NO_TITULO = [re.compile(padrao) for padrao in (
     rf"{_UM_OU_NUMERO}\s+tercos?\b",                                                              # "um terço", "dois terços"
     rf"{_UM_OU_NUMERO}\s+(?:quartos?|quintos?|sextos?|decimos?)\s+d[oa]s?\b",                      # "um quarto dos eleitores"
 )]
-_N_DE_M = re.compile(r"\b(\d+)\s+de\s+(\d+)\b")   # "6 de 11 ministros"; conferido à parte por causa de "Pixel 9 de 128 GB"
+_N_DE_M = re.compile(r"\b(\d+)\s+d[eoa]s?\s+(\d+)\b")   # "6 de 11 ministros", "60 dos 102 casos"; à parte por causa de "Pixel 9 de 128 GB"
 
 
 def contar_palavras(t: str) -> int:

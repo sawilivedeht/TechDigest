@@ -150,6 +150,7 @@ def test_titulo_do_episodio_2_reprova_e_os_outros_quatro_passam():
     ("Uma em cada três candidatas sofre ataque", ["Uma em cada três"]),
     ("Violência política: 1 em cada 3 vítimas é candidata", ["1 em cada 3"]),
     ("STF: 6 de 11 ministros votam contra", ["6 de 11"]),
+    ("Mulheres são alvo de 60 dos 102 episódios de violência política no primeiro turno", ["60 dos 102"]),   # título do ep. 2 de v4
     ("Um caso de violência a cada 9 horas", ["a cada 9"]),
 ])
 def test_titulo_com_percentual_ou_proporcao_e_bloqueado(titulo, bloqueado):
