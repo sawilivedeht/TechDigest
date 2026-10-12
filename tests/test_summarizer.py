@@ -1,4 +1,4 @@
-"""Testes de ai/summarizer.py sem LLM: a entrada dentro do orçamento e o fluxo de process."""
+"""Testes de ai/summarizer.py sem LLM: a entrada dentro do orçamento, a análise de lados e o fluxo de process."""
 import datetime
 import json
 import math
@@ -7,7 +7,8 @@ from types import SimpleNamespace
 import pytest
 
 from techdigest.ai import qa, summarizer
-from techdigest.ai.prompt import PROMPT_REVISOR, PROMPT_SISTEMA
+from techdigest.ai.lados import MAX_BLOCO, Lado, bloco_dos_lados, entrada_dos_lados, lado_unico
+from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_REVISOR, PROMPT_SISTEMA
 from techdigest.ai.summarizer import LEMBRETE, QAReprovado, Summarizer, _repartir, montar_entrada
 
 UTC = datetime.timezone.utc
@@ -27,7 +28,7 @@ def _artigo(fonte: str, caracteres: int, **extras) -> dict:
 
 
 def _entrada_antiga(principal: dict) -> str:
-    """A entrada de fonte única como era montada antes do orçamento, para comparar."""
+    """A entrada de fonte única sem o bloco de lados, como era montada antes do orçamento, para comparar."""
     partes = [
         "ARTIGO PRINCIPAL\n"
         f"Fonte: {principal['source']}\n"
@@ -55,16 +56,25 @@ def _episodio(fontes: list[str]) -> dict:
 
 
 class ProviderFalso:
-    """Devolve as respostas em fila e guarda o que recebeu; conta 1 token a cada 4 caracteres."""
+    """Devolve as respostas em fila e guarda o que recebeu; conta 1 token a cada 4 caracteres.
 
-    def __init__(self, *respostas):
+    A análise de lados fica fora da fila: recebe sempre `lados` e é guardada em `analises`. Sem
+    `lados`, a resposta é inválida e a pauta segue com um lado só.
+    """
+
+    def __init__(self, *respostas, lados=None):
         self.respostas = list(respostas)
-        self.chamadas = []
+        self.lados = {"lados": []} if lados is None else lados
+        self.chamadas = []    # as do episódio: geração e revisão
+        self.analises = []
         self.ultimo_uso = {}
 
     def chat_json(self, *args, **kwargs):
-        self.chamadas.append((args, kwargs))
         self.ultimo_uso = {"prompt": sum(map(len, args)) // 4, "saida": 2000}
+        if args[0] == PROMPT_LADOS:
+            self.analises.append((args, kwargs))
+            return self.lados
+        self.chamadas.append((args, kwargs))
         return self.respostas.pop(0)
 
 
@@ -76,23 +86,30 @@ def ollama_8192(monkeypatch):
     ))
 
 
-# ── Fonte única: igual a antes ────────────────────────────────────────────────────────────
+# ── Fonte única ───────────────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("caracteres", [900, 5000, 12000])
-def test_fonte_unica_sai_identica_a_de_antes_quando_cabe(caracteres, ollama_8192):
+def test_fonte_unica_leva_o_bloco_de_lados_antes_do_lembrete(caracteres, ollama_8192):
     principal = {"source": "G1", "title": "Um  título\tcom espaços", "text": "\x00Sujeira  no começo.\n\n\n\n" + _texto(caracteres)}
-    antiga = _entrada_antiga(principal)
+    sem_bloco = _entrada_antiga(principal)
+    limite = Summarizer(provider=ProviderFalso())._limite_da_entrada(PROMPT_SISTEMA)    # o limite real de num_ctx=8192
 
-    assert montar_entrada(principal).texto == antiga
-    assert montar_entrada(principal, [], limite=20000).texto == antiga
-    assert Summarizer(provider=ProviderFalso())._montar_entrada(principal) == antiga   # com o limite real de num_ctx=8192
+    # sem os lados, a entrada é a de sempre: a reserva do bloco não chega a cortar um texto de fonte única
+    assert montar_entrada(principal).texto == montar_entrada(principal, [], limite).texto == sem_bloco
     assert montar_entrada(principal).fontes == ["G1"]
+
+    um_lado = lado_unico(["G1"])
+    entrada = montar_entrada(principal, None, limite, um_lado)
+    assert entrada.texto == sem_bloco.removesuffix(LEMBRETE) + bloco_dos_lados(um_lado) + "\n" + LEMBRETE
+    assert entrada.textos == montar_entrada(principal, None, limite).textos == [
+        {"fonte": "G1", "titulo": "Um título com espaços", "texto": summarizer._limpar(principal["text"])[:5000]}
+    ]
 
 
 def test_fonte_unica_que_nao_cabe_e_cortada_em_fim_de_paragrafo():
     principal = _artigo("G1", 9000)
     entrada = montar_entrada(principal, limite=2500)
-    assert len(entrada.texto) <= 2500 and entrada.texto.endswith(LEMBRETE)
+    assert len(entrada.texto) <= 2500 - MAX_BLOCO and entrada.texto.endswith(LEMBRETE)
     trecho = entrada.texto.split("Texto:\n")[1].removesuffix("\n" + LEMBRETE)
     assert principal["text"].startswith(trecho + "\n\n")
     assert entrada.cortes == [{"fonte": "G1", "texto": len(principal["text"]), "incluido": len(trecho)}]
@@ -115,12 +132,12 @@ def test_partes_fixas_ficam_inteiras_e_o_total_cabe_no_limite(limite):
     relacionados = [_artigo("G1", 6000, relacao="mesmo_acontecimento"), _artigo("Folha", 6000, relacao="mesmo_acontecimento")]
     entrada = montar_entrada(principal, relacionados, limite)
 
-    assert len(entrada.texto) <= limite
+    assert len(entrada.texto) <= limite - MAX_BLOCO
     assert entrada.texto.startswith("ARTIGO PRINCIPAL\nFonte: Valor\nTítulo: Título de Valor\nTexto:\nParágrafo 1 de Valor.")
     assert "\n\nARTIGO RELACIONADO [1]\nFonte: G1\nTítulo: Título de G1\nTrecho:\nParágrafo 1 de G1." in entrada.texto
     assert "\n\nARTIGO RELACIONADO [2]\nFonte: Folha\nTítulo: Título de Folha\nTrecho:\nParágrafo 1 de Folha." in entrada.texto
-    assert ("\n\nAVISO DO EDITOR-CHEFE: há 3 textos de 3 veículos sobre este assunto (Folha, G1, Valor). Verifique se há "
-            "divergência real entre os relatos; se houver, aplique a REGRA DE DIVERGÊNCIA.\n") in entrada.texto
+    assert ("\n\nAVISO DO EDITOR-CHEFE: há 3 textos de 3 veículos sobre este assunto (Folha, G1, Valor). "
+            "Cite cada veículo pelo nome.\n") in entrada.texto
     assert entrada.texto.endswith("\n" + LEMBRETE)
     # cada texto termina num fim de parágrafo do original
     for artigo, corte in zip([principal, *relacionados], entrada.cortes):
@@ -129,6 +146,14 @@ def test_partes_fixas_ficam_inteiras_e_o_total_cabe_no_limite(limite):
     if limite < 11000:
         principal_cabe, g1_cabe, folha_cabe = (c["incluido"] for c in entrada.cortes)
         assert principal_cabe > g1_cabe and abs(g1_cabe - folha_cabe) <= 450      # ~metade para o principal
+
+    # com os lados, o bloco entra no espaço reservado: os trechos são os mesmos e o total cabe no limite
+    tres_lados = [Lado("Uma posição bem comprida. " * 20, (f"Ator {i}", "Outro Ator"), ("Valor", "G1", "Folha")) for i in range(3)]
+    com_lados = montar_entrada(principal, relacionados, limite, tres_lados)
+    assert len(com_lados.texto) <= limite and com_lados.textos == entrada.textos and com_lados.cortes == entrada.cortes
+    assert com_lados.texto.endswith(bloco_dos_lados(tres_lados) + "\n" + LEMBRETE)
+    assert [t["fonte"] for t in entrada.textos] == ["Valor", "G1", "Folha"]
+    assert all(t["texto"] and t["texto"] in entrada.texto for t in entrada.textos)
 
 
 def test_sem_aperto_os_textos_vao_com_o_teto_de_sempre():
@@ -145,12 +170,12 @@ def test_aviso_conta_e_nomeia_so_os_relacionados_que_entraram():
     assert "há 3 textos de 3 veículos sobre este assunto (Folha, G1, Valor)" in entrada.texto
     assert [c["incluido"] > 0 for c in entrada.cortes] == [True, True, True, False]
 
-    apertada = montar_entrada(principal, tres, limite=1900)                      # o orçamento só dá para um relacionado
+    apertada = montar_entrada(principal, tres, limite=1900 + MAX_BLOCO)          # o orçamento só dá para um relacionado
     assert apertada.fontes == ["Valor", "G1"] and len(apertada.texto) <= 1900
     assert "há 2 textos de 2 veículos sobre este assunto (G1, Valor)" in apertada.texto
     assert "ARTIGO RELACIONADO [2]" not in apertada.texto and "Folha" not in apertada.texto
 
-    so_o_principal = montar_entrada(principal, tres, limite=1000)                # nem um relacionado: some o aviso
+    so_o_principal = montar_entrada(principal, tres, limite=1000 + MAX_BLOCO)    # nem um relacionado: some o aviso
     assert so_o_principal.fontes == ["Valor"] and "AVISO DO EDITOR-CHEFE" not in so_o_principal.texto
 
 
@@ -159,11 +184,12 @@ def test_aviso_de_mesmo_veiculo_e_de_desdobramento():
     anterior = datetime.datetime(2026, 10, 10, 20, 28, tzinfo=UTC)
 
     do_mesmo = montar_entrada(principal, [_artigo("agência brasil", 1000, relacao="mesmo_acontecimento", data=anterior)]).texto
-    assert "há 2 textos do mesmo veículo sobre este assunto (Agência Brasil). Trate-os como uma fonte só" in do_mesmo
-    assert "REGRA DE DIVERGÊNCIA" not in do_mesmo and "ordem cronológica" not in do_mesmo
+    assert "há 2 textos do mesmo veículo sobre este assunto (Agência Brasil). Cite-o como uma fonte só.\n" in do_mesmo
+    assert "ordem cronológica" not in do_mesmo
 
     resposta = montar_entrada(principal, [_artigo("CartaCapital", 1000, relacao="desdobramento", data=anterior)]).texto
-    assert "se houver, aplique a REGRA DE DIVERGÊNCIA." in resposta and "obrigatoriamente" not in resposta
+    assert "(Agência Brasil, CartaCapital). Cite cada veículo pelo nome. Os textos relatam" in resposta
+    assert "divergência" not in resposta.lower() and "divergência" not in do_mesmo.lower()   # os lados vêm no bloco, não no aviso
     assert ("narre os fatos em ordem cronológica (CartaCapital, 10/10 17:28; Agência Brasil, 11/10 12:13).") in resposta
 
     sem_datas = montar_entrada(_artigo("G1", 1000), [_artigo("Folha", 1000, relacao="desdobramento")]).texto
@@ -201,14 +227,20 @@ def test_proporcao_de_caracteres_por_token_vem_do_que_o_provider_mediu(ollama_81
 
 # ── process ───────────────────────────────────────────────────────────────────────────────
 
-def test_process_de_fonte_unica_chama_o_provider_como_antes(ollama_8192):
+def test_process_de_fonte_unica_analisa_os_lados_e_gera_com_o_bloco(ollama_8192):
     principal = _artigo("G1", 3000)
     episodio = _episodio(["G1"])
-    provider = ProviderFalso(episodio)
+    provider = ProviderFalso(episodio)          # a análise de lados responde algo inválido: um lado só
     s = Summarizer(provider=provider)
 
     assert s.process(principal) is episodio
-    assert provider.chamadas == [((PROMPT_SISTEMA, _entrada_antiga(principal)), {})]   # sem argumentos novos
+    um_lado = lado_unico(["G1"])
+    com_bloco = _entrada_antiga(principal).removesuffix(LEMBRETE) + bloco_dos_lados(um_lado) + "\n" + LEMBRETE
+    assert provider.chamadas == [((PROMPT_SISTEMA, com_bloco), {})]                       # a geração segue sem argumentos novos
+    [((sistema, entrada), opcoes)] = provider.analises
+    assert sistema == PROMPT_LADOS and opcoes == {"chaves": ("lados",), "temperatura": 0.1, "max_saida": 800}
+    assert entrada == entrada_dos_lados([{"fonte": "G1", "titulo": "Título de G1", "texto": principal["text"]}])
+    assert s.ultimo_diagnostico["lados"].lados == um_lado and s.ultimo_diagnostico["lados"].problemas
     assert s.ultimo_diagnostico["problemas"] == [] and s.ultimo_diagnostico["revisao"] is None
 
 
@@ -223,6 +255,11 @@ def test_process_com_dois_veiculos_cobra_as_fontes_e_revisa_dentro_do_orcamento(
     (sistema, entrada), (revisor, revisao) = (args for args, _ in provider.chamadas)
     assert (sistema, revisor) == (PROMPT_SISTEMA, PROMPT_REVISOR)
     assert len(entrada) <= int((8192 - 3000 - 256) * 3.0) - len(PROMPT_SISTEMA)
+    # a análise de lados leu os mesmos trechos, já cortados pelo orçamento, que foram para a geração
+    trechos = s.ultimo_diagnostico["entrada"].textos
+    assert [len(t["texto"]) for t in trechos] < [5000, 3000, 3000] and all(t["texto"] in entrada for t in trechos)
+    assert provider.analises[0][0][1] == entrada_dos_lados(trechos)
+    assert "\nLADOS DA PAUTA: 1 lado.\n" in entrada and "\nLADOS DA PAUTA: 1 lado.\n" in revisao
     assert s.ultimo_diagnostico["problemas"] == [
         "fontes_citadas sem Agência Brasil (o episódio tem 3 veículos como fonte: cite cada um pelo nome no "
         "roteiro e liste todos em fontes_citadas)"
@@ -233,6 +270,52 @@ def test_process_com_dois_veiculos_cobra_as_fontes_e_revisa_dentro_do_orcamento(
     # a revisão leva o episódio original e cabe na janela pela proporção já medida (4 caracteres por token × 0,9)
     assert len(revisor) + len(revisao) <= int((8192 - 3000 - 256) * 3.6)
     assert s.ultimo_diagnostico["problemas_da_revisao"] == []
+
+
+def test_process_com_dois_lados_exige_um_analista_por_lado(ollama_8192):
+    dois_lados = {"lados": [
+        {"posicao": "A campanha acusa a Meta.", "atores": ["campanha de Lula"], "veiculos": ["CartaCapital"]},
+        {"posicao": "A Meta nega.", "atores": ["Meta"], "veiculos": ["Agência Brasil"]},
+    ], "motivo": "Acusação contra defesa."}
+    um_analista = _episodio(["Agência Brasil", "CartaCapital"])
+    terco = " ".join(["palavra"] * max(qa.MIN_POR_PERSONAGEM, math.ceil(qa.MIN_TOTAL / 3)))
+    debate = {
+        **um_analista, "houve_divergencia": True,
+        "personagens": [{"nome": "Helena"}, {"nome": "Bia"}, {"nome": "Ramos"}],
+        "roteiro_podcast": [
+            {"personagem": "Helena", "fala": terco},
+            {"personagem": "Bia", "fala": terco + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
+            {"personagem": "Ramos", "fala": terco + ". Já a Agência Brasil registra que a Meta nega."},
+        ],
+    }
+    provider = ProviderFalso(um_analista, debate, lados=dois_lados)
+    s = Summarizer(provider=provider)
+
+    assert s.process(_artigo("Agência Brasil", 2000), [_artigo("CartaCapital", 2000)]) is debate
+    assert [lado.atores for lado in s.ultimo_diagnostico["lados"].lados] == [("campanha de Lula",), ("Meta",)]
+    assert s.ultimo_diagnostico["problemas"] == [
+        "1 analista(s) (Ramos) para 2 lado(s): o elenco é Helena e exatamente 2 analista(s), um por lado",
+        "houve_divergencia tem de ser true: a pauta tem 2 lado(s), e o campo é true se e só se houver 2 lados ou mais",
+    ]
+    (_, entrada), (_, revisao) = (args for args, _ in provider.chamadas)
+    for mensagem in (entrada, revisao):                                   # o bloco vai na geração e na revisão
+        assert "\nLADOS DA PAUTA: 2 lados.\nLado 1: A campanha acusa a Meta. Atores: campanha de Lula. Veículos: CartaCapital.\n" in mensagem
+        assert 'ELENCO: Helena e exatamente 2 analistas, um por lado; "houve_divergencia": true.' in mensagem
+    assert len(provider.analises) == 1                                    # os lados são analisados uma vez só, antes da geração
+
+
+def test_a_lista_de_veiculos_nunca_chega_como_none_ao_qa(ollama_8192, monkeypatch):
+    recebidos = []
+    monkeypatch.setattr(summarizer, "problemas", lambda result, veiculos, lados: recebidos.append((veiculos, lados)) or [])
+
+    Summarizer(provider=ProviderFalso(_episodio([]))).process(_artigo("G1", 2000))                 # como o pipeline chama: só o principal
+    Summarizer(provider=ProviderFalso(_episodio([]))).process(_artigo("G1", 2000), [_artigo("Folha", 2000), _artigo("G1", 2000)])
+    assert recebidos == [
+        (["G1"], lado_unico(["G1"])),
+        (["G1", "Folha", "G1"], lado_unico(["G1", "Folha"])),
+    ]
+    with pytest.raises(TypeError):                                        # e não há mais valor padrão para esquecer a lista
+        summarizer._qa(_episodio([]))
 
 
 def test_process_levanta_qareprovado_se_a_revisao_tambem_falha(ollama_8192):

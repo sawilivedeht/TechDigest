@@ -1,15 +1,22 @@
-"""Diagnóstico da geração de episódios com várias fontes (Fase 3 do agrupamento).
+"""Diagnóstico da geração de episódios a partir de pautas (Fase 3 do agrupamento).
 
-Com uma amostra fixa, refaz as etapas 1 a 3 do agrupamento e gera, com Summarizer.process, os
-episódios de algumas pautas: até 4 com várias fontes e 1 de fonte única, como controle. Não gera
-áudio, não envia nada ao Telegram, não chama mark_seen e não abre o digest.db.
+Com uma amostra fixa, gera com Summarizer.process os episódios de algumas pautas. Não gera áudio,
+não envia nada ao Telegram, não chama mark_seen e não abre o digest.db.
 
 Uso (da raiz do projeto, com o venv ativo, o LLM no ar e nenhum pipeline rodando):
     python scripts/testar_episodio.py --amostra data/agrupamento/amostra_<data-hora>.json
+    python scripts/testar_episodio.py --repetir data/agrupamento/episodios/relatorio_<data-hora>.json --pasta episodios_v2
+    python scripts/testar_episodio.py --repetir <relatório> --pautas "86+71" --so-lados
 
-Antes de cada chamada ao LLM mostra memória disponível, swap e temperaturas, e para se a memória
-disponível estiver abaixo de --min-memoria (GiB). Grava em data/agrupamento/episodios/ o JSON de
-cada episódio e um relatorio_<data-hora>.json com tudo o que foi medido.
+Sem --repetir nem --pautas, refaz as etapas 1 a 3 do agrupamento e escolhe até 4 pautas com várias
+fontes e 1 de fonte única, como controle. --repetir usa as pautas de um relatório anterior, na
+mesma ordem, e --pautas acrescenta pautas montadas pelos ids da amostra; nos dois casos a etapa 3
+não roda. --so-lados faz só a análise de lados de cada pauta, sem gerar episódio.
+
+Antes de cada chamada ao LLM mostra memória disponível, swap e temperaturas. Para se a memória
+disponível estiver abaixo de --min-memoria (GiB) ou se o Ollama sair do ar ou descarregar o modelo
+no meio da rodada. Grava em data/agrupamento/<pasta>/ o JSON de cada episódio e um
+relatorio_<data-hora>.json (ou lados_<data-hora>.json) com tudo o que foi medido.
 """
 import argparse
 import datetime
@@ -22,7 +29,7 @@ from pathlib import Path
 import testar_agrupamento as diag
 from techdigest.ai import qa
 from techdigest.ai.llm import _amostra_sistema, get_provider
-from techdigest.ai.prompt import PROMPT_REVISOR, PROMPT_SISTEMA
+from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_REVISOR, PROMPT_SISTEMA
 from techdigest.ai.summarizer import TETO_PRINCIPAL, TETO_RELACIONADO, QAReprovado, Summarizer
 from techdigest.config import Settings
 from techdigest.processing import agrupamento as ag
@@ -33,21 +40,31 @@ ALERTA_DA_JANELA = 0.9   # avisa quando entrada + saída passam desta fração d
 FALAS_NO_RELATORIO = 3
 
 
-class MemoriaInsuficiente(SystemExit):
-    """Memória disponível abaixo do mínimo: interrompe o diagnóstico (não é pega por `except Exception`)."""
+class RodadaInterrompida(SystemExit):
+    """Memória abaixo do mínimo ou Ollama fora do ar: interrompe o diagnóstico (não é pega por `except Exception`)."""
 
 
 def _argumentos() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Gera episódios de pautas com várias fontes, sem entregar nada.")
-    p.add_argument("--amostra", metavar="ARQUIVO", required=True,
-                   help="amostra gravada por testar_agrupamento.py --salvar-amostra")
+    p.add_argument("--amostra", metavar="ARQUIVO",
+                   help="amostra gravada por testar_agrupamento.py --salvar-amostra (padrão: a do relatório de --repetir)")
+    p.add_argument("--repetir", metavar="RELATORIO",
+                   help="usa as pautas de um relatório anterior deste script, na mesma ordem, sem refazer a etapa 3")
+    p.add_argument("--pautas", metavar="IDS", default="",
+                   help='pautas a mais, pelos ids da amostra: "86+71;12" (o texto mais longo é o principal)')
+    p.add_argument("--so-lados", action="store_true", help="faz só a análise de lados de cada pauta, sem gerar episódio")
+    p.add_argument("--pasta", default="episodios", metavar="NOME",
+                   help="subpasta de data/agrupamento/ para os arquivos (padrão: %(default)s)")
     p.add_argument("--limiar", type=float, default=settings.agrup_limiar,
                    help="score mínimo da pauta provisória (padrão: AGRUP_LIMIAR = %(default)s)")
     p.add_argument("--max-pautas", type=int, default=4, metavar="N",
                    help="quantas pautas com várias fontes gerar (padrão: %(default)s)")
     p.add_argument("--min-memoria", type=float, default=4.0, metavar="GIB",
                    help="para se a memória disponível cair abaixo disto, em GiB (padrão: %(default)s)")
-    return p.parse_args()
+    args = p.parse_args()
+    if not args.amostra and not args.repetir:
+        p.error("informe --amostra ou --repetir")
+    return args
 
 
 def _estado_da_maquina() -> tuple[float, str]:
@@ -58,44 +75,84 @@ def _estado_da_maquina() -> tuple[float, str]:
 
 
 class ProviderMonitorado:
-    """Envolve o provider: confere a memória antes de cada chamada e guarda tempo, tokens e resposta."""
+    """Envolve o provider: confere a memória e o Ollama antes de cada chamada e guarda tempo, tokens e resposta."""
 
     def __init__(self, provider, min_memoria: float):
         self.provider = provider
         self.min_memoria = min_memoria
         self.chamadas: list[dict] = []
+        self.modelo_ja_carregou = False
 
     @property
     def ultimo_uso(self) -> dict:
         return self.provider.ultimo_uso
 
+    def _conferir_ollama(self) -> None:
+        """Para a rodada se o Ollama não responde ou se o modelo, que já tinha sido carregado, saiu da memória."""
+        cliente = getattr(self.provider, "client", None)
+        if settings.llm_provider != "ollama" or cliente is None:
+            return
+        try:
+            carregados = [m.model for m in cliente.ps().models]
+        except Exception as e:
+            raise RodadaInterrompida(f"\nPAREI: o Ollama não responde ({type(e).__name__}: {str(e)[:120]}).") from None
+        if self.modelo_ja_carregou and self.provider.model not in carregados:
+            raise RodadaInterrompida(
+                f"\nPAREI: o Ollama descarregou o modelo {self.provider.model} no meio da rodada "
+                f"(carregados agora: {', '.join(carregados) or 'nenhum'})."
+            )
+
     def chat_json(self, system: str, user: str, **opcoes) -> dict:
         disponivel, resumo = _estado_da_maquina()
         chamada = {
-            "prompt": {PROMPT_SISTEMA: "geração", PROMPT_REVISOR: "revisão"}.get(system, "outro"),
+            "prompt": {PROMPT_SISTEMA: "geração", PROMPT_REVISOR: "revisão", PROMPT_LADOS: "lados"}.get(system, "outro"),
             "chars_sistema": len(system), "chars_entrada": len(user), "maquina_antes": resumo,
         }
         print(f"      {chamada['prompt']}: {len(system) + len(user)} caracteres · antes: {resumo}", flush=True)
         if disponivel < self.min_memoria:
-            raise MemoriaInsuficiente(
+            raise RodadaInterrompida(
                 f"\nPAREI: memória disponível em {disponivel:.1f} GiB, abaixo do mínimo de {self.min_memoria:.1f} GiB."
             )
+        self._conferir_ollama()
         self.chamadas.append(chamada)
         inicio = time.perf_counter()
         try:
             resposta = self.provider.chat_json(system, user, **opcoes)
         except Exception as e:
             chamada.update(segundos=time.perf_counter() - inicio, erro=f"{type(e).__name__}: {str(e)[:300]}")
+            self._conferir_ollama()   # se foi o servidor que caiu, a rodada para aqui em vez de seguir falhando
             raise
+        self.modelo_ja_carregou = True
         tokens = dict(self.provider.ultimo_uso)
         chamada.update(segundos=time.perf_counter() - inicio, tokens_entrada=tokens.get("prompt", 0),
                        tokens_saida=tokens.get("saida", 0), resposta=resposta)
         return resposta
 
 
-def _pautas_finais(args: argparse.Namespace, provider) -> tuple[list[ag.Pauta], dict[ag.Candidato, int]]:
-    """Etapas 1 a 3 sobre a amostra: as pautas finais e o id de cada candidato."""
-    candidatos, ids = diag._carregar_amostra(args.amostra)
+def _pautas_dadas(args: argparse.Namespace, ids: dict[ag.Candidato, int]) -> list[tuple[str, ag.Pauta]]:
+    """As pautas de --repetir (como estavam no relatório) e as de --pautas (montadas pelos ids), com o nome do caso."""
+    por_id = {n: c for c, n in ids.items()}
+    escolhidas: list[tuple[str, ag.Pauta]] = []
+    try:
+        if args.repetir:
+            for item in json.loads(Path(args.repetir).read_text(encoding="utf-8"))["episodios"]:
+                principal, *demais = [(por_id[a["id"]], a.get("relacao")) for a in item["artigos"]]
+                escolhidas.append((item["caso"], ag.Pauta(
+                    principal=principal[0], relacionados=tuple(c for c, _ in demais),
+                    relacoes={c: relacao for c, relacao in demais if relacao in ag.RELACOES},
+                )))
+        for grupo in filter(None, (g.strip() for g in args.pautas.split(";"))):
+            artigos = [por_id[int(n)] for n in grupo.split("+")]
+            principal = max(artigos, key=lambda c: len(c.texto))        # a regra do projeto: o texto extraído mais longo
+            escolhidas.append((f"ids_{grupo}", ag.Pauta(principal=principal, relacionados=tuple(c for c in artigos if c is not principal))))
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        sys.exit(f"Pautas ilegíveis ({type(e).__name__}: {e}): confira --repetir e --pautas.")
+    return escolhidas
+
+
+def _pautas_finais(args: argparse.Namespace, provider, candidatos: list[ag.Candidato],
+                   ids: dict[ag.Candidato, int]) -> list[ag.Pauta]:
+    """Etapas 1 a 3 sobre a amostra: as pautas finais."""
     titulos = ag.comparar_titulos(candidatos, settings.agrup_chars_texto)
     textos = ag.comparar_textos(candidatos, settings.agrup_chars_texto)
     pares = ag.pontuar_pares(candidatos, titulos, textos, settings.agrup_peso_titulo, settings.agrup_limiar_duplicata)
@@ -108,7 +165,7 @@ def _pautas_finais(args: argparse.Namespace, provider) -> tuple[list[ag.Pauta], 
         finais += chamada.finais
         print(f"  pauta {n}/{len(com_varios)} (ids {', '.join(str(ids[c]) for c in pauta.artigos)}) · "
               f"{chamada.segundos:.1f} s · {chamada.erro or diag._resumo_do_veredito(chamada, ids)}", flush=True)
-    return finais, ids
+    return finais
 
 
 def _escolher(finais: list[ag.Pauta], ids: dict[ag.Candidato, int], quantas: int) -> list[tuple[str, ag.Pauta]]:
@@ -143,21 +200,76 @@ def _como_fonte(c: ag.Candidato, relacao: str | None = None) -> dict:
     return {**fonte, "relacao": relacao} if relacao else fonte
 
 
-def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer, monitor: ProviderMonitorado,
-           pasta: Path, carimbo: str) -> dict:
-    """Gera o episódio de uma pauta e devolve o relatório dela."""
-    print(f"\n== Episódio {n}: {caso} · {len(pauta.artigos)} texto(s) de {len(pauta.veiculos)} veículo(s) ==")
+def _apresentar(rotulo: str, n: int, caso: str, pauta: ag.Pauta, ids: dict) -> dict:
+    """Mostra a pauta e devolve o começo do relatório dela."""
+    print(f"\n== {rotulo} {n}: {caso} · {len(pauta.artigos)} texto(s) de {len(pauta.veiculos)} veículo(s) ==")
     print(f"  principal:   [id {ids[pauta.principal]}] {diag._rotulo(pauta.principal)} ({len(pauta.principal.texto)} caracteres)")
     for c in pauta.relacionados:
         print(f"  relacionado: [id {ids[c]}] {diag._rotulo(c)} ({len(c.texto)} caracteres, {pauta.relacoes.get(c, '?')})")
+    return {
+        "episodio": n, "caso": caso,
+        "artigos": [{"id": ids[c], "veiculo": c.veiculo, "titulo": c.titulo, "caracteres": len(c.texto),
+                     "relacao": pauta.relacoes.get(c, "principal")} for c in pauta.artigos],
+        "veiculos_da_pauta": list(pauta.veiculos),
+    }
 
+
+def _fontes(pauta: ag.Pauta) -> tuple[dict, list[dict]]:
+    return _como_fonte(pauta.principal), [_como_fonte(c, pauta.relacoes.get(c)) for c in pauta.relacionados]
+
+
+def _lados(analise, chamadas: list[dict]) -> dict:
+    """Mostra o resultado da análise de lados e devolve o que vai para o relatório."""
+    chamada = next((ch for ch in chamadas if ch["prompt"] == "lados"), {})
+    registro = {
+        "quantos": len(analise.lados), "motivo": analise.motivo, "invalida_porque": analise.problemas,
+        "lados": [{"posicao": lado.posicao, "atores": list(lado.atores), "veiculos": list(lado.veiculos)} for lado in analise.lados],
+        "resposta_do_llm": analise.resposta, "segundos": round(chamada.get("segundos", 0.0), 1),
+        "tokens_entrada": chamada.get("tokens_entrada"), "tokens_saida": chamada.get("tokens_saida"),
+    }
+    print(f"  lados: {registro['quantos']} · {registro['segundos']:.1f} s · "
+          f"{registro['tokens_entrada']} + {registro['tokens_saida']} tokens")
+    for i, lado in enumerate(registro["lados"], 1):
+        print(f"    lado {i}: {lado['posicao'] or '(sem posição: lado único de emergência)'}")
+        print(f"            atores: {', '.join(lado['atores']) or '-'} · veículos: {', '.join(lado['veiculos'])}")
+    print(f"    motivo: {registro['motivo'] or '-'}")
+    if analise.problemas:
+        print(f"    RESPOSTA INVÁLIDA, a pauta ficou com um lado só: {'; '.join(analise.problemas)}")
+        print(f"    resposta do LLM: {json.dumps(analise.resposta, ensure_ascii=False)}")
+    return registro
+
+
+def _cortes(entrada) -> list[dict]:
+    return [
+        {**corte, "teto": TETO_PRINCIPAL if i == 0 else TETO_RELACIONADO,
+         "cortado_pelo_orcamento": max(min(corte["texto"], TETO_PRINCIPAL if i == 0 else TETO_RELACIONADO) - corte["incluido"], 0)}
+        for i, corte in enumerate(entrada.cortes)
+    ]
+
+
+def _analisar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer, monitor: ProviderMonitorado) -> dict:
+    """Só a análise de lados de uma pauta, sobre os trechos que a geração receberia."""
+    relatorio = _apresentar("Pauta", n, caso, pauta, ids)
+    primeira = len(monitor.chamadas)
+    entrada, analise = summarizer.preparar(*_fontes(pauta))
+    relatorio["lados"] = _lados(analise, monitor.chamadas[primeira:])
+    relatorio["cortes_na_geracao"] = _cortes(entrada)
+    relatorio["chars_da_entrada_do_episodio"] = len(entrada.texto)
+    for corte in relatorio["cortes_na_geracao"]:
+        print(f"  texto lido: {corte['fonte']} · {corte['incluido']} de {corte['texto']} caracteres "
+              f"(teto {corte['teto']}; o orçamento tirou {corte['cortado_pelo_orcamento']})")
+    return relatorio
+
+
+def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer, monitor: ProviderMonitorado,
+           pasta: Path, carimbo: str) -> dict:
+    """Gera o episódio de uma pauta e devolve o relatório dela."""
+    relatorio = _apresentar("Episódio", n, caso, pauta, ids)
     proporcao = summarizer.chars_por_token
     primeira = len(monitor.chamadas)
     inicio = time.perf_counter()
     try:
-        episodio = summarizer.process(
-            _como_fonte(pauta.principal), [_como_fonte(c, pauta.relacoes.get(c)) for c in pauta.relacionados],
-        )
+        episodio = summarizer.process(*_fontes(pauta))
         situacao = "aprovado"
     except QAReprovado as e:
         situacao = f"reprovado pelo QA ({e})"
@@ -169,22 +281,17 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
     chamadas = [{k: v for k, v in ch.items() if k != "resposta"} for ch in monitor.chamadas[primeira:]]
     diagnostico = summarizer.ultimo_diagnostico
 
-    relatorio = {
-        "episodio": n, "caso": caso, "situacao": situacao, "segundos": round(segundos, 1),
-        "artigos": [{"id": ids[c], "veiculo": c.veiculo, "titulo": c.titulo, "caracteres": len(c.texto),
-                     "relacao": pauta.relacoes.get(c, "principal")} for c in pauta.artigos],
-        "veiculos_da_pauta": list(pauta.veiculos), "chars_por_token_no_inicio": round(proporcao, 2),
+    relatorio.update({
+        "situacao": situacao, "segundos": round(segundos, 1), "chars_por_token_no_inicio": round(proporcao, 2),
         "chamadas": chamadas,
         "problemas_antes_da_revisao": diagnostico.get("problemas"),
         "problemas_depois_da_revisao": diagnostico.get("problemas_da_revisao"),
-    }
+    })
+    if diagnostico.get("lados") is not None:
+        relatorio["lados"] = _lados(diagnostico["lados"], chamadas)
     for nome, entrada in (("cortes_na_geracao", diagnostico.get("entrada")), ("cortes_na_revisao", diagnostico.get("revisao"))):
         if entrada is not None:
-            relatorio[nome] = [
-                {**corte, "teto": TETO_PRINCIPAL if i == 0 else TETO_RELACIONADO,
-                 "cortado_pelo_orcamento": max(min(corte["texto"], TETO_PRINCIPAL if i == 0 else TETO_RELACIONADO) - corte["incluido"], 0)}
-                for i, corte in enumerate(entrada.cortes)
-            ]
+            relatorio[nome] = _cortes(entrada)
 
     for ch in chamadas:
         if "erro" in ch:
@@ -208,13 +315,19 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
         citadas = episodio.get("fontes_citadas") if isinstance(episodio.get("fontes_citadas"), list) else []
         relatorio.update(
             houve_divergencia=episodio.get("houve_divergencia"), fontes_citadas=citadas,
+            titulo=episodio.get("titulo_reescrito"),
+            analistas=list(dict.fromkeys(
+                str(t.get("personagem")) for t in episodio.get("roteiro_podcast") or []
+                if isinstance(t, dict) and qa._palavras_do_nome(t.get("personagem")) != [qa.HELENA]
+            )),
             veiculos_sem_citacao=[v for v in pauta.veiculos if not any(qa.mesmo_veiculo(v, f) for f in citadas)],
             fontes_fora_da_pauta=[f for f in citadas if not any(qa.mesmo_veiculo(v, f) for v in pauta.veiculos)],
             resumo_didatico=episodio.get("resumo_didatico"),
             primeiras_falas=(episodio.get("roteiro_podcast") or [])[:FALAS_NO_RELATORIO],
         )
-        print(f"  houve_divergencia: {relatorio['houve_divergencia']} · fontes_citadas: {citadas} · "
-              f"veículos da pauta: {list(pauta.veiculos)}")
+        print(f"  título: {relatorio['titulo']}")
+        print(f"  analistas: {', '.join(relatorio['analistas']) or 'nenhum'} · houve_divergencia: {relatorio['houve_divergencia']} · "
+              f"fontes_citadas: {citadas} · veículos da pauta: {list(pauta.veiculos)}")
         print(f"  veículos sem citação: {relatorio['veiculos_sem_citacao'] or 'nenhum'} · "
               f"fontes fora da pauta: {relatorio['fontes_fora_da_pauta'] or 'nenhuma'}")
         print(f"  resumo_didatico: {relatorio['resumo_didatico']}")
@@ -232,8 +345,10 @@ def main() -> None:
     args = _argumentos()
     diag._log_no_console()
     carimbo = f"{datetime.datetime.now():%Y%m%d-%H%M%S}"
-    pasta = diag._pasta() / "episodios"
+    pasta = diag._pasta() / args.pasta
     pasta.mkdir(parents=True, exist_ok=True)
+    if not args.amostra:
+        args.amostra = json.loads(Path(args.repetir).read_text(encoding="utf-8"))["amostra"]
 
     disponivel, resumo = _estado_da_maquina()
     print(f"== Máquina: {resumo} · num_ctx {settings.ollama_num_ctx} (reserva de saída "
@@ -244,27 +359,36 @@ def main() -> None:
     provider = get_provider(settings)
     monitor = ProviderMonitorado(provider, args.min_memoria)
     summarizer = Summarizer(provider=monitor)
-    finais, ids = _pautas_finais(args, provider)
-    escolhidas = _escolher(finais, ids, args.max_pautas)
-    print(f"\n{sum(1 for p in finais if p.relacionados)} pauta(s) final(is) com várias fontes; "
-          f"{len(escolhidas)} episódio(s) a gerar: {', '.join(caso for caso, _ in escolhidas)}")
+    candidatos, ids = diag._carregar_amostra(args.amostra)
+    if args.repetir or args.pautas:
+        escolhidas = _pautas_dadas(args, ids)
+    else:
+        finais = _pautas_finais(args, provider, candidatos, ids)
+        escolhidas = _escolher(finais, ids, args.max_pautas)
+        print(f"\n{sum(1 for p in finais if p.relacionados)} pauta(s) final(is) com várias fontes")
+    print(f"\n{len(escolhidas)} pauta(s) para {'analisar os lados' if args.so_lados else 'gerar'}: "
+          f"{', '.join(caso for caso, _ in escolhidas)}")
 
     relatorios = []
-    caminho = pasta / f"relatorio_{carimbo}.json"
+    caminho = pasta / f"{'lados' if args.so_lados else 'relatorio'}_{carimbo}.json"
 
     def gravar() -> None:
         caminho.write_text(json.dumps(
-            {"amostra": args.amostra, "limiar": args.limiar, "num_ctx": settings.ollama_num_ctx, "episodios": relatorios},
+            {"amostra": args.amostra, "limiar": None if args.repetir or args.pautas else args.limiar,   # sem etapa 3, não há limiar
+             "num_ctx": settings.ollama_num_ctx, "episodios": relatorios},
             ensure_ascii=False, indent=1, default=str,
         ), encoding="utf-8")
 
     try:
         for n, (caso, pauta) in enumerate(escolhidas, 1):
-            relatorios.append(_gerar(n, caso, pauta, ids, summarizer, monitor, pasta, carimbo))
-            gravar()  # a cada episódio: se a máquina cair no meio, fica o que já foi medido
+            if args.so_lados:
+                relatorios.append(_analisar(n, caso, pauta, ids, summarizer, monitor))
+            else:
+                relatorios.append(_gerar(n, caso, pauta, ids, summarizer, monitor, pasta, carimbo))
+            gravar()  # a cada pauta: se a máquina cair no meio, fica o que já foi medido
     finally:
         gravar()
-        print(f"\nRelatório: {caminho} ({len(relatorios)} de {len(escolhidas)} episódio(s))")
+        print(f"\nRelatório: {caminho} ({len(relatorios)} de {len(escolhidas)} pauta(s))")
 
 
 if __name__ == "__main__":

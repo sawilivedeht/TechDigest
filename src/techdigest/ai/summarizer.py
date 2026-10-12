@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import timedelta, timezone
 
+from techdigest.ai.lados import MAX_BLOCO, Analise, analisar_lados, bloco_dos_lados
 from techdigest.ai.llm import get_provider
 from techdigest.ai.prompt import PROMPT_REVISOR, PROMPT_SISTEMA
 from techdigest.ai.qa import problemas, veiculos_distintos
@@ -39,6 +40,7 @@ class Entrada:
     texto: str
     fontes: list[str]                                   # veículo de cada texto incluído, o principal primeiro
     cortes: list[dict] = field(default_factory=list)    # por artigo recebido: fonte, caracteres do texto e quantos entraram
+    textos: list[dict] = field(default_factory=list)    # por texto incluído: fonte, titulo e o trecho que entrou
 
 
 def _limpar(texto: str) -> str:
@@ -49,10 +51,10 @@ def _limpar(texto: str) -> str:
     return texto.strip()
 
 
-def _qa(result: dict, veiculos: list[str] | None = None) -> list[str]:
+def _qa(result: dict, veiculos: list[str], lados: list) -> list[str]:
     """Roda o QA sem deixar um JSON malformado derrubar o fluxo (vira problema, não exceção)."""
     try:
-        return problemas(result, veiculos)
+        return problemas(result, veiculos, lados)
     except (KeyError, TypeError, AttributeError) as e:
         return [f"estrutura inválida para o QA ({type(e).__name__}: {e})"]
 
@@ -105,18 +107,20 @@ def _repartir(desejados: list[int], orcamento: int) -> list[int]:
 
 
 def _aviso(artigos: list[dict]) -> str:
-    """Aviso do editor-chefe para a entrada com relacionados: só fala do que entrou no texto."""
+    """Aviso do editor-chefe para a entrada com relacionados: só fala do que entrou no texto.
+
+    Conta os textos e os veículos e pede a ordem cronológica; os lados da história vêm no bloco LADOS DA PAUTA.
+    """
     veiculos = veiculos_distintos(a["source"] for a in artigos)
     if len(veiculos) > 1:
         aviso = (
             f"\nAVISO DO EDITOR-CHEFE: há {len(artigos)} textos de {len(veiculos)} veículos sobre este "
-            f"assunto ({', '.join(sorted(veiculos))}). Verifique se há divergência real entre os "
-            f"relatos; se houver, aplique a REGRA DE DIVERGÊNCIA."
+            f"assunto ({', '.join(sorted(veiculos))}). Cite cada veículo pelo nome."
         )
     else:
         aviso = (
             f"\nAVISO DO EDITOR-CHEFE: há {len(artigos)} textos do mesmo veículo sobre este assunto "
-            f"({veiculos[0]}). Trate-os como uma fonte só: não há debate entre fontes a fazer."
+            f"({veiculos[0]}). Cite-o como uma fonte só."
         )
     if any(a.get("relacao") == "desdobramento" for a in artigos[1:]):
         aviso += " Os textos relatam momentos diferentes da mesma história: narre os fatos em ordem cronológica"
@@ -127,7 +131,8 @@ def _aviso(artigos: list[dict]) -> str:
     return aviso
 
 
-def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limite: int | None = None) -> Entrada:
+def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limite: int | None = None,
+                   lados: list | None = None) -> Entrada:
     """Monta a mensagem do episódio dentro de `limite` caracteres (None = sem limite).
 
     Cada artigo é um dict com "source", "title" e "text"; os relacionados podem trazer também
@@ -137,8 +142,12 @@ def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limi
     Cabeçalhos, aviso e lembrete nunca são cortados: o orçamento dos textos é o que sobra do
     limite depois deles. Se os textos não cabem, são repartidos (ver `_repartir`) e cortados em
     fim de parágrafo. Relacionado que ficaria com menos de MIN_TRECHO caracteres sai da entrada, e
-    o aviso conta e nomeia só os que entraram. Com uma fonte só e espaço suficiente, a mensagem é
-    a mesma de antes do orçamento existir.
+    o aviso conta e nomeia só os que entraram.
+
+    `lados` é o resultado da análise de lados: com ele, o bloco LADOS DA PAUTA entra antes do
+    lembrete. O espaço do bloco (MAX_BLOCO) é reservado sempre, com ou sem `lados`, para que os
+    trechos sejam os mesmos na chamada sem o bloco (a que alimenta a análise de lados) e na
+    chamada com ele (a do episódio).
     """
     recebidos = [principal, *(relacionados or [])]
     artigos = recebidos[:1 + MAX_RELACIONADOS]
@@ -151,11 +160,12 @@ def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limi
             f"\nARTIGO RELACIONADO [{i}]\nFonte: {rel['source']}\nTítulo: {_limpar(rel['title'])}\nTrecho:\n"
             for i, rel in enumerate(artigos[1:], 1)
         ]
-        finais = ([_aviso(artigos)] if len(artigos) > 1 else []) + [LEMBRETE]
+        avisos = [_aviso(artigos)] if len(artigos) > 1 else []
         if limite is None:
             concedidos = [len(t) for t in textos]
             break
-        fixos = sum(map(len, cabecalhos)) + sum(map(len, finais)) + len(cabecalhos) + len(finais) - 1  # com as quebras do join
+        fixos = (sum(map(len, cabecalhos)) + sum(map(len, avisos)) + MAX_BLOCO + len(LEMBRETE)
+                 + len(cabecalhos) + len(avisos) + 1)   # com as quebras do join
         concedidos = _repartir([len(t) for t in textos], max(limite - fixos, 0))
         apertados = [i for i in range(1, len(artigos)) if concedidos[i] < min(MIN_TRECHO, len(textos[i]))]
         if not apertados:
@@ -170,11 +180,13 @@ def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limi
         concedidos[0] = min(MIN_TRECHO, len(textos[0]))
     trechos = [_cortar_em_paragrafo(texto, cabe) for texto, cabe in zip(textos, concedidos)]
 
+    finais = avisos + ([bloco_dos_lados(lados)] if lados else []) + [LEMBRETE]
     incluido = {id(a): len(t) for a, t in zip(artigos, trechos)}
     return Entrada(
         texto="\n".join([c + t for c, t in zip(cabecalhos, trechos)] + finais),
         fontes=[a["source"] for a in artigos],
         cortes=[{"fonte": a["source"], "texto": len(_limpar(a["text"])), "incluido": incluido.get(id(a), 0)} for a in recebidos],
+        textos=[{"fonte": a["source"], "titulo": _limpar(a["title"]), "texto": t} for a, t in zip(artigos, trechos)],
     )
 
 
@@ -202,9 +214,9 @@ class Summarizer:
         tokens = settings.ollama_num_ctx - reserva - MARGEM_TOKENS
         return int(tokens * self.chars_por_token) - len(system) - extra
 
-    def _chamar(self, system: str, user: str) -> dict:
+    def _chamar(self, system: str, user: str, **opcoes) -> dict:
         """Chama o provider e aproveita os tokens que ele contou para medir caracteres por token."""
-        result = self.provider.chat_json(system, user)
+        result = self.provider.chat_json(system, user, **opcoes)
         tokens = (getattr(self.provider, "ultimo_uso", None) or {}).get("prompt", 0)
         if tokens > 0:
             medida = (len(system) + len(user)) / tokens * FOLGA_DA_MEDIDA
@@ -215,20 +227,33 @@ class Summarizer:
     def _montar_entrada(self, principal: dict, relacionados: list[dict] | None = None) -> str:
         return montar_entrada(principal, relacionados, self._limite_da_entrada(PROMPT_SISTEMA)).texto
 
-    def process(self, principal: dict, relacionados: list[dict] | None = None) -> dict:
-        """Devolve um episódio que passou no QA; do contrário levanta QAReprovado (item é pulado)."""
-        entrada = montar_entrada(principal, relacionados, self._limite_da_entrada(PROMPT_SISTEMA))
-        self.ultimo_diagnostico = {"entrada": entrada, "problemas": None, "revisao": None, "problemas_da_revisao": None}
+    def preparar(self, principal: dict, relacionados: list[dict] | None = None) -> tuple[Entrada, Analise]:
+        """Roda a análise de lados da pauta e monta a entrada do episódio, já com o bloco de lados.
+
+        O limite é calculado uma vez, antes da análise: assim os trechos que o LLM lê para contar
+        os lados são os mesmos que vão para a geração.
+        """
+        limite = self._limite_da_entrada(PROMPT_SISTEMA)
+        previa = montar_entrada(principal, relacionados, limite)
         logger.info(
             "Resumindo: %r (fonte: %s, %d caracteres de texto, %d relacionado(s))",
             str(principal["title"])[:80], principal["source"],
-            len(principal["text"]), len(entrada.fontes) - 1,
+            len(principal["text"]), len(previa.fontes) - 1,
         )
+        analise = analisar_lados(self._chamar, previa.textos)
+        return montar_entrada(principal, relacionados, limite, analise.lados), analise
+
+    def process(self, principal: dict, relacionados: list[dict] | None = None) -> dict:
+        """Devolve um episódio que passou no QA; do contrário levanta QAReprovado (item é pulado)."""
+        entrada, analise = self.preparar(principal, relacionados)
+        self.ultimo_diagnostico = {
+            "entrada": entrada, "lados": analise, "problemas": None, "revisao": None, "problemas_da_revisao": None,
+        }
         logger.debug("Início da entrada enviada ao LLM: %r", entrada.texto[:600])
 
         result = self._chamar(PROMPT_SISTEMA, entrada.texto)
 
-        probs = _qa(result, entrada.fontes)
+        probs = _qa(result, entrada.fontes, analise.lados)
         self.ultimo_diagnostico["problemas"] = probs
         if not probs:
             return result
@@ -242,7 +267,7 @@ class Summarizer:
             + "\n\nEPISÓDIO ORIGINAL:\n" + json.dumps(result, ensure_ascii=False)
         )
         fonte = montar_entrada(
-            principal, relacionados, self._limite_da_entrada(PROMPT_REVISOR, extra=len(antes) + len(depois)),
+            principal, relacionados, self._limite_da_entrada(PROMPT_REVISOR, extra=len(antes) + len(depois)), analise.lados,
         )
         self.ultimo_diagnostico["revisao"] = fonte
         try:
@@ -253,7 +278,7 @@ class Summarizer:
                 f"1ª versão reprovada: {probs}"
             ) from e
 
-        probs2 = _qa(corrigido, entrada.fontes)
+        probs2 = _qa(corrigido, entrada.fontes, analise.lados)
         self.ultimo_diagnostico["problemas_da_revisao"] = probs2
         if not probs2:
             logger.info("Revisão aprovada pelo QA.")
