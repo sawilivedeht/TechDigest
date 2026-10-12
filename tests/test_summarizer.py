@@ -8,7 +8,7 @@ import pytest
 
 from techdigest.ai import qa, summarizer
 from techdigest.ai.lados import MAX_BLOCO, Lado, bloco_dos_lados, entrada_dos_lados, lado_unico
-from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA
+from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
 from techdigest.ai.summarizer import LEMBRETE, QAReprovado, Summarizer, _repartir, montar_entrada
 
 UTC = datetime.timezone.utc
@@ -37,7 +37,7 @@ def _entrada_antiga(principal: dict) -> str:
     ]
     partes.append(
         "\nLEMBRETE: só o JSON das 8 chaves. Roteiro com 600-1300 palavras "
-        "no total, 240-480 por personagem, 14-24 turnos."
+        "no total, 240-480 por personagem, 10-20 turnos."
     )
     return "\n".join(partes)
 
@@ -238,7 +238,7 @@ def test_process_de_fonte_unica_analisa_os_lados_e_gera_com_o_bloco(ollama_8192)
     com_bloco = _entrada_antiga(principal).removesuffix(LEMBRETE) + bloco_dos_lados(um_lado) + "\n" + LEMBRETE
     assert provider.chamadas == [((PROMPT_SISTEMA, com_bloco), {})]                       # a geração segue sem argumentos novos
     ((sistema, entrada), opcoes), ((_, nova_tentativa), _) = provider.analises
-    assert sistema == PROMPT_LADOS and opcoes == {"chaves": ("lados",), "temperatura": 0.1, "max_saida": 800}
+    assert sistema == PROMPT_LADOS and opcoes == {"chaves": ("lados",), "temperatura": 0.1, "max_saida": 1200}
     assert entrada == entrada_dos_lados([{"fonte": "G1", "titulo": "Título de G1", "texto": principal["text"]}])
     assert nova_tentativa.startswith(entrada + "\n\nCORREÇÃO: a sua resposta anterior não valeu: resposta com 0 lados")
     assert "\nLado 1: relato dos fatos, sem lados definidos. Veículos: G1.\n" in com_bloco
@@ -275,7 +275,11 @@ def test_process_com_dois_veiculos_cobra_as_fontes_e_revisa_dentro_do_orcamento(
 
 
 def test_process_com_dois_lados_exige_um_analista_por_lado(ollama_8192):
-    dois_lados = {"questao": "A Meta favoreceu um candidato?", "lados": [
+    trecho = "Uma frase qualquer sobre o assunto"          # está em todo texto de _artigo
+    dois_lados = {"questao": "A Meta favoreceu um candidato?", "respostas_por_ator": [
+        {"ator": "campanha de Lula", "resposta": "Sim", "trecho": trecho, "veiculo": "CartaCapital"},
+        {"ator": "Meta", "resposta": "Não", "trecho": trecho, "veiculo": "Agência Brasil"},
+    ], "lados": [
         {"resposta": "Sim", "posicao": "A campanha acusa a Meta.", "atores": ["campanha de Lula"], "veiculos": ["CartaCapital"]},
         {"resposta": "Não", "posicao": "A Meta nega.", "atores": ["Meta"], "veiculos": ["Agência Brasil"]},
     ], "motivo": "Acusação contra defesa."}
@@ -302,13 +306,15 @@ def test_process_com_dois_lados_exige_um_analista_por_lado(ollama_8192):
     (_, entrada), (_, revisao) = (args for args, _ in provider.chamadas)
     for mensagem in (entrada, revisao):                                   # o bloco vai na geração e na revisão
         assert ("\nLADOS DA PAUTA: 2 lados.\nQUESTÃO: A Meta favoreceu um candidato?\n"
-                "Lado 1 (resposta: Sim): A campanha acusa a Meta. Atores: campanha de Lula. Veículos: CartaCapital.\n") in mensagem
+                "Lado 1 (resposta: Sim; lado fino): A campanha acusa a Meta. Atores: campanha de Lula. Veículos: CartaCapital.\n") in mensagem
         assert 'ELENCO: Helena e exatamente 2 analistas, um por lado; "houve_divergencia": true.' in mensagem
     assert len(provider.analises) == 1                                    # os lados são analisados uma vez só, antes da geração
 
 
 def test_process_com_ressalva_cobra_a_pergunta_atribuida_da_helena(ollama_8192):
-    um_lado_e_uma_ressalva = {"questao": "A flexibilização é boa para o Brasil?", "lados": [
+    um_lado_e_uma_ressalva = {"questao": "A flexibilização é boa para o Brasil?", "respostas_por_ator": [
+        {"ator": "Flávio Bolsonaro", "resposta": "Sim", "trecho": "Uma frase qualquer sobre o assunto", "veiculo": "G1"},
+    ], "lados": [
         {"resposta": "Sim", "posicao": "Flávio propõe flexibilizar o Mercosul.", "atores": ["Flávio Bolsonaro"], "grupos": [], "veiculos": ["G1"]},
         {"resposta": "Não", "posicao": "A mudança pode enfraquecer a tarifa comum.", "atores": [], "grupos": ["economistas"], "veiculos": ["G1"]},
     ]}
@@ -337,10 +343,13 @@ def test_process_com_ressalva_cobra_a_pergunta_atribuida_da_helena(ollama_8192):
 
 def test_tipo_de_correcao_vem_dos_campos_dos_problemas():
     resumo, roteiro, titulo = qa.Problema(qa.RESUMO, "r"), qa.Problema(qa.ROTEIRO, "f"), qa.Problema(qa.TITULO, "t")
+    papel = qa.Problema(qa.PAPEL, "p")
+    assert summarizer.tipo_de_correcao([titulo]) == summarizer.tipo_de_correcao([titulo, titulo]) == "titulo"
     assert summarizer.tipo_de_correcao([resumo]) == summarizer.tipo_de_correcao([resumo, resumo]) == "resumo"
     assert summarizer.tipo_de_correcao([roteiro, roteiro]) == "roteiro"
-    assert summarizer.tipo_de_correcao([resumo, roteiro]) == "completa"          # mais de um campo
-    assert summarizer.tipo_de_correcao([titulo]) == "completa"                   # um campo só, mas sem correção própria
+    assert summarizer.tipo_de_correcao([papel]) == summarizer.tipo_de_correcao([papel, roteiro]) == "roteiro"   # o papel vai com o roteiro
+    assert summarizer.tipo_de_correcao([resumo, roteiro]) == summarizer.tipo_de_correcao([titulo, resumo]) == "completa"   # mais de um campo
+    assert summarizer.tipo_de_correcao([qa.Problema(qa.ELENCO, "e")]) == "completa"      # um campo só, mas sem correção própria
     assert summarizer.tipo_de_correcao([qa.Problema(qa.ESTRUTURA, "e")]) == "completa"
 
 
@@ -391,6 +400,66 @@ def test_problema_so_no_roteiro_reescreve_so_o_roteiro_com_os_mesmos_personagens
     assert mensagem.endswith("\n\nROTEIRO ORIGINAL:\n" + json.dumps(curto["roteiro_podcast"], ensure_ascii=False))
     assert diagnostico["revisao"].cortes == [{"fonte": "G1", "texto": len(summarizer._limpar(_artigo("G1", 3000)["text"])),
                                               "incluido": diagnostico["revisao"].cortes[0]["incluido"]}]
+
+
+def test_problema_so_no_titulo_reescreve_so_o_titulo_a_partir_do_resumo(ollama_8192):
+    com_proporcao = {**_episodio(["G1"]), "titulo_reescrito": "Maioria das candidatas sofre ataques"}
+    provider = ProviderFalso(com_proporcao, {"titulo_reescrito": "Candidatas sofrem ataques no primeiro turno"},
+                             lados={"lados": [{"posicao": "Fato central.", "atores": ["Terra de Direitos", "Justiça Global"], "veiculos": ["G1"]}]})
+    s = Summarizer(provider=provider)
+
+    assert s.process(_artigo("G1", 3000)) == {**com_proporcao, "titulo_reescrito": "Candidatas sofrem ataques no primeiro turno"}
+    diagnostico = s.ultimo_diagnostico
+    assert diagnostico["correcao"] == "titulo" and diagnostico["problemas_da_revisao"] == [] and diagnostico["revisao"] is None
+    ((_, _), _), ((sistema, mensagem), opcoes) = provider.chamadas
+    assert sistema == PROMPT_TITULO and opcoes == {"chaves": ("titulo_reescrito",), "max_saida": summarizer.MAX_SAIDA_TITULO}
+    assert mensagem == (
+        "RESUMO:\n" + com_proporcao["resumo_didatico"]
+        + "\n\nATORES: Terra de Direitos, Justiça Global"
+        + f"\n\nPROBLEMAS DETECTADOS:\n- {diagnostico['problemas'][0]}"
+        + "\n\nTÍTULO ORIGINAL:\nMaioria das candidatas sofre ataques"
+    )
+    assert diagnostico["problemas"][0].startswith("título com percentual ou proporção (Maioria)")
+    assert "ARTIGO" not in mensagem and "roteiro_podcast" not in mensagem             # sem os textos e sem o resto do episódio
+
+
+def test_papel_com_nome_de_ator_vai_para_a_revisao_do_roteiro_que_so_troca_o_papel(ollama_8192):
+    trecho = "Uma frase qualquer sobre o assunto"
+    dois_lados = {"questao": "A Meta favoreceu um candidato?", "respostas_por_ator": [
+        {"ator": "campanha de Lula", "resposta": "Sim", "trecho": trecho, "veiculo": "CartaCapital"},
+        {"ator": "Meta", "resposta": "Não", "trecho": trecho, "veiculo": "Agência Brasil"},
+    ], "lados": [
+        {"resposta": "Sim", "posicao": "A campanha acusa a Meta.", "atores": ["campanha de Lula"], "veiculos": ["CartaCapital"]},
+        {"resposta": "Não", "posicao": "A Meta nega.", "atores": ["Meta"], "veiculos": ["Agência Brasil"]},
+    ]}
+    terco = " ".join(["palavra"] * max(qa.MIN_POR_PERSONAGEM, math.ceil(qa.MIN_TOTAL / 3)))
+    roteiro = [
+        {"personagem": "Helena", "fala": terco},
+        {"personagem": "Bia", "fala": terco + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
+        {"personagem": "Ramos", "fala": terco + ". Já a Agência Brasil registra que a Meta nega."},
+    ]
+    porta_voz = {
+        **_episodio(["Agência Brasil", "CartaCapital"]), "houve_divergencia": True, "roteiro_podcast": roteiro,
+        "personagens": [{"nome": "Helena", "papel": "apresentadora"}, {"nome": "Bia", "papel": "analista da campanha de Lula"},
+                        {"nome": "Ramos", "papel": "analista da Meta"}],
+    }
+    devolvido = {"roteiro_podcast": roteiro, "personagens": [
+        {"nome": "Bia", "papel": "analista de política"}, {"nome": "Ramos", "papel": "analista de tecnologia"},
+        {"nome": "Intruso", "papel": "analista"}, {"nome": "Helena", "papel": ""},
+    ]}
+    provider = ProviderFalso(porta_voz, devolvido, lados=dois_lados)
+    s = Summarizer(provider=provider)
+
+    episodio = s.process(_artigo("Agência Brasil", 2000), [_artigo("CartaCapital", 2000)])
+    assert episodio["personagens"] == [                                               # os mesmos nomes, na mesma ordem: só o papel muda
+        {"nome": "Helena", "papel": "apresentadora"}, {"nome": "Bia", "papel": "analista de política"},
+        {"nome": "Ramos", "papel": "analista de tecnologia"},
+    ]
+    assert s.ultimo_diagnostico["correcao"] == "roteiro" and s.ultimo_diagnostico["problemas_da_revisao"] == []
+    assert [p[:26] for p in s.ultimo_diagnostico["problemas"]] == ["papel de Bia com o nome de", "papel de Ramos com o nome d"[:26]]
+    ((_, _), _), ((sistema, mensagem), opcoes) = provider.chamadas
+    assert sistema == PROMPT_ROTEIRO and opcoes == {"chaves": ("roteiro_podcast",)}
+    assert '"papel": "analista da Meta"' in mensagem and "papel de Ramos com o nome de um ator dos lados" in mensagem
 
 
 def test_correcao_direcionada_que_nao_resolve_levanta_qareprovado(ollama_8192):

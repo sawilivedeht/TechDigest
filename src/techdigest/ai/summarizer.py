@@ -1,4 +1,4 @@
-"""Summarizer — geração, QA determinístico e uma correção: do resumo, do roteiro ou do episódio inteiro."""
+"""Summarizer — geração, QA determinístico e uma correção: do título, do resumo, do roteiro ou do episódio inteiro."""
 import json
 import logging
 import re
@@ -7,8 +7,8 @@ from datetime import timedelta, timezone
 
 from techdigest.ai.lados import MAX_BLOCO, Analise, analisar_lados, bloco_dos_lados
 from techdigest.ai.llm import get_provider
-from techdigest.ai.prompt import PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA
-from techdigest.ai.qa import ESTRUTURA, RESUMO, ROTEIRO, Problema, problemas_com_campo, veiculos_distintos
+from techdigest.ai.prompt import PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
+from techdigest.ai.qa import ELENCO, ESTRUTURA, PAPEL, RESUMO, ROTEIRO, TITULO, Problema, problemas_com_campo, veiculos_distintos
 from techdigest.config import Settings
 
 logger = logging.getLogger("techdigest.ai.summarizer")
@@ -25,16 +25,19 @@ FOLGA_DA_MEDIDA = 0.9           # vale 90% da menor proporção medida
 
 LEMBRETE = (
     "\nLEMBRETE: só o JSON das 8 chaves. Roteiro com 600-1300 palavras "
-    "no total, 240-480 por personagem, 14-24 turnos."
+    "no total, 240-480 por personagem, 10-20 turnos."
 )
 LEMBRETE_DO_ROTEIRO = (
     "\nLEMBRETE: só o JSON com a chave roteiro_podcast. Roteiro com 600-1300 palavras "
-    "no total, 240-480 por personagem, 14-24 turnos."
+    "no total, 240-480 por personagem, 10-20 turnos."
 )
 FONTE_ANTES = "ARTIGO-FONTE (use somente fatos deste texto; não invente informações):\n"
 MAX_SAIDA_RESUMO = 700          # tokens: a correção do resumo devolve só o resumo
+MAX_SAIDA_TITULO = 200          # tokens: a correção do título devolve só o título
 # Os tipos de correção depois de um QA reprovado e como cada um aparece nas mensagens.
-CORRECOES = {"resumo": "correção do resumo", "roteiro": "revisão do roteiro", "completa": "revisão"}
+CORRECOES = {
+    "titulo": "correção do título", "resumo": "correção do resumo", "roteiro": "revisão do roteiro", "completa": "revisão",
+}
 _BRASILIA = timezone(timedelta(hours=-3))  # sem horário de verão desde 2019
 
 
@@ -69,18 +72,30 @@ def _qa(result: dict, veiculos: list[str], lados: list, ressalvas: list, textos:
 
 
 def tipo_de_correcao(problemas: list[Problema]) -> str:
-    """Que correção os problemas pedem: "resumo", "roteiro" ou "completa".
+    """Que correção os problemas pedem: "titulo", "resumo", "roteiro" ou "completa".
 
-    Com todos os problemas no resumo_didatico, só o resumo é reescrito; com todos no
-    roteiro_podcast, só o roteiro. Problema em outro campo, ou em mais de um, pede a revisão do
-    episódio inteiro.
+    Com todos os problemas no título, só o título é reescrito; com todos no resumo_didatico, só o
+    resumo; com todos no roteiro_podcast ou no papel de um personagem, a revisão do roteiro, que
+    devolve o roteiro e os personagens. Problema em outro campo, ou em mais de um desses grupos,
+    pede a revisão do episódio inteiro.
     """
     campos = {p.campo for p in problemas}
+    if campos == {TITULO}:
+        return "titulo"
     if campos == {RESUMO}:
         return "resumo"
-    if campos == {ROTEIRO}:
+    if campos <= {ROTEIRO, PAPEL}:
         return "roteiro"
     return "completa"
+
+
+def _com_os_papeis(personagens: list[dict], devolvidos) -> list[dict]:
+    """Os personagens do episódio com o papel que a revisão devolveu para o mesmo nome: os nomes não mudam."""
+    papeis = {
+        str(p.get("nome")): p["papel"] for p in devolvidos or []
+        if isinstance(p, dict) and isinstance(p.get("papel"), str) and p["papel"].strip()
+    } if isinstance(devolvidos, list) else {}
+    return [{**p, "papel": papeis[p["nome"]]} if p.get("nome") in papeis else p for p in personagens]
 
 
 def _cortar_em_paragrafo(texto: str, limite: int) -> str:
@@ -270,6 +285,18 @@ class Summarizer:
         analise = analisar_lados(self._chamar, previa.textos)
         return montar_entrada(principal, relacionados, limite, analise.lados, analise.questao, analise.ressalvas), analise
 
+    def _corrigir_titulo(self, analise: Analise, result: dict, probs: list[str]) -> tuple[dict, None]:
+        """Reescreve só o título, a partir do resumo: a chamada leva os atores dos lados e não leva os textos."""
+        atores = [ator for lado in analise.lados for ator in lado.atores]
+        usuario = (
+            "RESUMO:\n" + str(result[RESUMO])
+            + "\n\nATORES: " + (", ".join(atores) or "nenhum ator nomeado")
+            + "\n\nPROBLEMAS DETECTADOS:\n- " + "\n- ".join(probs)
+            + "\n\nTÍTULO ORIGINAL:\n" + str(result[TITULO])
+        )
+        resposta = self._chamar(PROMPT_TITULO, usuario, chaves=(TITULO,), max_saida=MAX_SAIDA_TITULO)
+        return {**result, TITULO: resposta[TITULO]}, None
+
     def _corrigir_resumo(self, entrada: Entrada, analise: Analise, result: dict, probs: list[str]) -> tuple[dict, Entrada]:
         """Reescreve só o resumo, com os mesmos trechos que foram para a geração e sem o episódio inteiro."""
         usuario = (
@@ -283,7 +310,10 @@ class Summarizer:
 
     def _revisar_roteiro(self, principal: dict, relacionados: list[dict] | None, analise: Analise, result: dict,
                          probs: list[str]) -> tuple[dict, Entrada]:
-        """Reescreve só o roteiro: a chamada leva os textos, os lados, os personagens e o roteiro original."""
+        """Reescreve o roteiro: a chamada leva os textos, os lados, os personagens e o roteiro original.
+
+        Devolve o roteiro e os personagens; dos personagens só o papel pode mudar (ver `_com_os_papeis`).
+        """
         depois = (
             "\n\nPERSONAGENS (os mesmos, com estes nomes):\n" + json.dumps(result["personagens"], ensure_ascii=False)
             + "\n\nPROBLEMAS DETECTADOS:\n- " + "\n- ".join(probs)
@@ -294,7 +324,8 @@ class Summarizer:
             analise.lados, analise.questao, analise.ressalvas, lembrete=LEMBRETE_DO_ROTEIRO,
         )
         resposta = self._chamar(PROMPT_ROTEIRO, FONTE_ANTES + fonte.texto + depois, chaves=(ROTEIRO,))
-        return {**result, ROTEIRO: resposta[ROTEIRO]}, fonte
+        personagens = _com_os_papeis(result[ELENCO], resposta.get(ELENCO))
+        return {**result, ELENCO: personagens, ROTEIRO: resposta[ROTEIRO]}, fonte
 
     def _revisar(self, principal: dict, relacionados: list[dict] | None, analise: Analise, result: dict,
                  probs: list[str]) -> tuple[dict, Entrada]:
@@ -340,7 +371,9 @@ class Summarizer:
         tipo = diagnostico["correcao"] = tipo_de_correcao(problemas)
         logger.warning("QA reprovou a 1ª versão: %s — acionando %s", probs, CORRECOES[tipo])
         try:
-            if tipo == "resumo":
+            if tipo == "titulo":
+                corrigido, fonte = self._corrigir_titulo(analise, result, probs)
+            elif tipo == "resumo":
                 corrigido, fonte = self._corrigir_resumo(entrada, analise, result, probs)
             elif tipo == "roteiro":
                 corrigido, fonte = self._revisar_roteiro(principal, relacionados, analise, result, probs)

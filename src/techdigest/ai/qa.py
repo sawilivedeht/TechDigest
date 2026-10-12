@@ -5,6 +5,8 @@ import unicodedata
 from dataclasses import dataclass
 
 from techdigest.ai.atribuicoes import atribuicoes_a_grupos, grupo_na_pauta, plano
+from techdigest.ai.numeros import dobrar as _dobrar
+from techdigest.ai.numeros import formatar, mais_proximo, numeros, pede_fonte, qualificador, tem_fonte, valores_dos_textos
 from techdigest.ai.verbos import FORMAS_DE_POSICAO, INFINITIVOS, verbos_de_posicao
 from techdigest.config import Settings
 
@@ -15,6 +17,7 @@ settings = Settings()
 # Faixas editoriais (regras 2, 3 e 6). Os valores vêm do .env (QA_*); os defaults do
 # config.py são as regras originais do dono.
 MIN_POR_PERSONAGEM, MAX_POR_PERSONAGEM = settings.qa_min_por_personagem, settings.qa_max_por_personagem
+MIN_LADO_FINO = settings.qa_min_lado_fino   # o mínimo do analista de um lado fino (ver `ai/lados.py`)
 MIN_TOTAL, MAX_TOTAL = settings.qa_min_total, settings.qa_max_total
 MIN_FRASES_RESUMO, MAX_FRASES_RESUMO = settings.qa_min_frases, settings.qa_max_frases
 
@@ -22,6 +25,7 @@ HELENA = "helena"
 # Os campos do episódio em que um problema pode estar: é o campo que decide o tipo de correção.
 TITULO, RESUMO, PONTOS, ROTEIRO = "titulo_reescrito", "resumo_didatico", "pontos_chave", "roteiro_podcast"
 ELENCO, FONTES, DIVERGENCIA, ESTRUTURA = "personagens", "fontes_citadas", "houve_divergencia", "estrutura"
+PAPEL = "papel"   # o papel de um personagem: quem corrige é a revisão do roteiro, que devolve também os personagens
 
 
 @dataclass(frozen=True)
@@ -98,15 +102,6 @@ def veiculos_distintos(veiculos) -> list[str]:
         if not any(mesmo_veiculo(veiculo, outro) for outro in distintos):
             distintos.append(veiculo)
     return distintos
-
-
-def _dobrar(texto: str) -> str:
-    """`texto` sem acentos e em minúsculas, com o mesmo comprimento: as posições valem no original."""
-    saida = []
-    for c in texto:
-        base = "".join(d for d in unicodedata.normalize("NFKD", c) if not unicodedata.combining(d)).lower()
-        saida.append(base if len(base) == 1 else c)
-    return "".join(saida)
 
 
 def proporcoes_no_titulo(titulo) -> list[str]:
@@ -219,6 +214,48 @@ def lados_de_cada_analista(result: dict, lados) -> dict[str, list[int]]:
                 and any(ator_citado(a, frase, alheios[i]) for a in exclusivos[i])
             ]
     return apresenta
+
+
+def lado_de_cada_analista(result: dict, lados) -> dict[str, int]:
+    """A correspondência um a um entre analistas e lados, quando ela existe: analista -> lado. Sem ela, vazio."""
+    apresenta = lados_de_cada_analista(result, lados)
+    analistas = list(apresenta)
+    if len(analistas) != len(lados):
+        return {}
+    for ordem in itertools.permutations(range(len(lados))):
+        if all(lado in apresenta[nome] for nome, lado in zip(analistas, ordem)):
+            return dict(zip(analistas, ordem))
+    return {}
+
+
+def minimo_de_cada_personagem(result: dict, lados) -> dict[str, int]:
+    """O mínimo de palavras de cada personagem que fala.
+
+    É MIN_POR_PERSONAGEM, a não ser para o analista de um lado fino (um só trecho de evidência, em
+    pauta de 2 lados ou mais), que tem MIN_LADO_FINO. Sem correspondência entre analistas e lados,
+    vale o mínimo de sempre para todos.
+    """
+    finos = {i for i, lado in enumerate(lados) if len(lados) >= 2 and lado.fino}
+    do_lado = lado_de_cada_analista(result, lados) if finos else {}
+    return {
+        nome: MIN_LADO_FINO if do_lado.get(nome) in finos else MIN_POR_PERSONAGEM
+        for nome in palavras_por_personagem(result["roteiro_podcast"])
+    }
+
+
+def problemas_dos_papeis(result: dict, lados) -> list[str]:
+    """O papel de um analista não traz o nome de um ator dos lados ("analista da Meta"); lista vazia = aprovado."""
+    atores = [ator for lado in lados for ator in lado.atores]
+    probs = []
+    for personagem in result["personagens"]:
+        papel = str(personagem.get("papel") or "")
+        citados = [ator for ator in atores if ator_citado(ator, papel)]
+        if citados and _palavras_do_nome(personagem["nome"]) != [HELENA]:
+            probs.append(
+                f"papel de {personagem['nome']} com o nome de um ator dos lados (\"{papel}\"): o papel diz a especialidade "
+                f"do analista (\"analista de regulação\"), sem ligá-lo a {', '.join(citados)}"
+            )
+    return probs
 
 
 def _dos_analistas(result: dict, lados) -> list[Problema]:
@@ -377,6 +414,32 @@ def problemas_das_atribuicoes(result: dict, textos) -> list[Problema]:
     return probs
 
 
+def problemas_dos_numeros(result: dict, textos) -> list[Problema]:
+    """Os percentuais e os números a partir de 10 que nenhum texto da pauta traz; lista vazia = aprovado.
+
+    `textos` são os textos da pauta (título e texto completo de cada artigo). O número vale em
+    algarismos ou por extenso, e o arredondamento segue `numeros.tem_fonte`: com "cerca de" ou
+    "aproximadamente", até 5% do número da fonte; com "quase", a fonte abaixo do dito; com "mais
+    de", acima; sem qualificador, só o inteiro que arredonda ou trunca um decimal da fonte.
+    Número menor que 10 que não é percentual fica só no diagnóstico (`scripts/checar_fidelidade.py`).
+    """
+    da_pauta = valores_dos_textos(textos)
+    probs = []
+    for campo, onde, texto in _textos_do_episodio(result):
+        texto = unicodedata.normalize("NFC", texto)
+        for n in numeros(texto):
+            if not pede_fonte(n) or tem_fonte(n, qualificador(texto, n), da_pauta):
+                continue
+            perto = mais_proximo(n, da_pauta)
+            dica = f"; a pauta traz {formatar(perto, n.percentual)}" if perto is not None else ""
+            dito = " ".join(f"{qualificador(texto, n)} {n.trecho}".split())
+            probs.append(Problema(campo, (
+                f"número que os textos da pauta não trazem, {onde} (\"{dito}\"{dica}): use o número da fonte "
+                f"ou retire-o"
+            )))
+    return probs
+
+
 def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos) -> list[Problema]:
     """As violações do episódio, cada uma com o campo em que está; lista vazia = aprovado.
 
@@ -384,8 +447,9 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos) -> lis
     todos têm de aparecer em fontes_citadas. `lados` e `ressalvas` são o resultado da análise de
     lados da pauta (`ai/lados.py`): os lados definem o elenco (ver `problemas_dos_analistas`) e
     cada ressalva pede uma pergunta atribuída da Helena (ver `problemas_das_ressalvas`). `textos`
-    são os textos da pauta, para a regra das atribuições (ver `problemas_das_atribuicoes`). Todos
-    são obrigatórios: quem monta as listas é o Summarizer, para toda pauta.
+    são os textos da pauta, para as regras das atribuições e dos números (ver
+    `problemas_das_atribuicoes` e `problemas_dos_numeros`). Todos são obrigatórios: quem monta as
+    listas é o Summarizer, para toda pauta.
     """
     probs = []
 
@@ -402,9 +466,10 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos) -> lis
         probs.append(Problema(RESUMO, f"resumo com {frases_do_resumo} frases (alvo {MIN_FRASES_RESUMO}-{MAX_FRASES_RESUMO})"))
 
     por_pers = palavras_por_personagem(result["roteiro_podcast"])
+    minimos = minimo_de_cada_personagem(result, lados)
     for nome, n in por_pers.items():
-        if not (MIN_POR_PERSONAGEM <= n <= MAX_POR_PERSONAGEM):
-            probs.append(Problema(ROTEIRO, f"{nome} com {n} palavras (alvo {MIN_POR_PERSONAGEM}-{MAX_POR_PERSONAGEM})"))
+        if not (minimos[nome] <= n <= MAX_POR_PERSONAGEM):
+            probs.append(Problema(ROTEIRO, f"{nome} com {n} palavras (alvo {minimos[nome]}-{MAX_POR_PERSONAGEM})"))
 
     total = sum(por_pers.values())
     if not (MIN_TOTAL <= total <= MAX_TOTAL):
@@ -426,8 +491,10 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos) -> lis
             )))
 
     probs += _dos_analistas(result, lados)
+    probs += [Problema(PAPEL, texto) for texto in problemas_dos_papeis(result, lados)]
     probs += [Problema(ROTEIRO, texto) for texto in problemas_das_ressalvas(result, ressalvas)]
     probs += problemas_das_atribuicoes(result, textos)
+    probs += problemas_dos_numeros(result, textos)
     return probs
 
 

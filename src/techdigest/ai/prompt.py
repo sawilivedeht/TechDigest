@@ -60,14 +60,18 @@ atribuídas aos atores. Quem apresenta as posições dos lados são os analistas
 veículo, o grupo e um verbo de posição, seguida de uma pergunta aberta, que não reformula o \
 alerta com palavras dela (ex.: "Segundo <veículo>, <grupo> alertam que... Como você vê isso?").
 - Crie exatamente o número de analistas que o bloco LADOS DA PAUTA indica, com papéis \
-coerentes com a notícia.
+coerentes com a notícia. O papel diz a especialidade do analista ("analista de regulação"), \
+nunca um vínculo com um ator dos lados ("analista da Meta").
 - Com um lado só: o analista explica a posição e responde às ressalvas com o que as \
 fontes dizem, sem tomar partido: ele explica, não advoga.
 - Com 2 ou 3 lados: cada analista responde por UM lado: apresenta a posição dele, atribuída \
 aos atores desse lado, numa frase que nomeia o ator, cita um veículo do lado e usa um verbo \
 de posição (ex.: "segundo <veículo>, <ator> acusa..."). Ele sustenta a posição do seu lado \
 com os argumentos das fontes: não critica a própria posição, não endossa a do outro lado e \
-não emite juízo próprio. Verbos de posição: """ + INFINITIVOS + """.
+não emite juízo próprio. Ele fala na terceira pessoa ("a campanha sustenta...") e nunca como \
+porta-voz ("nós", "não podemos aceitar"). O analista de um lado que o bloco marca como fino \
+fala menos, como o bloco diz, e não amplia além do que as fontes trazem. Verbos de \
+posição: """ + INFINITIVOS + """.
 
 ### roteiro_podcast
 Diálogo pronto para narração, como lista de turnos:
@@ -81,19 +85,22 @@ mais, é ali que ela apresenta a questão em disputa.
 DISCUSSÃO respeitosa e factual, cada analista sustentando a posição do seu lado, com \
 Helena mediando com perguntas abertas ("e você, como responde a isso?").
 - FECHAMENTO: Helena resume o que ficou claro e o que segue em aberto, e se despede.
-- ESTRUTURA: o diálogo deve ter entre 14 e 24 turnos, e cada fala entre 50 e 90 \
+- ESTRUTURA: o diálogo deve ter entre 10 e 20 turnos, e cada fala entre 50 e 90 \
 palavras (30-60 segundos de fala contínua). Falas de uma ou duas frases são \
 inaceitáveis neste formato.
 - ORÇAMENTO DE PALAVRAS (obrigatório): 240 a 480 palavras POR personagem ao longo \
 do episódio; total entre 600 e 1300 palavras. Antes de responder, conte mentalmente \
 as palavras de cada personagem e expanda as falas até cumprir o mínimo. Mire no alvo \
 por personagem que o bloco LADOS DA PAUTA indica, nunca perto do teto de 480: passar \
-de 480 em um personagem ou de 1300 no total reprova o episódio.
+de 480 em um personagem ou de 1300 no total reprova o episódio. Só o analista de lado fino \
+pode ficar abaixo de 240, na faixa que o bloco dá.
 - Escreva para ser FALADO: sem markdown, sem URLs (diga "o site do veículo" se \
 precisar), sem listas; siglas pronunciáveis (IA, CPI); números por extenso quando \
 ficar mais natural à locução.
 - Cite os veículos das fontes pelo nome ao atribuir informações ou posições. Não atribua \
 nada a grupo que as fontes não citam ("para os analistas", "especialistas dizem").
+- Todo número e todo percentual vêm das fontes, com o valor que elas trazem. Arredonde só com \
+"cerca de", "quase" ou "mais de", e na direção certa.
 
 ## FORMATO DE SAÍDA
 Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
@@ -117,7 +124,8 @@ omitir um lado ou uma ressalva do bloco é tão grave quanto.
 "fontes_citadas", haja ou não divergência."""
 
 _REGRAS_DO_ROTEIRO = """Regras do roteiro: diálogo de 600-1300 palavras no total, 240-480 por personagem, \
-14-24 turnos, falas de 50-90 palavras, tom de conversa.
+10-20 turnos, falas de 50-90 palavras, tom de conversa. Só o analista de um lado que o bloco marca \
+como fino pode ficar abaixo de 240 palavras, na faixa que o bloco dá, sem ampliar além das fontes.
 Elenco: Helena e um analista por lado, até 3 analistas, conforme o bloco LADOS DA PAUTA do \
 artigo-fonte. Helena só media, sem tomar posição. A questão do bloco é um guia interno: Helena a \
 apresenta uma vez, na abertura, com palavras naturais, sem repeti-la ao pé da letra e sem transformar \
@@ -125,11 +133,13 @@ as posições dos lados em perguntas atribuídas aos atores; quem apresenta as p
 Com 2 ou 3 lados, cada analista responde por um lado, numa frase que nomeia um ator do lado, cita um \
 veículo do lado e usa um verbo de posição (""" + INFINITIVOS + """); ele sustenta a posição do seu \
 lado com os argumentos das fontes, sem criticar a própria posição, endossar a do outro lado ou emitir \
-juízo próprio. Com um lado só, o analista explica e não advoga.
+juízo próprio; fala na terceira pessoa ("a campanha sustenta..."), nunca como porta-voz ("nós", "não \
+podemos aceitar"). Com um lado só, o analista explica e não advoga.
 Helena traz cada ressalva do bloco como pergunta atribuída, sem avaliá-la: uma fala com ponto de \
 interrogação em que uma frase cita o veículo, nomeia o grupo e usa um verbo de posição; a pergunta é \
 aberta e não reformula o alerta com palavras dela.
-Não atribua nada a grupo que os textos não citam. Não crie lado que o bloco não traz."""
+Não atribua nada a grupo que os textos não citam. Todo número e todo percentual vêm das fontes, com o \
+valor que elas trazem. Não crie lado que o bloco não traz."""
 
 PROMPT_REVISOR = """Você é o editor-chefe de controle de qualidade dos boletins \
 TechDigest/PulsoBR. Receberá o ARTIGO-FONTE, uma lista de problemas detectados e o JSON \
@@ -154,14 +164,29 @@ TechDigest/PulsoBR. Receberá o ARTIGO-FONTE, os PERSONAGENS, uma lista de probl
 ROTEIRO de um episódio.
 Reescreva o roteiro para eliminar TODOS os problemas listados, mantendo o tema e os fatos. Use \
 SOMENTE fatos do artigo-fonte e do roteiro original: não invente informações.
-Os personagens são os mesmos, com os mesmos nomes: não crie, não retire nem renomeie ninguém.
+Os personagens são os mesmos, com os mesmos nomes: não crie, não retire nem renomeie ninguém. Devolva-os \
+como vieram; só mude o "papel" quando um problema apontar o papel: ele diz a especialidade do analista \
+("analista de regulação"), nunca um vínculo com um ator dos lados ("analista da Meta").
 Ajuste o tamanho conforme cada problema: se um personagem ou o total estiver ACIMA do \
 máximo, ENXUGUE as falas (corte repetições e detalhes secundários); se estiver ABAIXO do \
 mínimo, EXPANDA. Não altere o que já está dentro dos limites e mire no meio da faixa \
 permitida, nunca no limite exato.
 """ + _REGRAS_DO_ROTEIRO + """
 Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
-{"roteiro_podcast": [{"personagem": "<nome exato>", "fala": "<texto falado>"}]}"""
+{"personagens": [{"nome": "<nome exato>", "papel": "<papel>"}], \
+"roteiro_podcast": [{"personagem": "<nome exato>", "fala": "<texto falado>"}]}"""
+
+PROMPT_TITULO = """Você é o editor-chefe de controle de qualidade dos boletins \
+TechDigest/PulsoBR. Receberá o RESUMO de um episódio, os ATORES da história, uma lista de problemas \
+detectados e o TÍTULO do episódio. Reescreva só o título, para eliminar TODOS os problemas listados.
+- Título curto e chamativo, sem sensacionalismo, tirado do resumo: não afirma nada que o resumo não afirme.
+- Sem percentuais, "x vezes" (nem "dobro", "triplo" ou "quádruplo") nem proporções ("metade", "um terço", \
+"três em cada quatro", "maioria", "minoria", "maior parte", "grande parte"). Quantidade absoluta pode \
+aparecer ("12 mortos", "mais de 100 mortos"), com o número que o resumo traz.
+- Nomeia os atores como as fontes os nomeiam: não troque uma pessoa pela instituição ou pelo estado dela.
+- Não atribui nada a grupo sem nome ("especialistas", "analistas").
+Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
+{"titulo_reescrito": "<o título reescrito>"}"""
 
 PROMPT_RESUMO = """Você é o editor-chefe de controle de qualidade dos boletins \
 TechDigest/PulsoBR. Receberá o ARTIGO-FONTE, uma lista de problemas detectados e o RESUMO de um \
@@ -193,6 +218,17 @@ lado, mesmo com argumentos diferentes (ex.: quem critica a decisão e quem defen
 ela dão a mesma resposta). Nunca um lado por ator.
 Com questão, são 2 ou 3 lados; o terceiro só existe se a resposta dele se opõe às outras duas.
 
+## A RESPOSTA DE CADA ATOR
+Com questão, antes de montar os lados, liste em "respostas_por_ator" cada ator nomeado com:
+- "resposta": a resposta dele à questão, em poucas palavras (ex.: "Sim", "Não");
+- "trecho": um trecho de até 200 caracteres, copiado AO PÉ DA LETRA do texto de um veículo recebido, \
+que comprove essa resposta. Copie, não resuma nem corrija;
+- "veiculo": o veículo de onde o trecho saiu.
+Quem pede ou toma uma decisão responde a favor dela; quem a critica responde contra.
+Os lados saem dessa lista: cada lado é uma das respostas, com as mesmas palavras, e reúne os atores \
+que a deram. Ator sem trecho que comprove a resposta não entra em lado nenhum.
+Sem questão, "respostas_por_ator" fica [].
+
 ## ATORES E GRUPOS
 - Ator é quem sustenta a posição, pelo nome ou por uma designação específica, na forma que os textos \
 mais usam (ex.: "Lula", "Nunes Marques", "Meta", "campanha de Lula"). Não expanda para o nome completo.
@@ -207,8 +243,8 @@ Não junte dois alertas numa posição só. No máximo 2 ressalvas.
 
 ## CAMPOS
 - "questao": a pergunta em disputa, ou "" se não houver.
-- "resposta": a resposta daquele lado à questão, em poucas palavras (ex.: "Sim", "Não"). Com um lado \
-só, fica "".
+- "resposta": a resposta daquele lado à questão, com as mesmas palavras de "respostas_por_ator" \
+(ex.: "Sim", "Não"). Com um lado só, fica "".
 - "posicao": uma frase com o que aquele lado sustenta. Com um lado só, é o fato central da história.
 - "atores": os atores do lado. Cada lado que responde à questão tem pelo menos um ator que não está em \
 nenhum outro lado.
@@ -219,10 +255,11 @@ o nome do veículo como foi recebido.
 - Use só o que está nos textos: não invente ator nem posição.
 
 ## FORMATO DE SAÍDA
-Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor, com a questão em primeiro lugar:
-{"questao": "<a pergunta em disputa, ou vazio se não houver>", "lados": [{"resposta": "<a resposta \
-deste lado à questão>", "posicao": "<uma frase>", "atores": ["<ator>"], "grupos": ["<grupo sem nome>"], \
-"veiculos": ["<veículo>"]}], \
+Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor, com as chaves nesta ordem:
+{"questao": "<a pergunta em disputa, ou vazio se não houver>", "respostas_por_ator": [{"ator": "<ator>", \
+"resposta": "<a resposta dele à questão>", "trecho": "<trecho literal do texto>", "veiculo": "<veículo>"}], \
+"lados": [{"resposta": "<a resposta deste lado à questão>", "posicao": "<uma frase>", "atores": ["<ator>"], \
+"grupos": ["<grupo sem nome>"], "veiculos": ["<veículo>"]}], \
 "motivo": "<uma frase que explica a contagem dos lados>"}"""
 
 PROMPT_AGRUPADOR = """Você é o editor de pauta dos boletins TechDigest/PulsoBR. Um filtro automático \

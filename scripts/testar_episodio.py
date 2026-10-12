@@ -30,7 +30,8 @@ from pathlib import Path
 import testar_agrupamento as diag
 from techdigest.ai import qa
 from techdigest.ai.llm import _amostra_sistema, get_provider
-from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA
+from techdigest.ai.lados import lados_finos
+from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
 from techdigest.ai.summarizer import CORRECOES, TETO_PRINCIPAL, TETO_RELACIONADO, QAReprovado, Summarizer
 from techdigest.config import Settings
 from techdigest.processing import agrupamento as ag
@@ -139,7 +140,11 @@ def _resumo_da_memoria(medidas: dict) -> str:
 
 # Como cada chamada aparece no relatório, pelo prompt de sistema.
 ROTULOS = {PROMPT_SISTEMA: "geração", PROMPT_LADOS: "lados", PROMPT_REVISOR: CORRECOES["completa"],
-           PROMPT_RESUMO: CORRECOES["resumo"], PROMPT_ROTEIRO: CORRECOES["roteiro"]}
+           PROMPT_RESUMO: CORRECOES["resumo"], PROMPT_ROTEIRO: CORRECOES["roteiro"], PROMPT_TITULO: CORRECOES["titulo"]}
+# Primeira pessoa do plural na fala de um analista: pronomes e verbos em -amos, -emos e -imos. É só diagnóstico.
+_NOS = re.compile(r"\b(?:nós|conosco|noss[oa]s?|[^\W\d_]{2,}(?:[aeií]mos))\b", re.IGNORECASE)
+_NAO_E_NOS = {"mesmos", "termos", "extremos", "supremos", "ramos", "remos", "próximos", "últimos", "mínimos", "máximos",
+              "ótimos", "íntimos", "legítimos", "empréstimos", "primos", "péssimos", "altíssimos", "muitíssimos"}
 
 
 def _estado_da_maquina() -> tuple[float, str]:
@@ -305,8 +310,11 @@ def _lados(analise, chamadas: list[dict]) -> dict:
         "ressalvas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos)} for r in analise.ressalvas],
         "ressalvas_descartadas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos)}
                                   for r in analise.descartadas],
-        "lados": [{"resposta": lado.resposta, "posicao": lado.posicao, "atores": list(lado.atores), "veiculos": list(lado.veiculos)}
-                  for lado in analise.lados],
+        "lados": [{"resposta": lado.resposta, "posicao": lado.posicao, "atores": list(lado.atores), "veiculos": list(lado.veiculos),
+                   "trechos": list(lado.trechos), "fino": fino}
+                  for lado, fino in zip(analise.lados, lados_finos(analise.lados))],
+        "respostas_por_ator": [{"ator": e.ator, "resposta": e.resposta, "trecho": e.trecho, "veiculo": e.veiculo,
+                                "comprovada": e.comprovada} for e in analise.respostas],
         "resposta_do_llm": analise.resposta,
         "primeira_tentativa": None if analise.primeira is None else {
             "invalida_porque": analise.primeira.problemas, "resposta_do_llm": analise.primeira.resposta,
@@ -318,10 +326,14 @@ def _lados(analise, chamadas: list[dict]) -> dict:
     print(f"  lados: {registro['quantos']} · {registro['tentativas']} tentativa(s) · {registro['segundos']:.1f} s · "
           f"tokens {registro['tokens_entrada']} + {registro['tokens_saida']}")
     print(f"    questão: {registro['questao'] or '(sem disputa)'}")
+    for e in registro["respostas_por_ator"]:
+        print(f"    resposta de {e['ator']}: {e['resposta'] or '-'} · {'comprovada' if e['comprovada'] else 'TRECHO NÃO ENCONTRADO'} "
+              f"em {e['veiculo'] or '-'}: \"{e['trecho']}\"")
     for i, lado in enumerate(registro["lados"], 1):
         resposta = f"[{lado['resposta']}] " if lado["resposta"] else ""
-        print(f"    lado {i}: {resposta}{lado['posicao']}")
-        print(f"            atores: {', '.join(lado['atores']) or '-'} · veículos: {', '.join(lado['veiculos'])}")
+        print(f"    lado {i}{' (FINO)' if lado['fino'] else ''}: {resposta}{lado['posicao']}")
+        print(f"            atores: {', '.join(lado['atores']) or '-'} · veículos: {', '.join(lado['veiculos'])} · "
+              f"trechos de evidência: {len(set(lado['trechos']))}")
     for i, ressalva in enumerate(registro["ressalvas"], 1):
         print(f"    ressalva {i}: {ressalva['posicao']}")
         print(f"            grupos: {', '.join(ressalva['grupos']) or '-'} · veículos: {', '.join(ressalva['veiculos'])}")
@@ -335,6 +347,20 @@ def _lados(analise, chamadas: list[dict]) -> dict:
         print(f"    AS DUAS TENTATIVAS FALHARAM, a pauta ficou com o lado de emergência: {'; '.join(analise.problemas)}")
         print(f"    resposta do LLM: {json.dumps(analise.resposta, ensure_ascii=False)}")
     return registro
+
+
+def _primeira_pessoa(episodio: dict) -> list[dict]:
+    """As frases dos analistas com primeira pessoa do plural ("nós", "precisamos"). Só diagnóstico: pega também
+    o "vamos" de quem conduz a conversa."""
+    achadas = []
+    for turno in episodio.get("roteiro_podcast") or []:
+        if not isinstance(turno, dict) or qa._palavras_do_nome(turno.get("personagem")) == [qa.HELENA]:
+            continue
+        for frase in qa.frases(turno.get("fala", "")):
+            marcas = [m.group() for m in _NOS.finditer(frase) if m.group().lower() not in _NAO_E_NOS]
+            if marcas:
+                achadas.append({"personagem": turno.get("personagem"), "marcas": marcas, "frase": frase})
+    return achadas
 
 
 def _cortes(entrada) -> list[dict]:
@@ -430,7 +456,22 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
             fontes_fora_da_pauta=[f for f in citadas if not any(qa.mesmo_veiculo(v, f) for v in pauta.veiculos)],
             resumo_didatico=episodio.get("resumo_didatico"),
             primeiras_falas=(episodio.get("roteiro_podcast") or [])[:FALAS_NO_RELATORIO],
+            personagens=episodio.get("personagens"),
+            turnos=len(episodio.get("roteiro_podcast") or []),
+            frases_na_primeira_pessoa=_primeira_pessoa(episodio),
         )
+        analise = diagnostico.get("lados")
+        try:
+            relatorio["palavras_por_personagem"] = qa.palavras_por_personagem(episodio["roteiro_podcast"])
+            relatorio["minimo_por_personagem"] = qa.minimo_de_cada_personagem(episodio, analise.lados) if analise else None
+            relatorio["lado_de_cada_analista"] = qa.lado_de_cada_analista(episodio, analise.lados) if analise else None
+        except (KeyError, TypeError, AttributeError):   # episódio fora do formato
+            pass
+        print(f"  turnos: {relatorio['turnos']} · palavras: {relatorio.get('palavras_por_personagem')} · "
+              f"mínimos: {relatorio.get('minimo_por_personagem')}")
+        print(f"  papéis: {[(p.get('nome'), p.get('papel')) for p in relatorio['personagens'] or [] if isinstance(p, dict)]}")
+        for item in relatorio["frases_na_primeira_pessoa"]:
+            print(f"  primeira pessoa ({item['personagem']}; {', '.join(item['marcas'])}): {item['frase']}")
         print(f"  título: {relatorio['titulo']}")
         print(f"  analistas: {', '.join(relatorio['analistas']) or 'nenhum'} · houve_divergencia: {relatorio['houve_divergencia']} · "
               f"fontes_citadas: {citadas} · veículos da pauta: {list(pauta.veiculos)}")

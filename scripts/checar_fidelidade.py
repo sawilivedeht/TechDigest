@@ -29,6 +29,11 @@ from pathlib import Path
 from techdigest.ai import qa
 from techdigest.ai.atribuicoes import GRUPOS as _GRUPOS
 from techdigest.ai.atribuicoes import atribuicoes_a_grupos as atribuicoes_vagas
+from techdigest.ai.numeros import Numero, formatar, numeros
+from techdigest.ai.numeros import Token as _Token
+from techdigest.ai.numeros import dobrar as _plano
+from techdigest.ai.numeros import junto as _junto
+from techdigest.ai.numeros import tokens as _tokens
 from techdigest.ai.summarizer import _limpar
 from techdigest.config import Settings
 
@@ -59,27 +64,8 @@ GENERICOS = {"estado", "judiciario", "legislativo", "executivo", "governo", "jus
              "republica", "internet"}
 TOLERANCIA_DO_ARREDONDAMENTO = 0.10   # "trinta por cento" para 30,7%: mais redondo e a até 10% do número da pauta
 
-_TOKEN = re.compile(r"\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:,\d+)?|[^\W\d_]+")
 _FIM_DE_FRASE = re.compile(r"(?<!\bDr)(?<!\bDra)(?<!\bSr)(?<!\bSra)[.!?…]+[\"'”’)]*\s+")
 
-_UNIDADES = {
-    "um": 1, "uma": 1, "dois": 2, "duas": 2, "tres": 3, "quatro": 4, "cinco": 5, "seis": 6, "sete": 7, "oito": 8,
-    "nove": 9, "dez": 10, "onze": 11, "doze": 12, "treze": 13, "catorze": 14, "quatorze": 14, "quinze": 15,
-    "dezesseis": 16, "dezessete": 17, "dezoito": 18, "dezenove": 19,
-}
-_DEZENAS = {"vinte": 20, "trinta": 30, "quarenta": 40, "cinquenta": 50, "sessenta": 60, "setenta": 70,
-            "oitenta": 80, "noventa": 90}
-_CENTENAS = {"cem": 100, "cento": 100} | {
-    radical + final: valor
-    for radical, valor in (("duzent", 200), ("trezent", 300), ("quatrocent", 400), ("quinhent", 500),
-                           ("seiscent", 600), ("setecent", 700), ("oitocent", 800), ("novecent", 900))
-    for final in ("os", "as")
-}
-_PARCELAS = _UNIDADES | _DEZENAS | _CENTENAS
-_ESCALAS = {"mil": 10**3, "milhao": 10**6, "milhoes": 10**6, "bilhao": 10**9, "bilhoes": 10**9,
-            "trilhao": 10**12, "trilhoes": 10**12}
-_TERCOS = {"terco", "tercos"}
-_DEPOIS_DE_UM = {"milhao", "bilhao", "trilhao"} | _TERCOS   # "um" só é número antes destas palavras
 _RETORICA = re.compile(r"\s+(?:lados|campos|pilares|frentes|visoes|caminhos|aspectos|eixos|polos|extremos)\b")
 
 _CONECTORES = {"de", "da", "do", "das", "dos"}
@@ -107,41 +93,6 @@ _ASPAS = "\"'“”‘’"
 
 # ── Texto ─────────────────────────────────────────────────────────────────────────────────
 
-def _plano(texto: str) -> str:
-    """`texto` sem acentos e em minúsculas, com o mesmo comprimento: as posições valem nos dois."""
-    saida = []
-    for c in texto:
-        base = "".join(d for d in unicodedata.normalize("NFKD", c) if not unicodedata.combining(d)).lower()
-        saida.append(base if len(base) == 1 else c)
-    return "".join(saida)
-
-
-@dataclass(frozen=True)
-class _Token:
-    texto: str
-    norm: str      # sem acento e em minúsculas
-    inicio: int
-    fim: int
-
-    @property
-    def numerico(self) -> bool:
-        return self.texto[0].isdigit()
-
-    @property
-    def maiuscula(self) -> bool:
-        return not self.numerico and self.texto[0].isupper()
-
-
-def _tokens(texto: str) -> list[_Token]:
-    return [_Token(m.group(), _plano(m.group()), m.start(), m.end()) for m in _TOKEN.finditer(texto)]
-
-
-def _junto(texto: str, a: _Token, b: _Token) -> bool:
-    """Só espaço entre os dois tokens: nenhuma pontuação."""
-    meio = texto[a.fim:b.inicio]
-    return meio != "" and meio.strip(" \t") == ""
-
-
 def _frase(texto: str, posicao: int) -> str:
     """A frase de `texto` em que está a posição dada."""
     comeco = 0
@@ -154,100 +105,11 @@ def _frase(texto: str, posicao: int) -> str:
 
 # ── Números ───────────────────────────────────────────────────────────────────────────────
 
-@dataclass(frozen=True)
-class Numero:
-    valor: float
-    percentual: bool
-    trecho: str     # como está escrito
-    inicio: int
-    fim: int
-
-
-def _pode_somar(atual: float, parcela: int) -> bool:
-    """Se `parcela` continua o grupo já lido ("duzentos" + "noventa", "vinte" + "um"); "dois e três" são dois números."""
-    if atual == 0:
-        return True
-    if atual % 100 == 0:
-        return parcela < 100
-    return atual % 10 == 0 and atual % 100 >= 20 and parcela < 10
-
-
-def _ler_por_extenso(tokens: list[_Token], i: int, texto: str) -> tuple[int, float | None]:
-    """Lê um número por extenso a partir do token `i`: o índice depois dele e o valor (None se ali não há número)."""
-    total = atual = 0
-    j = i
-    while j < len(tokens):
-        t = tokens[j]
-        if j > i and not _junto(texto, tokens[j - 1], t):
-            break
-        if t.norm == "e" and j > i:
-            proxima = tokens[j + 1] if j + 1 < len(tokens) and _junto(texto, t, tokens[j + 1]) else None
-            parcela = _PARCELAS.get(proxima.norm) if proxima else None
-            if parcela is None or not _pode_somar(atual, parcela) or (parcela == 1 and atual == 0):
-                break                                                      # "três milhões e uma promessa"
-            atual += parcela
-            j += 2
-        elif t.norm in _ESCALAS and (j > i or t.norm == "mil"):
-            total += (atual or 1) * _ESCALAS[t.norm]
-            atual = 0
-            j += 1
-        elif t.norm in _PARCELAS and (j == i or (atual == 0 and total)):   # sem "e", só depois de mil ou milhão
-            if j == i and t.norm in ("um", "uma") and not (
-                    j + 1 < len(tokens) and tokens[j + 1].norm in _DEPOIS_DE_UM and _junto(texto, t, tokens[j + 1])):
-                break                                                      # artigo, não número
-            if j == i and t.norm == "cento" and i > 0 and tokens[i - 1].norm == "por":
-                break                                                      # "por cento" sem número antes
-            atual = _PARCELAS[t.norm]
-            j += 1
-        else:
-            break
-    return (j, total + atual) if j > i else (i, None)
-
-
-def numeros(texto: str) -> list[Numero]:
-    """Os números de `texto`, em algarismos ou por extenso, com o valor e se é percentual.
-
-    "1.200" vale 1200, "67,50" vale 67,5, "3,2 milhões" vale 3.200.000, "duzentos e setenta e um por
-    cento" vale 271 (percentual) e "um terço" vale 1/3. Ordinais por extenso e "um"/"uma" sozinhos
-    não contam.
-    """
-    tokens = _tokens(texto)
-    achados, i = [], 0
-    while i < len(tokens):
-        t = tokens[i]
-        if t.numerico:
-            j, valor = i + 1, float(t.texto.replace(".", "").replace(",", "."))
-            if j < len(tokens) and tokens[j].norm in _ESCALAS and _junto(texto, t, tokens[j]):
-                valor *= _ESCALAS[tokens[j].norm]
-                j += 1
-        else:
-            j, valor = _ler_por_extenso(tokens, i, texto)
-            if valor is None:
-                i += 1
-                continue
-        if j < len(tokens) and tokens[j].norm in _TERCOS and 1 <= valor <= 2 and _junto(texto, tokens[j - 1], tokens[j]):
-            valor /= 3
-            j += 1
-        fim, percentual = tokens[j - 1].fim, False
-        sinal = re.match(r"\s*%", texto[fim:])
-        if sinal:
-            fim, percentual = fim + sinal.end(), True
-        elif (j + 1 < len(tokens) and tokens[j].norm == "por" and tokens[j + 1].norm == "cento"
-              and _junto(texto, tokens[j - 1], tokens[j]) and _junto(texto, tokens[j], tokens[j + 1])):
-            fim, percentual, j = tokens[j + 1].fim, True, j + 2
-        achados.append(Numero(round(valor, 6), percentual, texto[t.inicio:fim], t.inicio, fim))
-        i = j
-    return achados
+# A leitura dos números vem de techdigest.ai.numeros (`numeros`, `formatar`): o QA usa a mesma leitura.
 
 
 def _algarismos_significativos(valor: float) -> int:
     return len(Decimal(repr(valor)).normalize().as_tuple().digits)
-
-
-def formatar(valor: float, percentual: bool = False) -> str:
-    inteiro = valor == int(valor)
-    texto = f"{int(valor):,}".replace(",", ".") if inteiro else f"{valor:.6g}".replace(".", ",")
-    return texto + ("%" if percentual else "")
 
 
 # ── Nomes próprios ────────────────────────────────────────────────────────────────────────

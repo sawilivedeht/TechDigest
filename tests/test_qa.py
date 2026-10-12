@@ -122,7 +122,8 @@ def test_titulo_do_episodio_2_reprova_e_os_outros_quatro_passam():
     assert qa.proporcoes_no_titulo(TITULOS_REAIS[2]) == ["quase 60%"]
     assert [qa.proporcoes_no_titulo(TITULOS_REAIS[n]) for n in (1, 3, 4, 5)] == [[], [], [], []]
 
-    [problema] = qa.problemas(_episodio([], titulo_reescrito=TITULOS_REAIS[2]), ["G1"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS)
+    [problema] = qa.problemas(_episodio([], titulo_reescrito=TITULOS_REAIS[2]), ["G1"], UM_LADO, SEM_RESSALVAS,
+                              ["Mulheres são quase 60% das vítimas."])
     assert problema.startswith("título com percentual ou proporção (quase 60%): o título não leva percentuais")
     assert qa.problemas(_episodio([], titulo_reescrito=TITULOS_REAIS[5]), ["G1"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS) == []
 
@@ -474,4 +475,103 @@ def test_cada_problema_tem_o_campo_em_que_esta():
     dois_analistas = _episodio(["G1"])
     dois_analistas["roteiro_podcast"].append({"personagem": "Bia", "fala": curto + " palavra"})
     assert {p.campo for p in qa.problemas_com_campo(dois_analistas, ["G1"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS)} == {qa.ELENCO}
+
+
+# ── Números que a pauta não traz ──────────────────────────────────────────────────────────
+
+# O que a pauta da violência política traz, e a fala do episódio 2 gerado em 12/10/2026.
+TEXTOS_DA_VIOLENCIA = ["Mulheres são 58,8% das vítimas\nForam 102 episódios, e 60 tiveram mulheres como vítimas. Elas são 34,85% das "
+                       "candidaturas. A China compra 30,7% das exportações. Houve 1.564 denúncias no Disque 180 em 2026."]
+FALA_372 = "Logo atrás, temos as mulheres brancas com trezentas e setenta e dois por cento das denúncias."
+
+
+def _com_fala(fala: str) -> dict:
+    episodio = _episodio(["G1"])
+    episodio["roteiro_podcast"][1]["fala"] += ". " + fala
+    return episodio
+
+
+def test_percentual_que_nenhum_texto_da_pauta_traz_reprova():
+    [problema] = qa.problemas_com_campo(_com_fala(FALA_372), ["G1"], UM_LADO, SEM_RESSALVAS, TEXTOS_DA_VIOLENCIA)
+    assert problema.campo == qa.ROTEIRO
+    assert problema.texto == ('número que os textos da pauta não trazem, na fala de Ramos ("trezentas e setenta e dois por cento"): '
+                              "use o número da fonte ou retire-o")
+
+
+@pytest.mark.parametrize("fala, passa", [
+    ("Foram cento e dois episódios, e sessenta tiveram mulheres como vítimas.", True),           # por extenso vale pelo algarismo
+    ("Elas são cinquenta e oito vírgula oito por cento das vítimas.", True),                     # decimal dito com "vírgula"
+    ("Elas são trinta e quatro vírgula oitenta e cinco por cento das candidaturas.", True),
+    ("Houve mil quinhentas e sessenta e quatro denúncias no Disque cento e oitenta em 2026.", True),
+    ("Quase 60% das vítimas são mulheres.", True),                                               # 58,8% está abaixo do dito e a até 5%
+    ("Mais de 60% das vítimas são mulheres.", False),                                            # "mais de" pede a fonte acima do dito
+    ("Mais de 58% das vítimas são mulheres.", True),
+    ("Quase 58% das vítimas são mulheres.", False),                                              # "quase" pede a fonte abaixo do dito
+    ("Cerca de 60% das vítimas são mulheres.", True), ("Aproximadamente 56% das vítimas.", True),
+    ("Cerca de 50% das vítimas são mulheres.", False),                                           # mais de 5% de distância
+    ("A China compra trinta por cento das exportações.", True),                                  # 30,7 truncado
+    ("A China compra 31% das exportações.", True),                                               # 30,7 arredondado
+    ("A China compra 32% das exportações.", False),
+    ("Mulheres são 60% das vítimas.", False),                                                    # sem qualificador, 58,8 só vira 58 ou 59
+    ("Foram 12 ataques na semana.", False),                                                      # número a partir de 10 sem fonte
+    ("Cento e dois por cento de certeza.", False),                                               # 102 está na pauta, mas não como percentual
+    ("Há dois lados e três pontos em aberto.", True),                                            # abaixo de 10, fica só no diagnóstico
+    ("Só 8% apoiam.", False),                                                                    # percentual pede fonte em qualquer tamanho
+])
+def test_numero_vale_pelo_que_a_pauta_traz_e_arredonda_so_com_qualificador(fala, passa):
+    assert (qa.problemas_dos_numeros(_com_fala(fala), TEXTOS_DA_VIOLENCIA) == []) is passa
+
+
+def test_numero_sem_fonte_e_cobrado_em_cada_campo_e_diz_o_mais_proximo():
+    episodio = _episodio(["G1"], titulo_reescrito="Ataques crescem 40% em 2026", pontos_chave=["Foram 105 episódios."],
+                         resumo_didatico="Mulheres são mais de 60% das vítimas. " + "Uma frase. " * 7)
+    problemas = qa.problemas_dos_numeros(episodio, TEXTOS_DA_VIOLENCIA)
+    assert [p.campo for p in problemas] == [qa.TITULO, qa.RESUMO, qa.PONTOS]
+    assert problemas[1].texto == ('número que os textos da pauta não trazem, no resumo ("mais de 60%"; a pauta traz 58,8%): '
+                                  "use o número da fonte ou retire-o")
+    assert '("105"; a pauta traz 102)' in problemas[2].texto
+
+
+# ── Papel dos analistas e lado fino ───────────────────────────────────────────────────────
+
+def test_papel_de_analista_com_nome_de_ator_dos_lados_reprova():
+    episodio = _episodio(["G1"])
+    episodio["personagens"] = [{"nome": "Helena", "papel": "apresentadora da Meta"}, {"nome": "Ramos", "papel": "analista da Meta"}]
+    [problema] = qa.problemas_dos_papeis(episodio, LADOS_DA_META)
+    assert problema == ('papel de Ramos com o nome de um ator dos lados ("analista da Meta"): o papel diz a especialidade do analista '
+                        '("analista de regulação"), sem ligá-lo a Meta')
+    for papel, reprova in (("analista da campanha de Lula", True), ("porta-voz do PT", True), ("analista de campanhas eleitorais", False),
+                           ("analista de regulação", False), ("", False)):
+        episodio["personagens"][1] = {"nome": "Ramos", "papel": papel}
+        assert bool(qa.problemas_dos_papeis(episodio, LADOS_DA_META)) is reprova
+    del episodio["personagens"][1]["papel"]                                             # personagem sem papel não quebra a regra
+    assert qa.problemas_dos_papeis(episodio, LADOS_DA_META) == []
+
+
+def test_analista_de_lado_fino_tem_minimo_menor_e_o_total_nao_muda():
+    grosso = Lado("A campanha acusa.", ("campanha de Lula",), ("CartaCapital",), "Sim", ("um trecho", "outro trecho"))
+    fino = Lado("A Meta nega.", ("Meta",), ("Agência Brasil",), "Não", ("um trecho só",))
+    cheio = " ".join(["palavra"] * qa.MIN_POR_PERSONAGEM)
+    pouco = " ".join(["palavra"] * qa.MIN_LADO_FINO)
+
+    def episodio(fala_da_bia: str, fala_do_ramos: str) -> dict:
+        return {**_episodio(["G1"]), "houve_divergencia": True, "personagens": [{"nome": "Helena"}, {"nome": "Bia"}, {"nome": "Ramos"}],
+                "roteiro_podcast": [
+                    {"personagem": "Helena", "fala": cheio},
+                    {"personagem": "Bia", "fala": fala_da_bia + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
+                    {"personagem": "Ramos", "fala": fala_do_ramos + ". Já a Agência Brasil registra que a Meta nega."},
+                ]}
+
+    curto_no_fino = episodio(cheio, pouco)
+    assert qa.minimo_de_cada_personagem(curto_no_fino, [grosso, fino]) == {
+        "Helena": qa.MIN_POR_PERSONAGEM, "Bia": qa.MIN_POR_PERSONAGEM, "Ramos": qa.MIN_LADO_FINO}
+    assert qa.problemas(curto_no_fino, ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS) == []
+    # o mesmo tamanho no analista do outro lado reprova, e sem lado fino o mínimo é o de sempre para todos
+    [problema] = qa.problemas(episodio(pouco, cheio), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS)
+    assert problema.startswith(f"Bia com {qa.MIN_LADO_FINO + 10} palavras (alvo {qa.MIN_POR_PERSONAGEM}-")
+    assert qa.minimo_de_cada_personagem(curto_no_fino, [grosso, grosso])["Ramos"] == qa.MIN_POR_PERSONAGEM
+    # abaixo do mínimo do lado fino também reprova, com o mínimo dele na mensagem
+    problemas = qa.problemas(episodio(cheio, "palavra"), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS)
+    assert problemas[0].startswith(f"Ramos com 10 palavras (alvo {qa.MIN_LADO_FINO}-")
+    assert problemas[1].startswith("total de ")                                           # os limites totais não mudam
 
