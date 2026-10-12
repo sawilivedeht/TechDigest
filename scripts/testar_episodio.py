@@ -81,25 +81,42 @@ def _memoria_do_processo(pid) -> dict[str, float] | None:
             "swap": int(campos.get("VmSwap", 0)) / 1048576}
 
 
-def _memoria_por_processo() -> dict[str, dict[str, float]]:
-    """Memória do processo deste script e dos processos do Ollama (servidor e executor do modelo), somados.
-
-    A parte do modelo que fica na GPU não aparece aqui. Traz também, quando existe, a RAM ocupada
-    pela swap comprimida (zram): com ela, o que vai para a swap continua ocupando memória.
-    """
-    medidas = {"script": _memoria_do_processo(os.getpid()) or {}, "ollama": {"rss": 0.0, "anonima": 0.0, "swap": 0.0, "processos": 0}}
+def _processos_do_ollama() -> dict[str, str]:
+    """PID e nome do servidor do Ollama e de tudo o que ele abriu (o llama-server, que executa o modelo)."""
+    nomes, pais = {}, {}
     for entrada in os.listdir("/proc"):
         if not entrada.isdigit():
             continue
         try:
-            with open(f"/proc/{entrada}/comm") as arquivo:
-                nome = arquivo.read().strip()
-        except OSError:
+            with open(f"/proc/{entrada}/stat") as arquivo:
+                conteudo = arquivo.read()
+            nomes[entrada] = conteudo[conteudo.index("(") + 1:conteudo.rindex(")")]
+            pais[entrada] = conteudo[conteudo.rindex(")") + 2:].split()[1]
+        except (OSError, ValueError, IndexError):
             continue
-        if nome.startswith("ollama") and (memoria := _memoria_do_processo(entrada)):
+    do_ollama = {pid for pid, nome in nomes.items() if nome.startswith("ollama")}
+    while novos := {pid for pid, pai in pais.items() if pai in do_ollama} - do_ollama:
+        do_ollama |= novos
+    return {pid: nomes[pid] for pid in sorted(do_ollama, key=int)}
+
+
+def _memoria_por_processo() -> dict[str, dict[str, float]]:
+    """Memória do processo deste script e dos processos do Ollama, somados e por nome.
+
+    O Ollama são dois processos: o servidor ("ollama") e o executor do modelo ("llama-server"),
+    que o servidor abre. A parte do modelo que fica na GPU não aparece aqui. Traz também, quando
+    existe, a RAM ocupada pela swap comprimida (zram): com ela, o que vai para a swap continua
+    ocupando memória.
+    """
+    soma = {"rss": 0.0, "anonima": 0.0, "swap": 0.0, "processos": 0}
+    medidas = {"script": _memoria_do_processo(os.getpid()) or {}, "ollama": soma}
+    for pid, nome in _processos_do_ollama().items():
+        if memoria := _memoria_do_processo(pid):
+            por_nome = medidas.setdefault(f"ollama:{nome}", {"rss": 0.0, "anonima": 0.0, "swap": 0.0})
             for chave, valor in memoria.items():
-                medidas["ollama"][chave] += valor
-            medidas["ollama"]["processos"] += 1
+                soma[chave] += valor
+                por_nome[chave] += valor
+            soma["processos"] += 1
     try:
         with open("/sys/block/zram0/mm_stat") as arquivo:
             medidas["zram"] = {"ram": int(arquivo.read().split()[2]) / 1073741824}   # mem_used_total, em bytes
