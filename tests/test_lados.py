@@ -1,5 +1,5 @@
 """Testes de ai/lados.py sem LLM: a validação da resposta, as respostas por ator, as ressalvas, a nova tentativa, o lado
-neutro e o bloco da entrada."""
+neutro, os textos que cabem na chamada e o bloco da entrada."""
 import json
 import logging
 
@@ -7,8 +7,9 @@ import pytest
 
 from techdigest.ai import lados as modulo
 from techdigest.ai.lados import (
-    Evidencia, Lado, Ressalva, analisar_lados, analise_da_resposta, ator_generico, bloco_dos_lados, entrada_dos_lados,
-    lado_unico, lados_finos, mencoes, pedido_de_correcao,
+    Evidencia, Lado, Ressalva, analisar_lados, analise_da_resposta, ator_generico, bloco_dos_lados, com_mencoes,
+    entrada_dos_lados, lado_unico, lados_finos, mencoes, pedido_das_respostas, pedido_de_correcao, reserva_do_bloco,
+    textos_que_cabem, trechos_de_evidencia,
 )
 from techdigest.ai.prompt import PROMPT_LADOS
 
@@ -24,10 +25,12 @@ DA_AB, DA_CARTA = "A Meta respondeu às acusações da campanha", "A campanha ac
 EMERGENCIA = [Lado("relato dos fatos, sem lados definidos", (), ("Agência Brasil", "CartaCapital"))]
 
 
-def _lado(posicao="Uma posição.", atores=("Meta",), veiculos=("Agência Brasil",), resposta=None, grupos=None) -> dict:
+def _lado(posicao="Uma posição.", atores=("Meta",), veiculos=("Agência Brasil",), resposta=None, grupos=None, trecho=None) -> dict:
     lado = {"posicao": posicao, "atores": list(atores), "veiculos": list(veiculos)}
     if grupos is not None:
         lado["grupos"] = list(grupos)
+    if trecho is not None:
+        lado["trecho"] = trecho
     return lado if resposta is None else {"resposta": resposta, **lado}
 
 
@@ -85,24 +88,25 @@ def test_resposta_valida_vira_a_questao_e_os_lados_com_a_grafia_da_pauta():
     analise = analisar_lados(chamada, TEXTOS)
     assert analise.questao == "A Meta favoreceu um candidato?"
     assert analise.lados == [
-        # um veículo pode relatar dois lados, cada ator comprovado deixa o seu trecho, e o lado sai com a contagem das
-        # frases dos textos em que os seus atores aparecem
-        Lado("A campanha acusa a Meta.", ("campanha de Lula", "PT"), ("Agência Brasil", "CartaCapital"), "Sim", (DA_CARTA, DA_AB), 1),
-        Lado("A Meta nega.", ("Meta",), ("Agência Brasil",), "Não.", (DA_AB,), 3),
+        # um veículo pode relatar dois lados, e cada ator comprovado deixa o seu trecho
+        Lado("A campanha acusa a Meta.", ("campanha de Lula", "PT"), ("Agência Brasil", "CartaCapital"), "Sim", (DA_CARTA, DA_AB)),
+        Lado("A Meta nega.", ("Meta",), ("Agência Brasil",), "Não.", (DA_AB,)),
     ]
+    # a contagem das frases em que os atores aparecem vem depois, sobre os textos que a geração recebe
+    assert [lado.mencoes for lado in com_mencoes(analise.lados, TEXTOS)] == [1, 3]
     assert analise.respostas == [
         Evidencia("campanha de Lula", "Sim", DA_CARTA, "cartacapital", True), Evidencia("PT", "sim", DA_AB, "Agência Brasil", True),
         Evidencia("Meta", "Não", DA_AB, "Agência Brasil", True),
     ]
-    assert analise.motivo == "Acusação contra defesa." and analise.problemas == []
-    assert analise.primeira is None and len(chamada.recebido) == 1          # resposta válida não pede nova tentativa
+    assert analise.motivo == "Acusação contra defesa." and analise.problemas == [] and analise.faltam == []
+    assert analise.primeira is None and analise.segunda is None and len(chamada.recebido) == 1   # resposta válida não pede nova tentativa
 
 
 def test_sem_disputa_a_questao_fica_vazia_e_ha_um_lado_so():
     assert analise_da_resposta(UM_LADO, TEXTOS).problemas == []
     so_os_lados = {"lados": [_lado(veiculos=VEICULOS, resposta="Sim")]}       # sem a chave da questão é o mesmo que questão vazia
     analise = analise_da_resposta(so_os_lados, TEXTOS)
-    assert analise.lados == [Lado("Uma posição.", ("Meta",), ("Agência Brasil", "CartaCapital"), mencoes=3)] and analise.questao == ""
+    assert analise.lados == [Lado("Uma posição.", ("Meta",), ("Agência Brasil", "CartaCapital"))] and analise.questao == ""
 
 
 @pytest.mark.parametrize("resposta, problema", [
@@ -123,6 +127,11 @@ def test_sem_disputa_a_questao_fica_vazia_e_ha_um_lado_so():
     ({"lados": [_lado(veiculos=VEICULOS), _lado(atores=[], veiculos=["Folha"], grupos=["economistas"])]},
      "lado 2 com veículo fora da pauta (Folha)"),
     ({"lados": ["Meta contra Lula"]}, "lado 1 não é um objeto"),
+    # ressalva sem grupo não vale: quem não nomeia ator nem grupo não sustenta posição nenhuma
+    ({"lados": [_lado(veiculos=VEICULOS), _lado("Há quem veja risco.", [], ["CartaCapital"])]},
+     "lado 2 sem ator nem grupo (a ressalva tem de nomear o grupo que a sustenta)"),
+    ({"lados": [_lado(veiculos=VEICULOS), _lado("Há quem veja risco.", [], ["CartaCapital"], grupos=["alguns"])]},
+     "lado 2 sem ator nem grupo (a ressalva tem de nomear o grupo que a sustenta)"),
     # a questão e os lados andam juntos
     ({"questao": "", "lados": [_lado(veiculos=VEICULOS), _lado(atores=["PT"], veiculos=VEICULOS)]},
      "questão vazia com 2 lados (questão vazia exige exatamente 1 lado)"),
@@ -185,7 +194,7 @@ def test_duas_chamadas_que_falham_viram_o_lado_de_emergencia(caplog):
 
 def test_o_pedido_de_correcao_corta_a_resposta_comprida():
     comprida = {"lados": [_lado(posicao="x" * 5000, veiculos=[])]}
-    assert len(pedido_de_correcao(analise_da_resposta(comprida, TEXTOS))) < modulo.MAX_ANTERIOR + 500
+    assert len(pedido_de_correcao(analise_da_resposta(comprida, TEXTOS))) < modulo.MAX_ANTERIOR + 600
 
 
 # ── Atores genéricos ──────────────────────────────────────────────────────────────────────
@@ -239,19 +248,32 @@ def test_ator_sem_trecho_comprovado_ou_sem_resposta_sai_do_lado():
     resposta = _canal(_evidencia("Nunes Marques", "Sim"), _evidencia("Lula", "Não", "Lula disse que a decisão é um absurdo"),
                       _evidencia("campanha de Flávio Bolsonaro", "Talvez"))
     analise = analise_da_resposta(resposta, TEXTOS)
-    # o trecho de Lula não está no texto e nenhum lado responde "Talvez": o lado 2 fica sem ator e vira ressalva
+    # o trecho de Lula não está no texto e nenhum lado responde "Talvez": o lado 2 fica sem ator e é descartado
     assert [lado.atores for lado in analise.lados] == [("Nunes Marques",)] and analise.questao == ""
-    assert analise.ressalvas == [Ressalva((), "A suspensão é censura.", ("Agência Brasil", "CartaCapital"))]
+    assert analise.ressalvas == [] and analise.descartadas == [] and analise.problemas == [] and analise.faltam == []
     assert analise.ajustes == [
         "ator do lado 2 saiu: o trecho não está no texto de Agência Brasil (Lula)",
         "ator do lado 2 saiu: nenhum lado tem a resposta dele (campanha de Flávio Bolsonaro: Talvez)",
-        "lado 2, sem ator nem grupo, virou ressalva",
+        "lado 2 saiu: ficou sem ator nomeado",
     ]
     assert [e.comprovada for e in analise.respostas] == [True, False, True]
 
     sem_entrada = analise_da_resposta(_canal(_evidencia("Nunes Marques", "Sim"), _evidencia("Lula", "Não")), TEXTOS)
     assert [lado.atores for lado in sem_entrada.lados] == [("Nunes Marques",), ("Lula",)]
     assert sem_entrada.ajustes == ["ator do lado 2 saiu: não está em respostas_por_ator (campanha de Flávio Bolsonaro)"]
+    assert sem_entrada.faltam == ["campanha de Flávio Bolsonaro"] and sem_entrada.problemas == []   # falta a entrada: pede nova tentativa
+
+
+def test_lado_que_perde_todos_os_atores_nomeados_e_descartado_e_nunca_vira_ressalva():
+    # como na pauta da Nintendo de 12/10/2026: a Sony veio num lado, sem trecho que comprovasse a resposta
+    com_grupo = {**NAO, "grupos": ["analistas"], "trecho": DA_AB}
+    resposta = {"questao": "O canal deve ser suspenso?", "lados": [SIM, com_grupo], "respostas_por_ator": [
+        _evidencia("Nunes Marques", "Sim"), _evidencia("Lula", "Não", "um trecho que não está em texto nenhum"),
+        _evidencia("campanha de Flávio Bolsonaro", "Não", "outro trecho que ninguém escreveu"),
+    ]}
+    analise = analise_da_resposta(resposta, TEXTOS)
+    assert [lado.atores for lado in analise.lados] == [("Nunes Marques",)] and analise.ressalvas == [] and analise.descartadas == []
+    assert analise.ajustes[-1] == "lado 2 saiu: ficou sem ator nomeado" and analise.problemas == []
 
 
 @pytest.mark.parametrize("trecho, veiculo, vale", [
@@ -264,7 +286,7 @@ def test_ator_sem_trecho_comprovado_ou_sem_resposta_sai_do_lado():
     ("A Meta respondeu", "Agência Brasil", False),                                     # curto demais para comprovar
     ("A Meta rebateu as acusações da campanha", "Agência Brasil", False),              # paráfrase não é trecho literal
 ])
-def test_o_trecho_tem_de_estar_ao_pe_da_letra_no_texto_que_a_analise_recebeu(trecho, veiculo, vale):
+def test_o_trecho_tem_de_estar_ao_pe_da_letra_no_texto_do_veiculo(trecho, veiculo, vale):
     resposta = _canal(_evidencia("Nunes Marques", "Sim", trecho, veiculo), _evidencia("Lula", "Não"))
     analise = analise_da_resposta(resposta, TEXTOS)
     assert analise.respostas[0].comprovada is vale and (("Nunes Marques",) in [lado.atores for lado in analise.lados]) is vale
@@ -274,7 +296,7 @@ def test_sem_questao_os_atores_ficam_como_vieram():
     # pauta sem disputa: ninguém confere respostas nem trechos
     um = analise_da_resposta({"questao": "", "lados": [_lado(atores=["Terra de Direitos", "Justiça Global"], veiculos=VEICULOS)]}, TEXTOS)
     assert um.problemas == [] and um.ajustes == [] and um.respostas == []
-    assert um.lados == [Lado("Uma posição.", ("Terra de Direitos", "Justiça Global"), ("Agência Brasil", "CartaCapital"), mencoes=0)]
+    assert um.lados == [Lado("Uma posição.", ("Terra de Direitos", "Justiça Global"), ("Agência Brasil", "CartaCapital"))]
 
 
 def test_um_ator_pode_trazer_mais_de_um_trecho_comprovado():
@@ -285,6 +307,11 @@ def test_um_ator_pode_trazer_mais_de_um_trecho_comprovado():
     analise = analise_da_resposta(resposta, TEXTOS)
     assert [lado.trechos for lado in analise.lados] == [(DA_AB, "Meta alega problemas técnicos"), (DA_CARTA,)]
     assert analise.ajustes == ["ator do lado 2 saiu: não está em respostas_por_ator (campanha de Flávio Bolsonaro)"]
+    # os trechos vão para a geração um de cada lado por vez
+    assert trechos_de_evidencia(analise.lados, [Ressalva(("economistas",), "Alerta.", ("G1",), "o trecho da ressalva")]) == [
+        ("trecho do lado 1", DA_AB), ("trecho do lado 2", DA_CARTA), ("trecho da ressalva 1", "o trecho da ressalva"),
+        ("trecho do lado 1", "Meta alega problemas técnicos"),
+    ]
     # a resposta do ator vem escrita de um jeito em cada entrada: os dois trechos contam para o lado em que ele ficou
     variada = _canal(_evidencia("Nunes Marques", "Sim"), _evidencia("Nunes Marques", "É preciso suspender", "Meta alega problemas técnicos"),
                      _evidencia("Lula", "Não", DA_CARTA, "CartaCapital"))
@@ -310,9 +337,12 @@ def test_lado_fino_e_o_que_tem_os_atores_em_no_maximo_uma_frase_dos_textos():
         _evidencia("comandante do Corpo de Bombeiros do Amazonas", "Sim", trecho_dele), _evidencia("Waldez Góes", "Não", trecho_do_ministro),
     ], "lados": [_lado("Nega.", ["comandante do Corpo de Bombeiros do Amazonas"], resposta="Sim"), _lado("Não nega.", ["Waldez Góes"], resposta="Não")]}
     analise = analise_da_resposta(resposta, QUEIMADAS)
-    assert [lado.mencoes for lado in analise.lados] == [1, 3] and [lado.fino for lado in analise.lados] == [True, False]
-    assert lados_finos(analise.lados) == [True, False]                  # a conta é do código: os dois lados têm um trecho listado cada
-    assert lados_finos(analise.lados[:1]) == [False]                    # só há lado fino com 2 lados ou mais
+    assert [lado.mencoes for lado in analise.lados] == [None, None] and lados_finos(analise.lados) == [False, False]   # ainda não contado
+    contados = com_mencoes(analise.lados, QUEIMADAS)                    # a conta é feita nos textos que a geração recebe
+    assert [lado.mencoes for lado in contados] == [1, 3] and [lado.fino for lado in contados] == [True, False]
+    assert lados_finos(contados) == [True, False]                       # a conta é do código: os dois lados têm um trecho listado cada
+    assert lados_finos(contados[:1]) == [False]                         # só há lado fino com 2 lados ou mais
+    assert com_mencoes(lado_unico(["G1"]), QUEIMADAS) == lado_unico(["G1"])   # o lado sem atores não é contado
     assert not Lado("p", ("Meta",), ("G1",)).fino                       # lado que não passou pela contagem não é fino
 
 
@@ -324,7 +354,7 @@ ALERTA = "A flexibilização pode enfraquecer a tarifa comum."
 
 def test_lado_com_atores_vazios_e_grupos_vira_ressalva_e_a_questao_sai(caplog):
     resposta = _com_evidencias({"questao": "A flexibilização é boa para o Brasil?", "motivo": "Proposta contra alerta.",
-                                "lados": [FLAVIO, _lado(ALERTA, [], ["CartaCapital"], "Não", grupos=["economistas"])]})
+                                "lados": [FLAVIO, _lado(ALERTA, [], ["CartaCapital"], "Não", grupos=["economistas"], trecho=DA_CARTA)]})
     chamada = Chamada(resposta)
     with caplog.at_level(logging.INFO, logger="techdigest.ai.lados"):
         analise = analisar_lados(chamada, TEXTOS)
@@ -332,24 +362,51 @@ def test_lado_com_atores_vazios_e_grupos_vira_ressalva_e_a_questao_sai(caplog):
     [lado] = analise.lados
     assert (lado.posicao, lado.atores, lado.veiculos, lado.resposta) == (
         "Flávio propõe flexibilizar o Mercosul.", ("Flávio Bolsonaro", "Milei"), ("Agência Brasil",), "")
-    assert analise.ressalvas == [Ressalva(("economistas",), ALERTA, ("CartaCapital",))]     # o veículo só da ressalva conta como coberto
+    assert analise.ressalvas == [Ressalva(("economistas",), ALERTA, ("CartaCapital",), DA_CARTA)]   # o veículo só da ressalva conta como coberto
     assert analise.questao == "" and analise.problemas == [] and analise.ajustes == []
     assert len(chamada.recebido) == 1                                                       # não é resposta inválida: não há nova tentativa
     assert "Lados da pauta: 1 (Flávio Bolsonaro, Milei) · ressalvas: economistas" in caplog.text
 
 
 def test_lado_so_com_atores_genericos_vira_ressalva_com_os_termos_em_grupos():
-    resposta = _disputa(FLAVIO, _lado(ALERTA, ["economistas", "o governo"], VEICULOS, grupos=["analistas", "economistas"]))
+    resposta = _disputa(FLAVIO, _lado(ALERTA, ["economistas", "o governo"], VEICULOS, grupos=["analistas", "economistas"], trecho=DA_CARTA))
     analise = analise_da_resposta(resposta, TEXTOS)
     assert [lado.atores for lado in analise.lados] == [("Flávio Bolsonaro", "Milei")]
-    assert analise.ressalvas == [Ressalva(("analistas", "economistas", "o governo"), ALERTA, ("Agência Brasil", "CartaCapital"))]
+    assert analise.ressalvas == [Ressalva(("analistas", "economistas", "o governo"), ALERTA, ("Agência Brasil", "CartaCapital"), DA_CARTA)]
     assert analise.ajustes == ["ator genérico do lado 2 passou a grupo (economistas, o governo)"] and analise.problemas == []
 
 
-def test_lado_sem_ator_nem_grupo_tambem_vira_ressalva():
-    analise = analise_da_resposta(_disputa(FLAVIO, _lado(ALERTA, [], ["CartaCapital"])), TEXTOS)
-    assert analise.ressalvas == [Ressalva((), ALERTA, ("CartaCapital",))] and len(analise.lados) == 1
-    assert analise.ajustes == ["lado 2, sem ator nem grupo, virou ressalva"]
+@pytest.mark.parametrize("trecho, motivo", [
+    (None, "sem trecho de evidência"),
+    ("", "sem trecho de evidência"),
+    ("os economistas veem risco para a tarifa comum", "o trecho não está no texto de CartaCapital"),   # paráfrase não comprova
+    (DA_AB, "o trecho não está no texto de CartaCapital"),                                             # o trecho é de outro veículo
+    ("A campanha acusou", "o trecho não está no texto de CartaCapital"),                               # curto demais
+])
+def test_ressalva_sem_trecho_comprovado_e_descartada_com_o_motivo(trecho, motivo, caplog):
+    ressalva = _lado(ALERTA, [], ["CartaCapital"], grupos=["economistas"], trecho=trecho)
+    chamada = Chamada({"lados": [_lado(veiculos=VEICULOS), ressalva]})
+    with caplog.at_level(logging.WARNING, logger="techdigest.ai.lados"):
+        analise = analisar_lados(chamada, TEXTOS)
+    assert analise.ressalvas == [] and len(analise.lados) == 1 and analise.problemas == [] and len(chamada.recebido) == 1
+    assert analise.descartadas == [(Ressalva(("economistas",), ALERTA, ("CartaCapital",), trecho or ""), motivo)]
+    assert analise.ajustes == [f"ressalva do lado 2 saiu: {motivo} (economistas)"]
+    assert f"1 ressalva(s) descartada(s): {motivo}." in caplog.text
+
+
+def test_o_trecho_da_ressalva_vale_em_qualquer_veiculo_dela_e_no_titulo():
+    em_outro = _lado(ALERTA, [], VEICULOS, grupos=["economistas"], trecho="“Campanha de Lula acusa Meta”...")
+    analise = analise_da_resposta({"lados": [_lado(veiculos=VEICULOS), em_outro]}, TEXTOS)
+    assert [r.trecho for r in analise.ressalvas] == ["“Campanha de Lula acusa Meta”..."] and analise.descartadas == []
+
+
+def test_lado_unico_sem_ator_nem_grupo_e_o_relato_dos_fatos_sem_nova_tentativa():
+    # como na pauta da seleção feminina: a notícia não tem quem sustente posição nenhuma
+    resposta = {"questao": "", "lados": [_lado("O Brasil enfrenta a Argentina.", [], VEICULOS, "", grupos=[])], "motivo": "Sem disputa."}
+    chamada = Chamada(resposta)
+    analise = analisar_lados(chamada, TEXTOS)
+    assert analise.lados == EMERGENCIA and analise.problemas == [] and analise.motivo == "Sem disputa." and len(chamada.recebido) == 1
+    assert analise.ajustes == ["lado único sem ator nem grupo: a pauta fica com o lado neutro"] and analise.descartadas == []
 
 
 def test_em_lado_misto_o_grupo_sai_e_nao_vira_ressalva():
@@ -362,25 +419,25 @@ def test_em_lado_misto_o_grupo_sai_e_nao_vira_ressalva():
 
 
 def test_com_mais_de_duas_ressalvas_ficam_as_duas_primeiras(caplog):
-    resposta = {"lados": [_lado(veiculos=VEICULOS), *(_lado(f"Ressalva {g}.", [], VEICULOS, grupos=[g])
+    resposta = {"lados": [_lado(veiculos=VEICULOS), *(_lado(f"Ressalva {g}.", [], VEICULOS, grupos=[g], trecho=DA_AB)
                                                       for g in ("economistas", "juristas", "moradores"))]}
     with caplog.at_level(logging.WARNING, logger="techdigest.ai.lados"):
         analise = analisar_lados(Chamada(resposta), TEXTOS)
     assert [r.grupos for r in analise.ressalvas] == [("economistas",), ("juristas",)]
-    assert [r.grupos for r in analise.descartadas] == [("moradores",)] and analise.problemas == []
-    assert analise.ajustes == ["1 ressalva(s) a mais: ficam as 2 primeiras"] and analise.motivo_do_descarte == "a pauta já tem 2 ressalvas"
+    assert [(r.grupos, motivo) for r, motivo in analise.descartadas] == [(("moradores",), "a pauta já tem 2 ressalvas")]
+    assert analise.ajustes == ["1 ressalva(s) a mais: ficam as 2 primeiras"] and analise.problemas == []
     assert "1 ressalva(s) descartada(s): a pauta já tem 2 ressalvas." in caplog.text
 
 
 def test_sem_nenhum_lado_nomeado_fica_o_lado_neutro_e_as_ressalvas_sao_descartadas():
-    resposta = _disputa(_lado("O governo defende a medida.", ["o governo"], VEICULOS), _lado("Criticam a medida.", [], VEICULOS, grupos=["especialistas"]))
+    resposta = _disputa(_lado("O governo defende a medida.", ["o governo"], VEICULOS, trecho=DA_AB),
+                        _lado("Criticam a medida.", [], VEICULOS, grupos=["especialistas"], trecho=DA_CARTA))
     chamada = Chamada(resposta)
     analise = analisar_lados(chamada, TEXTOS)
     assert analise.lados == EMERGENCIA and analise.questao == "" and analise.problemas == [] and len(chamada.recebido) == 1
-    assert analise.ressalvas == [] and analise.motivo_do_descarte == "nenhum lado tem ator nomeado"
-    assert analise.descartadas == [
-        Ressalva(("o governo",), "O governo defende a medida.", ("Agência Brasil", "CartaCapital")),
-        Ressalva(("especialistas",), "Criticam a medida.", ("Agência Brasil", "CartaCapital")),
+    assert analise.ressalvas == [] and analise.descartadas == [
+        (Ressalva(("o governo",), "O governo defende a medida.", ("Agência Brasil", "CartaCapital"), DA_AB), "nenhum lado tem ator nomeado"),
+        (Ressalva(("especialistas",), "Criticam a medida.", ("Agência Brasil", "CartaCapital"), DA_CARTA), "nenhum lado tem ator nomeado"),
     ]
     assert analise.ajustes == ["ator genérico do lado 1 passou a grupo (o governo)",
                                "nenhum lado com ator nomeado: a pauta fica com o lado neutro, sem ressalvas"]
@@ -391,7 +448,7 @@ def test_a_questao_so_fica_com_dois_lados_nomeados_ou_mais():
     um = analise_da_resposta(_com_evidencias({"questao": "A Meta favoreceu um candidato?", "lados": [_lado(veiculos=VEICULOS, resposta="Não")]}), TEXTOS)
     assert um.problemas == [] and um.questao == "" and [(lado.atores, lado.resposta) for lado in um.lados] == [(("Meta",), "")]
     # dois lados nomeados e uma ressalva: a questão fica
-    tres = analise_da_resposta(_disputa(_lado("A Meta nega.", ["Meta"]), _lado("Veem risco.", ["críticos"], VEICULOS),
+    tres = analise_da_resposta(_disputa(_lado("A Meta nega.", ["Meta"]), _lado("Veem risco.", ["críticos"], VEICULOS, trecho=DA_AB),
                                         _lado("A campanha acusa.", ["campanha de Lula"], ["CartaCapital"])), TEXTOS)
     assert tres.questao == "A Meta favoreceu um candidato?" and [lado.resposta for lado in tres.lados] == ["Resposta 1", "Resposta 3"]
     assert [r.grupos for r in tres.ressalvas] == [("críticos",)] and tres.problemas == []
@@ -399,7 +456,7 @@ def test_a_questao_so_fica_com_dois_lados_nomeados_ou_mais():
 
 def test_os_lados_nomeados_ainda_passam_pela_validacao():
     # quatro lados, um deles só de grupo: ficam três lados e uma ressalva, e a resposta vale
-    quatro = _disputa(*(_lado(atores=[a], veiculos=VEICULOS) for a in ("Meta", "PT", "analistas", "TSE")))
+    quatro = _disputa(*(_lado(atores=[a], veiculos=VEICULOS, trecho=DA_AB) for a in ("Meta", "PT", "analistas", "TSE")))
     analise = analise_da_resposta(quatro, TEXTOS)
     assert len(analise.lados) == 3 and len(analise.ressalvas) == 1 and analise.problemas == []
     # o número do lado na mensagem é o da resposta do LLM
@@ -410,7 +467,7 @@ def test_os_lados_nomeados_ainda_passam_pela_validacao():
 
 # ── A chamada ─────────────────────────────────────────────────────────────────────────────
 
-def test_a_chamada_leva_os_trechos_com_veiculo_e_titulo_e_temperatura_baixa():
+def test_a_chamada_leva_os_textos_com_veiculo_e_titulo_e_temperatura_baixa():
     chamada = Chamada(DOIS_LADOS)
     analisar_lados(chamada, TEXTOS)
     [(system, user, opcoes)] = chamada.recebido
@@ -428,12 +485,110 @@ def test_a_chamada_leva_os_trechos_com_veiculo_e_titulo_e_temperatura_baixa():
 def test_o_prompt_pede_a_questao_antes_dos_lados():
     assert (PROMPT_LADOS.index('{"questao":') < PROMPT_LADOS.index('"respostas_por_ator": [{"ator":')
             < PROMPT_LADOS.index('"lados": [{"resposta":') < PROMPT_LADOS.index('"motivo":'))
+    # a questão é a do fato novo, e a ressalva traz o grupo e um trecho literal
+    assert "A questão trata do FATO NOVO da pauta" in PROMPT_LADOS and "são contexto, não a questão" in PROMPT_LADOS
+    assert "outra questão em que atores nomeados tomam posições opostas" in PROMPT_LADOS
+    assert '"trecho": "<só na ressalva: trecho literal do texto>"' in PROMPT_LADOS
+    assert "posição sem ator nem grupo não entra" in PROMPT_LADOS
+
+
+# ── Os textos inteiros e o espaço da chamada ──────────────────────────────────────────────
+
+LONGOS = [
+    {"fonte": "Agência Brasil", "titulo": "Meta alega problemas técnicos",
+     "texto": "\n".join([("Um parágrafo de contexto sobre a eleição. " * 5).strip()] * 8 + ["No fim, a Meta negou o favorecimento apontado."])},
+    {"fonte": "CartaCapital", "titulo": "Campanha de Lula acusa Meta",
+     "texto": "\n".join([("Outro parágrafo de contexto, bem comprido. " * 5).strip()] * 4 + ["No fim, a campanha de Lula acusou a empresa."])},
+]
+
+
+def test_os_textos_so_sao_cortados_se_a_entrada_passa_do_espaco_da_chamada():
+    inteira = entrada_dos_lados(LONGOS)
+    assert textos_que_cabem(LONGOS, None) == textos_que_cabem(LONGOS, len(inteira)) == (LONGOS, [])
+    lidos, cortes = textos_que_cabem(LONGOS, len(inteira) - 1000)
+    assert len(entrada_dos_lados(lidos)) <= len(inteira) - 1000
+    assert cortes == [{"fonte": t["fonte"], "texto": len(t["texto"]), "lido": len(lido["texto"])} for t, lido in zip(LONGOS, lidos)]
+    for inteiro, lido in zip(LONGOS, lidos):                         # cada um perde na proporção do tamanho, em fim de parágrafo
+        assert inteiro["texto"].startswith(lido["texto"] + "\n") and 0.4 < len(lido["texto"]) / len(inteiro["texto"]) < 0.8
+
+
+def test_o_trecho_e_conferido_no_texto_inteiro_mesmo_quando_a_chamada_leu_um_corte(caplog):
+    resposta = {"questao": "A Meta favoreceu um candidato?", "respostas_por_ator": [
+        _evidencia("campanha de Lula", "Sim", "a campanha de Lula acusou a empresa", "CartaCapital"),
+        _evidencia("Meta", "Não", "a Meta negou o favorecimento apontado"),
+    ], "lados": [_lado("A campanha acusa.", ["campanha de Lula"], ["CartaCapital"], "Sim"), _lado("A Meta nega.", ["Meta"], resposta="Não")]}
+    chamada = Chamada(resposta)
+    limite = len(entrada_dos_lados(LONGOS)) - 1000
+    with caplog.at_level(logging.WARNING, logger="techdigest.ai.lados"):
+        analise = analisar_lados(chamada, LONGOS, limite)
+    [(_, lida, _)] = chamada.recebido
+    assert len(lida) <= limite and "a Meta negou o favorecimento" not in lida      # o fim dos textos ficou fora da chamada
+    assert len(analise.lados) == 2 and all(e.comprovada for e in analise.respostas)
+    assert [c["fonte"] for c in analise.cortes] == ["Agência Brasil", "CartaCapital"]
+    assert "os textos não cabem inteiros na chamada e foram cortados (Agência Brasil: " in caplog.text
+    assert analisar_lados(Chamada(resposta), LONGOS, len(entrada_dos_lados(LONGOS))).cortes == []   # cabendo, vão inteiros e sem aviso
+
+
+def test_a_nova_tentativa_cabe_no_mesmo_espaco():
+    chamada = Chamada({"lados": []}, UM_LADO)
+    limite = len(entrada_dos_lados(LONGOS))
+    analise = analisar_lados(chamada, LONGOS, limite)
+    (_, primeira, _), (_, segunda, _) = chamada.recebido
+    assert len(primeira) == limite and len(segunda) <= limite                    # o pedido de correção toma o lugar de texto
+    assert segunda.endswith("\n\n" + pedido_de_correcao(analise.primeira)) and analise.cortes and not analise.primeira.cortes
+
+
+# ── Ator sem entrada em respostas_por_ator ────────────────────────────────────────────────
+
+SEM_A_CAMPANHA = _canal(_evidencia("Nunes Marques", "Sim"), _evidencia("Lula", "Não"))
+COM_A_CAMPANHA = _canal(_evidencia("Nunes Marques", "Sim"), _evidencia("Lula", "Não"),
+                        _evidencia("campanha de Flávio Bolsonaro", "Não", DA_CARTA, "CartaCapital"))
+
+
+def test_ator_sem_entrada_ganha_nova_tentativa_que_pede_a_entrada_dele(caplog):
+    chamada = Chamada(SEM_A_CAMPANHA, COM_A_CAMPANHA)
+    with caplog.at_level(logging.WARNING, logger="techdigest.ai.lados"):
+        analise = analisar_lados(chamada, TEXTOS)
+    assert [lado.atores for lado in analise.lados] == [("Nunes Marques",), ("Lula", "campanha de Flávio Bolsonaro")]
+    assert analise.faltam == [] and analise.ajustes == [] and analise.resposta is COM_A_CAMPANHA and analise.segunda is None
+    assert analise.primeira.faltam == ["campanha de Flávio Bolsonaro"] and analise.primeira.problemas == []
+    (_, primeira, _), (_, segunda, _) = chamada.recebido
+    assert segunda == primeira + "\n\n" + pedido_das_respostas(analise.primeira) == primeira + (
+        '\n\nCORREÇÃO: na sua resposta anterior, estes atores estão num lado e não têm entrada em "respostas_por_ator": '
+        "campanha de Flávio Bolsonaro.\nResposta anterior: " + json.dumps(SEM_A_CAMPANHA, ensure_ascii=False) + "\n"
+        + modulo.LEMBRETE_DAS_RESPOSTAS
+    )
+    assert 'ator sem entrada em "respostas_por_ator" (campanha de Flávio Bolsonaro). Nova tentativa, pedindo a entrada.' in caplog.text
+
+
+def test_se_a_entrada_do_ator_nao_vem_ele_sai_e_nao_ha_terceira_tentativa():
+    chamada = Chamada(SEM_A_CAMPANHA)                                  # a nova tentativa repete a resposta, sem a entrada
+    analise = analisar_lados(chamada, TEXTOS)
+    assert len(chamada.recebido) == 2 and analise.problemas == []
+    assert [lado.atores for lado in analise.lados] == [("Nunes Marques",), ("Lula",)]
+    assert analise.faltam == ["campanha de Flávio Bolsonaro"] and analise.primeira.faltam == analise.faltam
+
+
+def test_se_a_nova_tentativa_nao_vale_fica_a_primeira_resposta_sem_o_ator(caplog):
+    for segunda in (QUATRO_LADOS, ValueError("Modelo retornou resposta VAZIA.")):
+        chamada = Chamada(SEM_A_CAMPANHA, segunda)
+        with caplog.at_level(logging.WARNING, logger="techdigest.ai.lados"):
+            analise = analisar_lados(chamada, TEXTOS)
+        assert [lado.atores for lado in analise.lados] == [("Nunes Marques",), ("Lula",)] and analise.problemas == []
+        assert analise.resposta is SEM_A_CAMPANHA and analise.primeira is None and analise.segunda.problemas
+        assert "a nova tentativa não valeu" in caplog.text and "Fica a primeira resposta, sem o ator." in caplog.text
 
 
 # ── O bloco da entrada ────────────────────────────────────────────────────────────────────
 
 def test_bloco_diz_a_questao_os_lados_o_elenco_exato_e_o_alvo_de_palavras():
     analise = analisar_lados(Chamada(DOIS_LADOS), TEXTOS)
+    sem_contar = bloco_dos_lados(analise.lados, analise.questao)
+    assert "lado fino" not in sem_contar                                # antes da contagem das menções, nenhum lado é fino
+    analise.lados = com_mencoes(analise.lados, TEXTOS)
+    # a reserva é o tamanho do bloco com todos os lados finos: cobre o bloco antes e depois da contagem
+    assert reserva_do_bloco(analise.lados, analise.questao) >= len(bloco_dos_lados(analise.lados, analise.questao)) > len(sem_contar)
+    assert reserva_do_bloco(analise.lados, analise.questao) == len(bloco_dos_lados(analise.lados, analise.questao)) + len("; lado fino")
     assert bloco_dos_lados(analise.lados, analise.questao) == (
         "\nLADOS DA PAUTA: 2 lados.\n"
         "QUESTÃO: A Meta favoreceu um candidato?\n"
@@ -449,6 +604,7 @@ def test_bloco_diz_a_questao_os_lados_o_elenco_exato_e_o_alvo_de_palavras():
     sem_fino = [Lado("A campanha acusa.", ("PT",), ("G1",), "Sim", ("um trecho", "outro trecho")), Lado("A Meta nega.", ("Meta",), ("G1",), "Não")]
     assert "lado fino" not in bloco_dos_lados(sem_fino, "Q?") and bloco_dos_lados(sem_fino, "Q?").endswith("Alvo: 320 a 400 palavras por personagem.")
     um = analise_da_resposta(UM_LADO, TEXTOS)
+    assert reserva_do_bloco(um.lados) == len(bloco_dos_lados(um.lados))  # com um lado só não há lado fino: a reserva é o bloco
     assert bloco_dos_lados(um.lados, um.questao) == (
         "\nLADOS DA PAUTA: 1 lado.\n"
         "Lado 1: Uma posição. Atores: Meta. Veículos: Agência Brasil, CartaCapital.\n"
@@ -493,6 +649,7 @@ def test_bloco_nunca_passa_do_espaco_reservado():
                    "Uma resposta comprida demais para caber inteira no bloco de lados da pauta. " * 3) for _ in range(3)]
     bloco = bloco_dos_lados(longos, "Uma questão comprida demais? " * 20)
     assert len(bloco) <= modulo.MAX_BLOCO and bloco.count("…") == 7 and bloco.endswith("palavras por personagem.")   # questão, 3 respostas e 3 posições
+    assert reserva_do_bloco(longos, "Uma questão comprida demais? " * 20) == modulo.MAX_BLOCO                        # a reserva nunca passa do teto do bloco
     assert all(f"Lado {i} (resposta: Uma resposta comprida" in bloco and "): Posição muito comprida." in bloco for i in (1, 2, 3))
 
     exagerados = [Lado("Posição.", tuple(f"Ator de nome bem comprido número {i}" for i in range(30)), ("G1",), "Sim") for _ in range(3)]

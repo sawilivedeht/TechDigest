@@ -210,6 +210,10 @@ em disputa na história e quais LADOS respondem a ela.
 A questão é UMA pergunta só, que os atores da história respondem de formas opostas (ex.: "O canal deve \
 ser suspenso?"). Ela resume a disputa no fato: acusação contra defesa, decisão contra crítica, afirmação \
 contra negação.
+A questão trata do FATO NOVO da pauta: o que os textos relatam como acontecido agora. Episódios \
+anteriores que os textos recapitulam (o que já tinha acontecido, o histórico do caso) são contexto, não a questão.
+Se a questão do fato novo só tem um lado com ator nomeado, verifique se os textos trazem, sobre o MESMO \
+fato, outra questão em que atores nomeados tomam posições opostas. Se trouxerem, use essa.
 NÃO criam disputa: informação complementar, detalhes diferentes entre os textos, a simples sequência dos \
 fatos, o contexto ou o histórico do assunto.
 Sem disputa, a questão fica vazia ("") e a história tem UM lado só. Na dúvida, não há disputa.
@@ -229,11 +233,12 @@ que comprove essa resposta. Copie, não resuma nem corrija;
 - "veiculo": o veículo de onde o trecho saiu.
 Quem pede ou toma uma decisão responde a favor dela; quem a critica responde contra.
 Com questão, cada lado com atores é uma das respostas dessa lista, com as mesmas palavras, e reúne os \
-atores que a deram. Ator sem trecho que comprove a resposta não entra em lado nenhum.
+atores que a deram. Todo ator de um lado tem a sua entrada na lista; ator sem trecho que comprove a \
+resposta não entra em lado nenhum.
 Sem questão, "respostas_por_ator" fica [] e a história tem UM lado, como sempre: o fato central, com os \
 atores que o sustentam.
 A ressalva (posição que só um grupo sustenta) não entra em "respostas_por_ator": ela continua em "lados", \
-com "atores": [] e o grupo em "grupos", haja ou não questão.
+com "atores": [], o grupo em "grupos" e o trecho dela em "trecho", haja ou não questão.
 
 ## ATORES E GRUPOS
 - Ator é quem sustenta a posição, pelo nome ou por uma designação específica, na forma que os textos \
@@ -241,9 +246,11 @@ mais usam (ex.: "Lula", "Nunes Marques", "Meta", "campanha de Lula"). Não expan
 - Grupo é um coletivo sem nome (economistas, especialistas, analistas, críticos, observadores) ou uma \
 designação vaga sem qualificador ("o governo", "a empresa"). Grupo vai em "grupos", NUNCA em "atores". \
 Com qualificador a designação é ator: "governo federal" e "governo do Amazonas".
-- A posição que só um grupo sustenta é uma RESSALVA: escreva-a como um lado com "atores": [] e o grupo \
-em "grupos". A ressalva não conta para a questão nem para o número de lados: se só um grupo discorda, \
-não há disputa.
+- A posição que só um grupo sustenta é uma RESSALVA: escreva-a como um lado com "atores": [], o grupo \
+em "grupos" e, em "trecho", um trecho de até 200 caracteres, copiado AO PÉ DA LETRA do texto de um dos \
+veículos dela, que traga o alerta do grupo. A ressalva não conta para a questão nem para o número de \
+lados: se só um grupo discorda, não há disputa.
+- Toda ressalva nomeia o grupo que a sustenta: posição sem ator nem grupo não entra em "lados".
 - Uma ressalva por alerta: alertas diferentes são ressalvas separadas, cada uma com os seus grupos. \
 Não junte dois alertas numa posição só. No máximo 2 ressalvas.
 
@@ -255,6 +262,8 @@ Não junte dois alertas numa posição só. No máximo 2 ressalvas.
 - "atores": os atores do lado. Cada lado que responde à questão tem pelo menos um ator que não está em \
 nenhum outro lado.
 - "grupos": os grupos sem nome que sustentam a posição, ou [] se não houver.
+- "trecho": só na ressalva, o trecho literal do texto que traz a posição do grupo. No lado com atores, \
+fica "": os trechos deles estão em "respostas_por_ator".
 - "veiculos": os veículos, entre os recebidos, cujo texto relata a posição daquele lado. Um mesmo \
 veículo pode relatar mais de um lado, e todo veículo recebido aparece em pelo menos um lado. Escreva \
 o nome do veículo como foi recebido.
@@ -265,7 +274,7 @@ Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor, com as ch
 {"questao": "<a pergunta em disputa, ou vazio se não houver>", "respostas_por_ator": [{"ator": "<ator>", \
 "resposta": "<a resposta dele à questão>", "trecho": "<trecho literal do texto>", "veiculo": "<veículo>"}], \
 "lados": [{"resposta": "<a resposta deste lado à questão>", "posicao": "<uma frase>", "atores": ["<ator>"], \
-"grupos": ["<grupo sem nome>"], "veiculos": ["<veículo>"]}], \
+"grupos": ["<grupo sem nome>"], "trecho": "<só na ressalva: trecho literal do texto>", "veiculos": ["<veículo>"]}], \
 "motivo": "<uma frase que explica a contagem dos lados>"}"""
 
 PROMPT_AGRUPADOR = """Você é o editor de pauta dos boletins TechDigest/PulsoBR. Um filtro automático \

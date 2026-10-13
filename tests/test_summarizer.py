@@ -1,4 +1,5 @@
-"""Testes de ai/summarizer.py sem LLM: a entrada dentro do orçamento, a análise de lados e o fluxo de process."""
+"""Testes de ai/summarizer.py sem LLM: a entrada dentro do orçamento, o recorte por relevância, a análise de lados e o
+fluxo de process."""
 import datetime
 import json
 import math
@@ -7,9 +8,12 @@ from types import SimpleNamespace
 import pytest
 
 from techdigest.ai import qa, summarizer
-from techdigest.ai.lados import MAX_BLOCO, Lado, bloco_dos_lados, entrada_dos_lados, lado_unico
+from techdigest.ai.lados import (
+    MAX_BLOCO, MAX_SAIDA_LADOS, Lado, Ressalva, bloco_dos_lados, entrada_dos_lados, lado_unico, textos_que_cabem,
+)
 from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
-from techdigest.ai.summarizer import LEMBRETE, QAReprovado, Summarizer, _repartir, montar_entrada
+from techdigest.ai.recorte import cortar_em_paragrafo
+from techdigest.ai.summarizer import LEMBRETE, QAReprovado, Summarizer, _repartir, montar_entrada, textos_da_pauta
 
 UTC = datetime.timezone.utc
 
@@ -28,12 +32,12 @@ def _artigo(fonte: str, caracteres: int, **extras) -> dict:
 
 
 def _entrada_antiga(principal: dict) -> str:
-    """A entrada de fonte única sem o bloco de lados, como era montada antes do orçamento, para comparar."""
+    """A entrada de fonte única sem o bloco de lados: o texto até o teto, cortado em fim de parágrafo."""
     partes = [
         "ARTIGO PRINCIPAL\n"
         f"Fonte: {principal['source']}\n"
         f"Título: {summarizer._limpar(principal['title'])}\n"
-        f"Texto:\n{summarizer._limpar(principal['text'])[:5000]}"
+        f"Texto:\n{cortar_em_paragrafo(summarizer._limpar(principal['text']), 5000)}"
     ]
     partes.append(
         "\nLEMBRETE: só o JSON das 8 chaves. Roteiro com 600-1300 palavras "
@@ -102,7 +106,7 @@ def test_fonte_unica_leva_o_bloco_de_lados_antes_do_lembrete(caracteres, ollama_
     sem_bloco = _entrada_antiga(principal)
     limite = Summarizer(provider=ProviderFalso())._limite_da_entrada(PROMPT_SISTEMA)    # o limite real de num_ctx=8192
 
-    # sem os lados, a entrada é a de sempre: a reserva do bloco não chega a cortar um texto de fonte única
+    # sem os lados, a entrada é a de sempre: o limite não chega a cortar um texto de fonte única
     assert montar_entrada(principal).texto == montar_entrada(principal, [], limite).texto == sem_bloco
     assert montar_entrada(principal).fontes == ["G1"]
 
@@ -110,17 +114,20 @@ def test_fonte_unica_leva_o_bloco_de_lados_antes_do_lembrete(caracteres, ollama_
     entrada = montar_entrada(principal, None, limite, um_lado)
     assert entrada.texto == sem_bloco.removesuffix(LEMBRETE) + bloco_dos_lados(um_lado) + "\n" + LEMBRETE
     assert entrada.textos == montar_entrada(principal, None, limite).textos == [
-        {"fonte": "G1", "titulo": "Um título com espaços", "texto": summarizer._limpar(principal["text"])[:5000]}
+        {"fonte": "G1", "titulo": "Um título com espaços", "texto": cortar_em_paragrafo(summarizer._limpar(principal["text"]), 5000)}
     ]
+    assert len(entrada.textos[0]["texto"]) <= 5000                      # o teto do principal vale mesmo com espaço sobrando
 
 
 def test_fonte_unica_que_nao_cabe_e_cortada_em_fim_de_paragrafo():
     principal = _artigo("G1", 9000)
-    entrada = montar_entrada(principal, limite=2500)
+    entrada = montar_entrada(principal, limite=2500, reserva=MAX_BLOCO)
     assert len(entrada.texto) <= 2500 - MAX_BLOCO and entrada.texto.endswith(LEMBRETE)
     trecho = entrada.texto.split("Texto:\n")[1].removesuffix("\n" + LEMBRETE)
     assert principal["text"].startswith(trecho + "\n\n")
     assert entrada.cortes == [{"fonte": "G1", "texto": len(principal["text"]), "incluido": len(trecho)}]
+    # sem a reserva e sem o bloco, o texto fica com o espaço todo
+    assert len(trecho) + 1000 < len(montar_entrada(principal, limite=2500).textos[0]["texto"]) <= 2500
 
 
 # ── Orçamento com relacionados ────────────────────────────────────────────────────────────
@@ -138,7 +145,7 @@ def test_reparticao_da_metade_ao_principal_e_repassa_a_sobra():
 def test_partes_fixas_ficam_inteiras_e_o_total_cabe_no_limite(limite):
     principal = _artigo("Valor", 9000)
     relacionados = [_artigo("G1", 6000, relacao="mesmo_acontecimento"), _artigo("Folha", 6000, relacao="mesmo_acontecimento")]
-    entrada = montar_entrada(principal, relacionados, limite)
+    entrada = montar_entrada(principal, relacionados, limite, reserva=MAX_BLOCO)
 
     assert len(entrada.texto) <= limite - MAX_BLOCO
     assert entrada.texto.startswith("ARTIGO PRINCIPAL\nFonte: Valor\nTítulo: Título de Valor\nTexto:\nParágrafo 1 de Valor.")
@@ -155,18 +162,27 @@ def test_partes_fixas_ficam_inteiras_e_o_total_cabe_no_limite(limite):
         principal_cabe, g1_cabe, folha_cabe = (c["incluido"] for c in entrada.cortes)
         assert principal_cabe > g1_cabe and abs(g1_cabe - folha_cabe) <= 450      # ~metade para o principal
 
-    # com os lados, o bloco entra no espaço reservado: os trechos são os mesmos e o total cabe no limite
+    # com os lados e a mesma reserva, o bloco entra no espaço guardado: os trechos são os mesmos e o total cabe no limite
     tres_lados = [Lado("Uma posição bem comprida. " * 20, (f"Ator {i}", "Outro Ator"), ("Valor", "G1", "Folha")) for i in range(3)]
-    com_lados = montar_entrada(principal, relacionados, limite, tres_lados)
+    com_lados = montar_entrada(principal, relacionados, limite, tres_lados, reserva=MAX_BLOCO)
     assert len(com_lados.texto) <= limite and com_lados.textos == entrada.textos and com_lados.cortes == entrada.cortes
     assert com_lados.texto.endswith(bloco_dos_lados(tres_lados) + "\n" + LEMBRETE)
+    # sem `reserva`, o orçamento guarda o tamanho que o bloco tem: sobra mais espaço para os textos
+    bloco = bloco_dos_lados(tres_lados)
+    no_tamanho = montar_entrada(principal, relacionados, limite, tres_lados)
+    assert len(no_tamanho.texto) <= limite and no_tamanho.texto.endswith(bloco + "\n" + LEMBRETE)
+    assert no_tamanho.textos == montar_entrada(principal, relacionados, limite, reserva=len(bloco)).textos
+    assert sum(c["incluido"] for c in no_tamanho.cortes) >= sum(c["incluido"] for c in entrada.cortes)
     assert [t["fonte"] for t in entrada.textos] == ["Valor", "G1", "Folha"]
     assert all(t["texto"] and t["texto"] in entrada.texto for t in entrada.textos)
 
 
-def test_sem_aperto_os_textos_vao_com_o_teto_de_sempre():
-    entrada = montar_entrada(_artigo("Valor", 9000), [_artigo("G1", 6000)], limite=None)
-    assert [c["incluido"] for c in entrada.cortes] == [5000, 3000]
+def test_sem_aperto_os_textos_vao_ate_o_teto_de_cada_um_em_fim_de_paragrafo():
+    principal, relacionado = _artigo("Valor", 9000), _artigo("G1", 6000)
+    entrada = montar_entrada(principal, [relacionado], limite=None)
+    assert [t["texto"] for t in entrada.textos] == [cortar_em_paragrafo(principal["text"], 5000), cortar_em_paragrafo(relacionado["text"], 3000)]
+    assert [4500 < c["incluido"] <= teto for c, teto in zip(entrada.cortes, (5000, 3000))] == [True, False]
+    assert 2600 < entrada.cortes[1]["incluido"] <= 3000
 
 
 def test_aviso_conta_e_nomeia_so_os_relacionados_que_entraram():
@@ -178,12 +194,12 @@ def test_aviso_conta_e_nomeia_so_os_relacionados_que_entraram():
     assert "há 3 textos de 3 veículos sobre este assunto (Folha, G1, Valor)" in entrada.texto
     assert [c["incluido"] > 0 for c in entrada.cortes] == [True, True, True, False]
 
-    apertada = montar_entrada(principal, tres, limite=1900 + MAX_BLOCO)          # o orçamento só dá para um relacionado
+    apertada = montar_entrada(principal, tres, limite=1900)                      # o orçamento só dá para um relacionado
     assert apertada.fontes == ["Valor", "G1"] and len(apertada.texto) <= 1900
     assert "há 2 textos de 2 veículos sobre este assunto (G1, Valor)" in apertada.texto
     assert "ARTIGO RELACIONADO [2]" not in apertada.texto and "Folha" not in apertada.texto
 
-    so_o_principal = montar_entrada(principal, tres, limite=1000 + MAX_BLOCO)    # nem um relacionado: some o aviso
+    so_o_principal = montar_entrada(principal, tres, limite=1000)                # nem um relacionado: some o aviso
     assert so_o_principal.fontes == ["Valor"] and "AVISO DO EDITOR-CHEFE" not in so_o_principal.texto
 
 
@@ -210,6 +226,8 @@ def test_limite_no_ollama_desconta_reserva_margem_e_prompt_de_sistema(ollama_819
     s = Summarizer(provider=ProviderFalso())
     assert s._limite_da_entrada(PROMPT_SISTEMA) == int((8192 - 3000 - 256) * 3.0) - len(PROMPT_SISTEMA)
     assert s._limite_da_entrada(PROMPT_REVISOR, extra=7000) == int((8192 - 3000 - 256) * 3.0) - len(PROMPT_REVISOR) - 7000
+    # a chamada que limita a própria saída reserva só isso: é o caso da análise de lados
+    assert s._limite_da_entrada(PROMPT_LADOS, saida=MAX_SAIDA_LADOS) == int((8192 - 1200 - 256) * 3.0) - len(PROMPT_LADOS)
 
     summarizer.settings.ollama_num_predict = 2000        # num_predict menor que a reserva: vale ele
     assert s._limite_da_entrada("") == int((8192 - 2000 - 256) * 3.0)
@@ -264,11 +282,18 @@ def test_process_com_dois_veiculos_cobra_as_fontes_e_revisa_dentro_do_orcamento(
     assert s.process(principal, relacionados) is completo
     (sistema, entrada), (revisor, revisao) = (args for args, _ in provider.chamadas)
     assert (sistema, revisor) == (PROMPT_SISTEMA, PROMPT_REVISOR)
-    assert len(entrada) <= int((8192 - 3000 - 256) * 3.0) - len(PROMPT_SISTEMA)
-    # a análise de lados leu os mesmos trechos, já cortados pelo orçamento, que foram para a geração
+    # o limite da geração é calculado depois da análise, já com a proporção que ela mediu (4 caracteres por token × 0,9)
+    assert len(entrada) <= int((8192 - 3000 - 256) * 3.6) - len(PROMPT_SISTEMA)
     trechos = s.ultimo_diagnostico["entrada"].textos
     assert [len(t["texto"]) for t in trechos] < [5000, 3000, 3000] and all(t["texto"] in entrada for t in trechos)
-    assert provider.analises[0][0][1] == entrada_dos_lados(trechos)
+    # a análise de lados lê os textos inteiros; estes 21 mil caracteres não cabem na chamada dela e foram cortados, com o registro
+    completos = textos_da_pauta(principal, relacionados)
+    espaco = int((8192 - 1200 - 256) * 3.0) - len(PROMPT_LADOS)
+    lidos, cortes = textos_que_cabem(completos, espaco)
+    assert provider.analises[0][0][1] == entrada_dos_lados(lidos) and len(provider.analises[0][0][1]) <= espaco
+    analise = s.ultimo_diagnostico["lados"]                           # inválida duas vezes: a nova tentativa leva o pedido e lê menos texto
+    assert analise.primeira.cortes == cortes and [c["lido"] > 3000 for c in cortes] == [True, True, True]
+    assert sum(c["lido"] for c in analise.cortes) < sum(c["lido"] for c in cortes)
     assert "\nLADOS DA PAUTA: 1 lado.\n" in entrada and "\nLADOS DA PAUTA: 1 lado.\n" in revisao
     assert s.ultimo_diagnostico["problemas"] == [
         "fontes_citadas sem Agência Brasil (o episódio tem 3 veículos como fonte: cite cada um pelo nome no "
@@ -324,7 +349,8 @@ def test_process_com_ressalva_cobra_a_pergunta_atribuida_da_helena(ollama_8192):
         {"ator": "Flávio Bolsonaro", "resposta": "Sim", "trecho": "Uma frase qualquer sobre o assunto", "veiculo": "G1"},
     ], "lados": [
         {"resposta": "Sim", "posicao": "Flávio propõe flexibilizar o Mercosul.", "atores": ["Flávio Bolsonaro"], "grupos": [], "veiculos": ["G1"]},
-        {"resposta": "Não", "posicao": "A mudança pode enfraquecer a tarifa comum.", "atores": [], "grupos": ["economistas"], "veiculos": ["G1"]},
+        {"resposta": "Não", "posicao": "A mudança pode enfraquecer a tarifa comum.", "atores": [], "grupos": ["economistas"],
+         "trecho": "economistas alertam para o risco", "veiculos": ["G1"]},
     ]}
     sem_pergunta = _episodio(["G1"])
     roteiro = json.loads(json.dumps(sem_pergunta["roteiro_podcast"]))
@@ -345,6 +371,136 @@ def test_process_com_ressalva_cobra_a_pergunta_atribuida_da_helena(ollama_8192):
     for mensagem in (entrada, revisao):                                      # a ressalva vai no bloco, na geração e na revisão
         assert "\nRessalva 1: A mudança pode enfraquecer a tarifa comum. Grupos: economistas. Veículos: G1.\n" in mensagem
     assert len(provider.analises) == 1
+
+
+# ── Recorte por relevância ────────────────────────────────────────────────────────────────
+
+FIM_DA_AB = "No fim do texto, a Meta negou o favorecimento. A Meta falou em problema técnico."
+FIM_DA_CARTA = "No fim do texto, a campanha de Lula acusou a empresa. A campanha de Lula acionou o tribunal."
+DISPUTA_NO_FIM = {"questao": "A Meta favoreceu um candidato?", "respostas_por_ator": [
+    {"ator": "campanha de Lula", "resposta": "Sim", "trecho": "a campanha de Lula acusou a empresa", "veiculo": "CartaCapital"},
+    {"ator": "Meta", "resposta": "Não", "trecho": "a Meta negou o favorecimento", "veiculo": "Agência Brasil"},
+], "lados": [
+    {"resposta": "Sim", "posicao": "A campanha acusa a Meta.", "atores": ["campanha de Lula"], "veiculos": ["CartaCapital"]},
+    {"resposta": "Não", "posicao": "A Meta nega.", "atores": ["Meta"], "veiculos": ["Agência Brasil"]},
+]}
+
+
+def _pauta_com_as_posicoes_no_fim() -> tuple[dict, list[dict]]:
+    """Dois artigos em que a posição de cada lado só aparece no último parágrafo, depois do teto do texto."""
+    principal, relacionado = _artigo("Agência Brasil", 6500), _artigo("CartaCapital", 4500)
+    principal["text"] += "\n\n" + FIM_DA_AB
+    relacionado["text"] += "\n\n" + FIM_DA_CARTA
+    return principal, [relacionado]
+
+
+def _debate(fontes: list[str]) -> dict:
+    """Episódio de dois analistas que passa no QA da pauta da Meta."""
+    terco = " ".join(["palavra"] * max(qa.MIN_POR_PERSONAGEM, math.ceil(qa.MIN_TOTAL / 3)))
+    return {
+        **_episodio(fontes), "houve_divergencia": True,
+        "personagens": [{"nome": "Helena", "papel": "apresentadora"}, {"nome": "Bia", "papel": "analista"}, {"nome": "Ramos", "papel": "analista"}],
+        "roteiro_podcast": [
+            {"personagem": "Helena", "fala": terco},
+            {"personagem": "Bia", "fala": terco + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
+            {"personagem": "Ramos", "fala": terco + ". Já a Agência Brasil registra que a Meta nega."},
+        ],
+    }
+
+
+def test_a_analise_le_os_textos_inteiros_e_a_geracao_recebe_os_paragrafos_dos_trechos(ollama_8192):
+    principal, relacionados = _pauta_com_as_posicoes_no_fim()
+    provider = ProviderFalso(lados=DISPUTA_NO_FIM)
+    s = Summarizer(provider=provider)
+    entrada, analise = s.preparar(principal, relacionados)
+
+    # a análise recebeu os dois textos inteiros, além do teto de cada um na geração (5000 e 3000)
+    [((_, lido), _)] = provider.analises
+    assert lido == entrada_dos_lados(textos_da_pauta(principal, relacionados)) and FIM_DA_AB in lido and FIM_DA_CARTA in lido
+    assert len(principal["text"]) > 6500 and analise.cortes == [] and [e.comprovada for e in analise.respostas] == [True, True]
+
+    # a geração recebe de cada texto o começo e, depois da marca, o parágrafo do trecho de evidência
+    da_ab, da_carta = (t["texto"] for t in entrada.textos)
+    assert da_ab.startswith("Parágrafo 1 de Agência Brasil.") and da_ab.endswith("\n[...]\n" + FIM_DA_AB) and len(da_ab) <= 5000
+    assert da_carta.startswith("Parágrafo 1 de CartaCapital.") and da_carta.endswith("\n[...]\n" + FIM_DA_CARTA) and len(da_carta) <= 3000
+    assert da_ab in entrada.texto and da_carta in entrada.texto and len(entrada.texto) <= s._limite_da_entrada(PROMPT_SISTEMA)
+    ab, carta = entrada.recortes
+    assert (ab["fonte"], carta["fonte"]) == ("Agência Brasil", "CartaCapital") and ab["fora"] == carta["fora"] == []
+    assert [e["motivo"] for e in ab["entraram"][:3]] == ["lide", "lide", "ordem do texto"]
+    assert ab["entraram"][-1] == {"paragrafo": ab["paragrafos"], "motivo": "trecho do lado 2", "caracteres": len(FIM_DA_AB)}
+    assert carta["entraram"][-1] == {"paragrafo": carta["paragrafos"], "motivo": "trecho do lado 1", "caracteres": len(FIM_DA_CARTA)}
+    assert entrada.cortes == [{"fonte": "Agência Brasil", "texto": len(principal["text"]), "incluido": len(da_ab)},
+                              {"fonte": "CartaCapital", "texto": len(relacionados[0]["text"]), "incluido": len(da_carta)}]
+    # os atores aparecem em duas frases do recorte: nenhum lado é fino, e o bloco ocupa o tamanho que tem
+    assert [lado.mencoes for lado in analise.lados] == [2, 2] and "lado fino" not in entrada.texto
+    assert entrada.texto.endswith(bloco_dos_lados(analise.lados, analise.questao) + "\n" + LEMBRETE)
+
+
+def test_o_lado_fino_e_contado_no_recorte_que_a_geracao_recebe(ollama_8192):
+    principal, relacionados = _pauta_com_as_posicoes_no_fim()
+    # a Meta aparece em mais três frases do texto, em parágrafos que ficam depois do teto e não têm trecho de evidência
+    principal["text"] = principal["text"].replace(FIM_DA_AB, "A Meta divulgou nota.\n\nA Meta citou números.\n\nNo fim do texto, a Meta negou o favorecimento.")
+    s = Summarizer(provider=ProviderFalso(lados=DISPUTA_NO_FIM))
+    entrada, analise = s.preparar(principal, relacionados)
+    assert entrada.textos[0]["texto"].endswith("\n[...]\nNo fim do texto, a Meta negou o favorecimento.")
+    assert "A Meta divulgou nota." not in entrada.texto
+    assert [(lado.atores, lado.mencoes, lado.fino) for lado in analise.lados] == [(("campanha de Lula",), 2, False), (("Meta",), 1, True)]
+    assert "Lado 2 (resposta: Não; lado fino): A Meta nega." in entrada.texto and len(entrada.texto) <= s._limite_da_entrada(PROMPT_SISTEMA)
+
+
+def test_paragrafo_com_trecho_que_nao_cabe_fica_registrado_e_avisado(caplog):
+    principal, relacionados = _pauta_com_as_posicoes_no_fim()
+    comprido = "A campanha de Lula acusou a empresa de favorecer o adversário. " + "Mais uma frase do mesmo parágrafo. " * 30
+    relacionados[0]["text"] = relacionados[0]["text"].replace(FIM_DA_CARTA, comprido.strip())
+    lados = [Lado("A campanha acusa a Meta.", ("campanha de Lula",), ("CartaCapital",), "Sim", ("a campanha de Lula acusou a empresa",)),
+             Lado("A Meta nega.", ("Meta",), ("Agência Brasil",), "Não", ("a Meta negou o favorecimento",))]
+    ressalvas = [Ressalva(("economistas",), "Há risco.", ("Agência Brasil",), "A Meta falou em problema técnico")]
+    with caplog.at_level("WARNING", logger="techdigest.ai.summarizer"):
+        entrada = montar_entrada(principal, relacionados, 4200, lados, "A Meta favoreceu um candidato?", ressalvas)
+    assert len(entrada.texto) <= 4200 and entrada.fontes == ["Agência Brasil", "CartaCapital"]
+    ab, carta = entrada.recortes
+    # o parágrafo do fim da Agência Brasil traz o trecho do lado 2 e o da ressalva; o da CartaCapital não coube
+    assert ab["entraram"][-1]["motivo"] == "trecho do lado 2; trecho da ressalva 1" and ab["fora"] == []
+    assert carta["fora"] == [{"paragrafo": carta["paragrafos"], "motivo": "trecho do lado 1", "caracteres": len(comprido.strip())}]
+    assert all(e["motivo"] in ("lide", "ordem do texto") for e in carta["entraram"])
+    assert (f"Parágrafo(s) com trecho de evidência fora da entrada (CartaCapital): §{carta['paragrafos']}, trecho do lado 1, "
+            f"{len(comprido.strip())} caracteres.") in caplog.text
+
+    # com menos espaço ainda, o relacionado sai da entrada: o registro diz que o parágrafo do trecho dele ficou de fora
+    fixos = len(entrada.texto) - sum(c["incluido"] for c in entrada.cortes)      # cabeçalhos, aviso, bloco e lembrete
+    so_o_principal = montar_entrada(principal, relacionados, fixos + 700, lados, "A Meta favoreceu um candidato?", ressalvas)
+    assert so_o_principal.fontes == ["Agência Brasil"] and len(so_o_principal.texto) <= fixos + 700
+    assert so_o_principal.recortes[1]["entraram"] == [] and [f["motivo"] for f in so_o_principal.recortes[1]["fora"]] == ["trecho do lado 1"]
+
+
+@pytest.mark.parametrize("tipo, prompt", [("roteiro", PROMPT_ROTEIRO), ("completa", PROMPT_REVISOR)], ids=["roteiro", "completa"])
+def test_as_revisoes_levam_o_recorte_por_relevancia_no_espaco_de_cada_uma(tipo, prompt, ollama_8192):
+    principal, relacionados = _pauta_com_as_posicoes_no_fim()
+    debate = _debate(["Agência Brasil", "CartaCapital"])
+    reprovado = json.loads(json.dumps(debate))
+    if tipo == "roteiro":
+        reprovado["roteiro_podcast"][2]["fala"] = "A Agência Brasil registra que a Meta nega."            # Ramos fala pouco: problema só no roteiro
+    else:
+        reprovado["fontes_citadas"] = ["Agência Brasil"]                                                 # campo sem correção própria
+    provider = ProviderFalso(reprovado, debate if tipo == "completa" else {"roteiro_podcast": debate["roteiro_podcast"]}, lados=DISPUTA_NO_FIM)
+    s = Summarizer(provider=provider)
+
+    assert s.process(principal, relacionados) == debate
+    diagnostico = s.ultimo_diagnostico
+    assert diagnostico["correcao"] == tipo and diagnostico["problemas_da_revisao"] == []
+    (_, geracao), (sistema, revisao) = (args for args, _ in provider.chamadas)
+    assert sistema == prompt and len(sistema) + len(revisao) <= int((8192 - 3000 - 256) * 3.6)
+    fonte = diagnostico["revisao"]
+    # a revisão completa tem menos espaço que a geração, e mesmo assim leva o parágrafo do trecho de cada lado, depois da marca
+    incluido, na_geracao = (sum(c["incluido"] for c in e.cortes) for e in (fonte, diagnostico["entrada"]))
+    assert incluido < na_geracao if tipo == "completa" else incluido <= na_geracao
+    for texto, fim in zip(fonte.textos, (FIM_DA_AB, FIM_DA_CARTA)):
+        assert texto["texto"].endswith("\n[...]\n" + fim) and texto["texto"] in revisao
+    assert [r["entraram"][-1]["motivo"] for r in fonte.recortes] == ["trecho do lado 2", "trecho do lado 1"]
+    assert [r["fora"] for r in fonte.recortes] == [[], []]
+    # o bloco é o mesmo da geração (os lados finos não são recontados) e ocupa o tamanho que tem
+    bloco = bloco_dos_lados(diagnostico["lados"].lados, diagnostico["lados"].questao)
+    assert bloco in geracao and bloco in revisao
 
 
 # ── Correções direcionadas ────────────────────────────────────────────────────────────────

@@ -13,6 +13,12 @@ fontes e 1 de fonte única, como controle. --repetir usa as pautas de um relató
 mesma ordem, e --pautas acrescenta pautas montadas pelos ids da amostra; nos dois casos a etapa 3
 não roda. --so-lados faz só a análise de lados de cada pauta, sem gerar episódio.
 
+A análise de lados lê os textos inteiros, e a geração e as revisões recebem de cada texto um recorte
+por relevância: o relatório diz, por fonte, que parágrafos entraram em cada chamada e por quê (lide,
+trecho do lado N, ordem do texto) e quais ficaram de fora tendo trecho de evidência. Nas pautas com
+disputa mostra também, para cada trecho de evidência, a fala de analista que mais palavras dele
+repete (é uma medida de palavras em comum, não uma regra).
+
 Antes de cada chamada ao LLM mostra memória disponível, swap e temperaturas. Para se a memória
 disponível estiver abaixo de --min-memoria (GiB) ou se o Ollama sair do ar ou descarregar o modelo
 no meio da rodada. Se a CPU passar de --max-cpu (°C) antes de uma chamada, espera até ela baixar de
@@ -41,6 +47,7 @@ settings = Settings()
 
 ALERTA_DA_JANELA = 0.9   # avisa quando entrada + saída passam desta fração de num_ctx
 FALAS_NO_RELATORIO = 3
+MIN_LETRAS_DA_PALAVRA = 4   # na medida dos trechos nas falas, só contam as palavras com pelo menos isto
 
 
 class RodadaInterrompida(SystemExit):
@@ -336,10 +343,11 @@ def _lados(analise, chamadas: list[dict]) -> dict:
     registro = {
         "quantos": len(analise.lados), "questao": analise.questao, "motivo": analise.motivo,
         "tentativas": len(feitas), "lado_de_emergencia": bool(analise.problemas), "invalida_porque": analise.problemas,
-        "ajustes": analise.ajustes,
-        "ressalvas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos)} for r in analise.ressalvas],
-        "ressalvas_descartadas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos),
-                                   "motivo": analise.motivo_do_descarte} for r in analise.descartadas],
+        "ajustes": analise.ajustes, "atores_sem_entrada": analise.faltam, "textos_cortados_na_analise": analise.cortes,
+        "ressalvas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos), "trecho": r.trecho}
+                      for r in analise.ressalvas],
+        "ressalvas_descartadas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos), "trecho": r.trecho,
+                                   "motivo": motivo} for r, motivo in analise.descartadas],
         "lados": [{"resposta": lado.resposta, "posicao": lado.posicao, "atores": list(lado.atores), "veiculos": list(lado.veiculos),
                    "trechos": list(lado.trechos), "frases_com_os_atores": lado.mencoes, "fino": fino}
                   for lado, fino in zip(analise.lados, lados_finos(analise.lados))],
@@ -347,7 +355,11 @@ def _lados(analise, chamadas: list[dict]) -> dict:
                                 "comprovada": e.comprovada} for e in analise.respostas],
         "resposta_do_llm": analise.resposta,
         "primeira_tentativa": None if analise.primeira is None else {
-            "invalida_porque": analise.primeira.problemas, "resposta_do_llm": analise.primeira.resposta,
+            "invalida_porque": analise.primeira.problemas, "atores_sem_entrada": analise.primeira.faltam,
+            "resposta_do_llm": analise.primeira.resposta,
+        },
+        "segunda_tentativa_recusada": None if analise.segunda is None else {
+            "invalida_porque": analise.segunda.problemas, "resposta_do_llm": analise.segunda.resposta,
         },
         "segundos": round(sum(ch.get("segundos", 0.0) for ch in feitas), 1),
         "segundos_por_tentativa": [round(ch.get("segundos", 0.0), 1) for ch in feitas],
@@ -355,6 +367,8 @@ def _lados(analise, chamadas: list[dict]) -> dict:
     }
     print(f"  lados: {registro['quantos']} · {registro['tentativas']} tentativa(s) · {registro['segundos']:.1f} s · "
           f"tokens {registro['tokens_entrada']} + {registro['tokens_saida']}")
+    for corte in analise.cortes:
+        print(f"    TEXTO CORTADO NA ANÁLISE: {corte['fonte']} · lidos {corte['lido']} de {corte['texto']} caracteres")
     print(f"    questão: {registro['questao'] or '(sem disputa)'}")
     for e in registro["respostas_por_ator"]:
         print(f"    resposta de {e['ator']}: {e['resposta'] or '-'} · {'comprovada' if e['comprovada'] else 'TRECHO NÃO ENCONTRADO'} "
@@ -366,15 +380,25 @@ def _lados(analise, chamadas: list[dict]) -> dict:
               f"frases dos textos com os atores: {lado['frases_com_os_atores']}")
     for i, ressalva in enumerate(registro["ressalvas"], 1):
         print(f"    ressalva {i}: {ressalva['posicao']}")
-        print(f"            grupos: {', '.join(ressalva['grupos']) or '-'} · veículos: {', '.join(ressalva['veiculos'])}")
+        print(f"            grupos: {', '.join(ressalva['grupos']) or '-'} · veículos: {', '.join(ressalva['veiculos'])} · "
+              f"trecho: \"{ressalva['trecho']}\"")
     for ressalva in registro["ressalvas_descartadas"]:
-        print(f"    ressalva descartada ({ressalva['motivo']}): {ressalva['posicao']} · grupos: {', '.join(ressalva['grupos']) or '-'}")
+        print(f"    ressalva descartada ({ressalva['motivo']}): {ressalva['posicao']} · grupos: {', '.join(ressalva['grupos']) or '-'} · "
+              f"trecho: \"{ressalva['trecho']}\"")
     print(f"    motivo: {registro['motivo'] or '-'}")
     for ajuste in analise.ajustes:
         print(f"    ajuste: {ajuste}")
-    if analise.primeira is not None:
+    if analise.primeira is not None and analise.primeira.problemas:
         print(f"    PRIMEIRA TENTATIVA RECUSADA: {'; '.join(analise.primeira.problemas)}")
         print(f"    resposta recusada: {json.dumps(analise.primeira.resposta, ensure_ascii=False)}")
+    elif analise.primeira is not None:
+        print(f"    PRIMEIRA TENTATIVA SEM A ENTRADA DE: {'; '.join(analise.primeira.faltam)} (a nova tentativa pediu a entrada)")
+        print(f"    primeira resposta: {json.dumps(analise.primeira.resposta, ensure_ascii=False)}")
+    if analise.segunda is not None:
+        print(f"    NOVA TENTATIVA RECUSADA (fica a primeira, sem {'; '.join(analise.faltam)}): {'; '.join(analise.segunda.problemas)}")
+        print(f"    resposta recusada: {json.dumps(analise.segunda.resposta, ensure_ascii=False)}")
+    elif analise.faltam:
+        print(f"    A ENTRADA NÃO VEIO NA NOVA TENTATIVA, o ator saiu: {'; '.join(analise.faltam)}")
     if analise.problemas:
         print(f"    AS DUAS TENTATIVAS FALHARAM, a pauta ficou com o lado de emergência: {'; '.join(analise.problemas)}")
         print(f"    resposta do LLM: {json.dumps(analise.resposta, ensure_ascii=False)}")
@@ -396,24 +420,88 @@ def _primeira_pessoa(episodio: dict) -> list[dict]:
 
 
 def _cortes(entrada) -> list[dict]:
+    """Por artigo da pauta: quanto do texto entrou na mensagem, que parágrafos entraram, por quê, e os que ficaram de fora
+    tendo trecho de evidência."""
+    recortes = {i: recorte for i, recorte in enumerate(entrada.recortes)}   # na mesma ordem dos cortes, só os que a análise leu
     return [
         {**corte, "teto": TETO_PRINCIPAL if i == 0 else TETO_RELACIONADO,
-         "cortado_pelo_orcamento": max(min(corte["texto"], TETO_PRINCIPAL if i == 0 else TETO_RELACIONADO) - corte["incluido"], 0)}
+         "cortado_pelo_orcamento": max(min(corte["texto"], TETO_PRINCIPAL if i == 0 else TETO_RELACIONADO) - corte["incluido"], 0),
+         "paragrafos_do_texto": recortes.get(i, {}).get("paragrafos"),
+         "paragrafos_que_entraram": recortes.get(i, {}).get("entraram", []),
+         "paragrafos_com_trecho_fora": recortes.get(i, {}).get("fora", [])}
         for i, corte in enumerate(entrada.cortes)
     ]
 
 
+def _faixas(entraram: list[dict]) -> str:
+    """Os parágrafos que entraram, agrupados pelo motivo: "§2-3 lide · §4-9 ordem do texto · §14 trecho do lado 1"."""
+    grupos: list[list] = []   # [primeiro, último, motivo, cortado]
+    for item in entraram:
+        motivo = item["motivo"] + (" (cortado)" if item.get("cortado") else "")
+        if grupos and grupos[-1][2] == motivo and grupos[-1][1] == item["paragrafo"] - 1:
+            grupos[-1][1] = item["paragrafo"]
+        else:
+            grupos.append([item["paragrafo"], item["paragrafo"], motivo])
+    return " · ".join(f"§{a}{'' if a == b else f'-{b}'} {motivo}" for a, b, motivo in grupos) or "nada"
+
+
+def _mostrar_cortes(cortes: list[dict], rotulo: str) -> None:
+    for corte in cortes:
+        print(f"  texto na {rotulo}: {corte['fonte']} · {corte['incluido']} de {corte['texto']} caracteres "
+              f"(teto {corte['teto']}; ficaram fora {corte['cortado_pelo_orcamento']} do que o teto deixaria)")
+        if corte["paragrafos_do_texto"] is not None:
+            print(f"    parágrafos ({len(corte['paragrafos_que_entraram'])} de {corte['paragrafos_do_texto']}): "
+                  f"{_faixas(corte['paragrafos_que_entraram'])}")
+        for fora in corte["paragrafos_com_trecho_fora"]:
+            print(f"    FICOU DE FORA na {rotulo}: §{fora['paragrafo']} ({fora['motivo']}, {fora['caracteres']} caracteres)")
+
+
+def _palavras_que_contam(texto) -> set[str]:
+    return {palavra for palavra in qa._palavras_do_nome(texto) if len(palavra) >= MIN_LETRAS_DA_PALAVRA}
+
+
+def _trechos_nas_falas(episodio: dict, analise) -> list[dict]:
+    """Para cada trecho de evidência de cada lado, a fala de analista que mais palavras dele repete.
+
+    Só diagnóstico: conta as palavras de MIN_LETRAS_DA_PALAVRA letras ou mais do trecho que estão
+    na fala, sem acento nem caixa. Não diz se a fala é fiel ao trecho, só onde olhar.
+    """
+    try:
+        do_lado = qa.lado_de_cada_analista(episodio, analise.lados)
+        falas = [(n, str(t["personagem"]), str(t["fala"])) for n, t in enumerate(episodio["roteiro_podcast"], 1)
+                 if qa._palavras_do_nome(t.get("personagem")) != [qa.HELENA]]
+    except (KeyError, TypeError, AttributeError):
+        return []
+    achados = []
+    for i, lado in enumerate(analise.lados):
+        analista = next((nome for nome, indice in do_lado.items() if indice == i), None)
+        for trecho in lado.trechos:
+            do_trecho = _palavras_que_contam(trecho)
+            melhor = max(falas, key=lambda fala: len(do_trecho & _palavras_que_contam(fala[2])), default=None)
+            do_analista = max((fala for fala in falas if fala[1] == analista),
+                              key=lambda fala: len(do_trecho & _palavras_que_contam(fala[2])), default=None)
+
+            def medida(fala):
+                return None if fala is None else {
+                    "turno": fala[0], "personagem": fala[1], "fala": fala[2],
+                    "palavras_em_comum": sorted(do_trecho & _palavras_que_contam(fala[2])),
+                    "proporcao": round(len(do_trecho & _palavras_que_contam(fala[2])) / max(len(do_trecho), 1), 2),
+                }
+            achados.append({"lado": i + 1, "atores": list(lado.atores), "analista_do_lado": analista, "trecho": trecho,
+                            "palavras_do_trecho": len(do_trecho), "melhor_fala_do_analista": medida(do_analista),
+                            "melhor_fala_de_qualquer_analista": medida(melhor)})
+    return achados
+
+
 def _analisar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer, monitor: ProviderMonitorado) -> dict:
-    """Só a análise de lados de uma pauta, sobre os trechos que a geração receberia."""
+    """Só a análise de lados de uma pauta, sobre os textos inteiros, e o recorte que a geração receberia."""
     relatorio = _apresentar("Pauta", n, caso, pauta, ids)
     primeira = len(monitor.chamadas)
     entrada, analise = summarizer.preparar(*_fontes(pauta))
     relatorio["lados"] = _lados(analise, monitor.chamadas[primeira:])
     relatorio["cortes_na_geracao"] = _cortes(entrada)
     relatorio["chars_da_entrada_do_episodio"] = len(entrada.texto)
-    for corte in relatorio["cortes_na_geracao"]:
-        print(f"  texto lido: {corte['fonte']} · {corte['incluido']} de {corte['texto']} caracteres "
-              f"(teto {corte['teto']}; o orçamento tirou {corte['cortado_pelo_orcamento']})")
+    _mostrar_cortes(relatorio["cortes_na_geracao"], "geração")
     return relatorio
 
 
@@ -466,9 +554,7 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
         print(f"  {ch['prompt']}: {ch['tokens_entrada']} + {ch['tokens_saida']} tokens = {total} de {settings.ollama_num_ctx} "
               f"({total / settings.ollama_num_ctx:.0%}) · {ch['segundos']:.0f} s{alerta}")
     for nome, rotulo in (("cortes_na_geracao", "geração"), ("cortes_na_revisao", CORRECOES.get(relatorio["tipo_de_correcao"], "revisão"))):
-        for corte in relatorio.get(nome, []):
-            print(f"  texto na {rotulo}: {corte['fonte']} · {corte['incluido']} de {corte['texto']} caracteres "
-                  f"(teto {corte['teto']}; o orçamento tirou {corte['cortado_pelo_orcamento']})")
+        _mostrar_cortes(relatorio.get(nome, []), rotulo)
     print(f"  QA antes da correção: {relatorio['problemas_antes_da_revisao'] or 'sem problemas'}")
     if relatorio["tipo_de_correcao"]:
         print(f"  correção usada: {CORRECOES[relatorio['tipo_de_correcao']]}")
@@ -529,6 +615,16 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
                     print(f"  ressalva {i}: NENHUMA frase da Helena com veículo, grupo e verbo de posição")
                 for frase, com_pergunta in da_ressalva:
                     print(f"  ressalva {i}, na fala da Helena ({'com' if com_pergunta else 'SEM'} pergunta): {frase}")
+        if analise is not None and len(analise.lados) >= 2:
+            relatorio["trechos_nas_falas"] = _trechos_nas_falas(episodio, analise)
+            for item in relatorio["trechos_nas_falas"]:
+                fala = item["melhor_fala_do_analista"]
+                onde = (f"turno {fala['turno']} de {fala['personagem']}, {fala['proporcao']:.0%} das {item['palavras_do_trecho']} palavras "
+                        f"({', '.join(fala['palavras_em_comum']) or 'nenhuma'})") if fala else "SEM ANALISTA PARA O LADO"
+                outra = item["melhor_fala_de_qualquer_analista"]
+                if outra and fala and outra["personagem"] != fala["personagem"] and outra["proporcao"] > fala["proporcao"]:
+                    onde += f" · mais palavras na fala de {outra['personagem']} (turno {outra['turno']}, {outra['proporcao']:.0%})"
+                print(f"  trecho do lado {item['lado']} nas falas: \"{item['trecho']}\" → {onde}")
         slug = re.sub(r"\W+", "-", str(episodio.get("titulo_reescrito", "")).lower())[:40].strip("-")
         arquivo = pasta / f"{carimbo}_{n}_{caso}{'' if situacao == 'aprovado' else '_reprovado'}_{slug}.json"
         arquivo.write_text(json.dumps(episodio, ensure_ascii=False, indent=1), encoding="utf-8")

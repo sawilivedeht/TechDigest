@@ -5,18 +5,21 @@ import re
 from dataclasses import dataclass, field
 from datetime import timedelta, timezone
 
-from techdigest.ai.lados import MAX_BLOCO, Analise, analisar_lados, bloco_dos_lados
+from techdigest.ai.lados import (
+    MAX_SAIDA_LADOS, Analise, analisar_lados, bloco_dos_lados, com_mencoes, reserva_do_bloco, trechos_de_evidencia,
+)
 from techdigest.ai.llm import get_provider
-from techdigest.ai.prompt import PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
+from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
 from techdigest.ai.qa import ELENCO, ESTRUTURA, PAPEL, RESUMO, ROTEIRO, TITULO, Problema, problemas_com_campo, veiculos_distintos
+from techdigest.ai.recorte import recortar
 from techdigest.config import Settings
 
 logger = logging.getLogger("techdigest.ai.summarizer")
 
 settings = Settings()
 
-TETO_PRINCIPAL = 5000           # caracteres do texto do artigo principal (o corte de sempre)
-TETO_RELACIONADO = 3000         # caracteres do trecho de cada relacionado
+TETO_PRINCIPAL = 5000           # caracteres do recorte do artigo principal, no máximo
+TETO_RELACIONADO = 3000         # caracteres do recorte de cada relacionado, no máximo
 MAX_RELACIONADOS = 2            # relacionados que entram na entrada (principal + 2)
 MIN_TRECHO = 400                # relacionado que ficaria com menos que isto sai da entrada
 MARGEM_TOKENS = 256             # folga da janela de contexto, além da reserva de saída
@@ -52,8 +55,11 @@ class Entrada:
     texto: str
     fontes: list[str]                                   # veículo de cada texto incluído, o principal primeiro
     cortes: list[dict] = field(default_factory=list)    # por artigo recebido: fonte, caracteres do texto e quantos entraram
-    textos: list[dict] = field(default_factory=list)    # por texto incluído: fonte, titulo e o trecho que entrou
+    textos: list[dict] = field(default_factory=list)    # por texto incluído: fonte, titulo e o recorte que entrou
     artigos: str = ""                                   # os artigos e o aviso, sem o bloco de lados nem o lembrete
+    # Por artigo que a análise de lados leu: fonte, quantos parágrafos o texto tem, os que entraram (paragrafo, motivo,
+    # caracteres) e os que têm trecho de evidência e ficaram de fora.
+    recortes: list[dict] = field(default_factory=list)
 
 
 def _limpar(texto: str) -> str:
@@ -97,24 +103,6 @@ def _com_os_papeis(personagens: list[dict], devolvidos) -> list[dict]:
         if isinstance(p, dict) and isinstance(p.get("papel"), str) and p["papel"].strip()
     } if isinstance(devolvidos, list) else {}
     return [{**p, "papel": papeis[p["nome"]]} if p.get("nome") in papeis else p for p in personagens]
-
-
-def _cortar_em_paragrafo(texto: str, limite: int) -> str:
-    """Os primeiros `limite` caracteres, terminando em fim de parágrafo.
-
-    Se o corte no parágrafo jogar fora mais da metade do espaço (um parágrafo enorme), vale o fim
-    de frase; em último caso, o fim de palavra.
-    """
-    if len(texto) <= limite:
-        return texto
-    trecho = texto[:limite]
-    fim = trecho.rfind("\n")
-    if fim >= limite // 2:
-        return trecho[:fim].rstrip()
-    fim = max(trecho.rfind(sinal) for sinal in (". ", "! ", "? "))
-    if fim >= limite // 2:
-        return trecho[:fim + 1]
-    return trecho.rsplit(None, 1)[0] if " " in trecho else trecho
 
 
 def _repartir(desejados: list[int], orcamento: int) -> list[int]:
@@ -171,65 +159,91 @@ def _aviso(artigos: list[dict]) -> str:
     return aviso
 
 
+def textos_da_pauta(principal: dict, relacionados: list[dict] | None = None) -> list[dict]:
+    """Os textos inteiros que a análise de lados lê: o principal e até MAX_RELACIONADOS relacionados, os mesmos da geração."""
+    artigos = [principal, *(relacionados or [])][:1 + MAX_RELACIONADOS]
+    return [{"fonte": a["source"], "titulo": _limpar(a["title"]), "texto": _limpar(a["text"])} for a in artigos]
+
+
 def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limite: int | None = None,
-                   lados: list | None = None, questao: str = "", ressalvas=(), lembrete: str = LEMBRETE) -> Entrada:
+                   lados: list | None = None, questao: str = "", ressalvas=(), lembrete: str = LEMBRETE,
+                   reserva: int | None = None) -> Entrada:
     """Monta a mensagem do episódio dentro de `limite` caracteres (None = sem limite).
 
     Cada artigo é um dict com "source", "title" e "text"; os relacionados podem trazer também
     "relacao" e "data" (com fuso), que só o aviso usa. Entram o principal e até MAX_RELACIONADOS
-    relacionados, cada texto com o teto de sempre (TETO_PRINCIPAL, TETO_RELACIONADO).
+    relacionados, cada um com o seu teto (TETO_PRINCIPAL, TETO_RELACIONADO).
 
-    Cabeçalhos, aviso e lembrete nunca são cortados: o orçamento dos textos é o que sobra do
-    limite depois deles. Se os textos não cabem, são repartidos (ver `_repartir`) e cortados em
-    fim de parágrafo. Relacionado que ficaria com menos de MIN_TRECHO caracteres sai da entrada, e
-    o aviso conta e nomeia só os que entraram.
+    Cabeçalhos, aviso, bloco de lados e lembrete nunca são cortados: o orçamento dos textos é o
+    que sobra do limite depois deles. Se os textos não cabem, o espaço é repartido (ver
+    `_repartir`). Relacionado que ficaria com menos de MIN_TRECHO caracteres sai da entrada, e o
+    aviso conta e nomeia só os que entraram.
+
+    De cada texto entra um recorte por relevância (ver `recorte.recortar`): o lide, os parágrafos
+    com os trechos de evidência dos lados e das ressalvas e o resto, em ordem, até o espaço dele.
+    `Entrada.recortes` diz que parágrafos entraram, por quê, e quais ficaram de fora tendo trecho.
 
     `lados`, `questao` e `ressalvas` são o resultado da análise de lados: com eles, o bloco LADOS
-    DA PAUTA entra antes do lembrete. O espaço do bloco (MAX_BLOCO) é reservado sempre, com ou
-    sem `lados`, para que os trechos sejam os mesmos na chamada sem o bloco (a que alimenta a
-    análise de lados) e na chamada com ele (a do episódio). `lembrete` fecha a mensagem: o do
-    episódio pede as 8 chaves, e a revisão do roteiro passa o dela.
+    DA PAUTA entra antes do lembrete, e o orçamento guarda para ele o tamanho que ele tem.
+    `reserva` troca esse tamanho por outro: é o que `Summarizer.preparar` usa antes de saber quais
+    lados são finos. `lembrete` fecha a mensagem: o do episódio pede as 8 chaves, e a revisão do
+    roteiro passa o dela.
     """
     recebidos = [principal, *(relacionados or [])]
-    artigos = recebidos[:1 + MAX_RELACIONADOS]
-    textos = [_limpar(a["text"])[:TETO_PRINCIPAL if i == 0 else TETO_RELACIONADO] for i, a in enumerate(artigos)]
+    lidos = recebidos[:1 + MAX_RELACIONADOS]
+    artigos = list(lidos)
+    completos = {id(a): _limpar(a["text"]) for a in lidos}
+    titulos = {id(a): _limpar(a["title"]) for a in lidos}
+    bloco = bloco_dos_lados(lados, questao, ressalvas) if lados else ""
+    evidencias = trechos_de_evidencia(lados or [], ressalvas)
 
     while True:
+        desejados = [min(len(completos[id(a)]), TETO_PRINCIPAL if i == 0 else TETO_RELACIONADO) for i, a in enumerate(artigos)]
         cabecalhos = [
-            f"ARTIGO PRINCIPAL\nFonte: {principal['source']}\nTítulo: {_limpar(principal['title'])}\nTexto:\n"
+            f"ARTIGO PRINCIPAL\nFonte: {principal['source']}\nTítulo: {titulos[id(principal)]}\nTexto:\n"
         ] + [
-            f"\nARTIGO RELACIONADO [{i}]\nFonte: {rel['source']}\nTítulo: {_limpar(rel['title'])}\nTrecho:\n"
+            f"\nARTIGO RELACIONADO [{i}]\nFonte: {rel['source']}\nTítulo: {titulos[id(rel)]}\nTrecho:\n"
             for i, rel in enumerate(artigos[1:], 1)
         ]
         avisos = [_aviso(artigos)] if len(artigos) > 1 else []
         if limite is None:
-            concedidos = [len(t) for t in textos]
+            concedidos = list(desejados)
             break
-        fixos = (sum(map(len, cabecalhos)) + sum(map(len, avisos)) + MAX_BLOCO + len(lembrete)
-                 + len(cabecalhos) + len(avisos) + 1)   # com as quebras do join
-        concedidos = _repartir([len(t) for t in textos], max(limite - fixos, 0))
-        apertados = [i for i in range(1, len(artigos)) if concedidos[i] < min(MIN_TRECHO, len(textos[i]))]
+        fixos = (sum(map(len, cabecalhos)) + sum(map(len, avisos)) + (len(bloco) if reserva is None else reserva)
+                 + len(lembrete) + len(cabecalhos) + len(avisos) + 1)   # com as quebras do join
+        concedidos = _repartir(desejados, max(limite - fixos, 0))
+        apertados = [i for i in range(1, len(artigos)) if concedidos[i] < min(MIN_TRECHO, desejados[i])]
         if not apertados:
             break
-        del artigos[apertados[-1]], textos[apertados[-1]]  # sai o último da fila e a conta recomeça
+        del artigos[apertados[-1]]  # sai o último da fila e a conta recomeça
 
-    if concedidos[0] < min(MIN_TRECHO, len(textos[0])):
+    if concedidos[0] < min(MIN_TRECHO, desejados[0]):
         logger.error(
             "Orçamento da entrada pequeno demais (%s caracteres): o artigo principal vai com %d caracteres "
-            "mesmo assim e a mensagem passa do limite.", limite, min(MIN_TRECHO, len(textos[0])),
+            "mesmo assim e a mensagem passa do limite.", limite, min(MIN_TRECHO, desejados[0]),
         )
-        concedidos[0] = min(MIN_TRECHO, len(textos[0]))
-    trechos = [_cortar_em_paragrafo(texto, cabe) for texto, cabe in zip(textos, concedidos)]
+        concedidos[0] = min(MIN_TRECHO, desejados[0])
+    cabe = {id(a): concedido for a, concedido in zip(artigos, concedidos)}
+    feitos = {id(a): recortar(completos[id(a)], cabe.get(id(a), 0), evidencias, titulos[id(a)]) for a in lidos}
+    trechos = [feitos[id(a)].texto for a in artigos]
+    for a in lidos:
+        if feitos[id(a)].fora:
+            logger.warning(
+                "Parágrafo(s) com trecho de evidência fora da entrada (%s): %s.", a["source"],
+                "; ".join(f"§{f['paragrafo']}, {f['motivo']}, {f['caracteres']} caracteres" for f in feitos[id(a)].fora),
+            )
 
     partes = [c + t for c, t in zip(cabecalhos, trechos)] + avisos
-    finais = ([bloco_dos_lados(lados, questao, ressalvas)] if lados else []) + [lembrete]
-    incluido = {id(a): len(t) for a, t in zip(artigos, trechos)}
+    finais = ([bloco] if lados else []) + [lembrete]
     return Entrada(
         texto="\n".join(partes + finais),
         artigos="\n".join(partes),
         fontes=[a["source"] for a in artigos],
-        cortes=[{"fonte": a["source"], "texto": len(_limpar(a["text"])), "incluido": incluido.get(id(a), 0)} for a in recebidos],
-        textos=[{"fonte": a["source"], "titulo": _limpar(a["title"]), "texto": t} for a, t in zip(artigos, trechos)],
+        cortes=[{"fonte": a["source"], "texto": len(_limpar(a["text"])), "incluido": len(feitos[id(a)].texto) if id(a) in feitos else 0}
+                for a in recebidos],
+        textos=[{"fonte": a["source"], "titulo": titulos[id(a)], "texto": t} for a, t in zip(artigos, trechos)],
+        recortes=[{"fonte": a["source"], "paragrafos": feitos[id(a)].total, "entraram": feitos[id(a)].entraram, "fora": feitos[id(a)].fora}
+                  for a in lidos],
     )
 
 
@@ -242,18 +256,19 @@ class Summarizer:
         self._medidas = 0
         self.ultimo_diagnostico: dict = {}  # da última chamada a process: entradas montadas e problemas de QA
 
-    def _limite_da_entrada(self, system: str, extra: int = 0) -> int:
+    def _limite_da_entrada(self, system: str, extra: int = 0, saida: int | None = None) -> int:
         """Quantos caracteres a entrada pode ter numa chamada com este prompt de sistema.
 
         No Ollama é a janela (num_ctx) menos a reserva de saída e uma margem, convertida para
         caracteres pela proporção medida, menos o prompt de sistema. A reserva é o menor entre
         OLLAMA_NUM_PREDICT e LLM_RESERVA_SAIDA, porque num_predict pode ser maior que a própria
-        janela. No caminho OpenAI vale LLM_MAX_PROMPT_CHARS. `extra` é o que mais vai na mensagem
-        além da entrada (na revisão: os problemas e o episódio original).
+        janela; a chamada que limita a própria saída (`saida`, em tokens) reserva só isso. No
+        caminho OpenAI vale LLM_MAX_PROMPT_CHARS. `extra` é o que mais vai na mensagem além da
+        entrada (na revisão: os problemas e o episódio original).
         """
         if settings.llm_provider != "ollama":
             return settings.llm_max_prompt_chars - extra
-        reserva = min(settings.ollama_num_predict, settings.llm_reserva_saida)
+        reserva = min(settings.ollama_num_predict, settings.llm_reserva_saida) if saida is None else saida
         tokens = settings.ollama_num_ctx - reserva - MARGEM_TOKENS
         return int(tokens * self.chars_por_token) - len(system) - extra
 
@@ -273,18 +288,23 @@ class Summarizer:
     def preparar(self, principal: dict, relacionados: list[dict] | None = None) -> tuple[Entrada, Analise]:
         """Roda a análise de lados da pauta e monta a entrada do episódio, já com o bloco de lados.
 
-        O limite é calculado uma vez, antes da análise: assim os trechos que o LLM lê para contar
-        os lados são os mesmos que vão para a geração.
+        A análise lê os textos inteiros, no espaço da chamada dela. A entrada do episódio leva de
+        cada texto o recorte por relevância, com os parágrafos dos trechos de evidência. O lado
+        fino é contado nesse recorte: antes de contar, o bloco é reservado no tamanho que teria
+        com todos os lados finos, e a mesma reserva vale para a entrada final.
         """
-        limite = self._limite_da_entrada(PROMPT_SISTEMA)
-        previa = montar_entrada(principal, relacionados, limite)
+        completos = textos_da_pauta(principal, relacionados)
         logger.info(
             "Resumindo: %r (fonte: %s, %d caracteres de texto, %d relacionado(s))",
             str(principal["title"])[:80], principal["source"],
-            len(principal["text"]), len(previa.fontes) - 1,
+            len(principal["text"]), len(completos) - 1,
         )
-        analise = analisar_lados(self._chamar, previa.textos)
-        return montar_entrada(principal, relacionados, limite, analise.lados, analise.questao, analise.ressalvas), analise
+        analise = analisar_lados(self._chamar, completos, self._limite_da_entrada(PROMPT_LADOS, saida=MAX_SAIDA_LADOS))
+        limite = self._limite_da_entrada(PROMPT_SISTEMA)
+        reserva = reserva_do_bloco(analise.lados, analise.questao, analise.ressalvas)
+        previa = montar_entrada(principal, relacionados, limite, analise.lados, analise.questao, analise.ressalvas, reserva=reserva)
+        analise.lados = com_mencoes(analise.lados, previa.textos)
+        return montar_entrada(principal, relacionados, limite, analise.lados, analise.questao, analise.ressalvas, reserva=reserva), analise
 
     def _corrigir_titulo(self, analise: Analise, result: dict, reprovados: list[dict]) -> dict:
         """Reescreve só o título, a partir do resumo: a chamada leva os atores dos lados e não leva os textos.
@@ -302,7 +322,7 @@ class Summarizer:
         return {**result, TITULO: resposta[TITULO]}
 
     def _corrigir_resumo(self, entrada: Entrada, analise: Analise, result: dict, probs: list[str]) -> tuple[dict, Entrada]:
-        """Reescreve só o resumo, com os mesmos trechos que foram para a geração e sem o episódio inteiro."""
+        """Reescreve só o resumo, com os mesmos recortes que foram para a geração e sem o episódio inteiro."""
         usuario = (
             FONTE_ANTES + entrada.artigos
             + "\n\nhouve_divergencia: " + ("true" if len(analise.lados) >= 2 else "false")
@@ -316,7 +336,8 @@ class Summarizer:
                          probs: list[str]) -> tuple[dict, Entrada]:
         """Reescreve o roteiro: a chamada leva os textos, os lados, os personagens e o roteiro original.
 
-        Devolve o roteiro e os personagens; dos personagens só o papel pode mudar (ver `_com_os_papeis`).
+        Os textos vão no recorte por relevância, refeito para o espaço desta chamada. Devolve o
+        roteiro e os personagens; dos personagens só o papel pode mudar (ver `_com_os_papeis`).
         """
         depois = (
             "\n\nPERSONAGENS (os mesmos, com estes nomes):\n" + json.dumps(result["personagens"], ensure_ascii=False)
@@ -336,7 +357,7 @@ class Summarizer:
         """A revisão completa: leva o artigo-fonte e o episódio original, e devolve o episódio inteiro.
 
         Sem o artigo-fonte, "expandir" o roteiro vira invenção de fatos. Como o episódio original
-        vai junto, a fonte é remontada no espaço que sobra.
+        vai junto, a fonte é remontada no espaço que sobra, com o recorte por relevância.
         """
         depois = (
             "\n\nPROBLEMAS DETECTADOS:\n- " + "\n- ".join(probs)

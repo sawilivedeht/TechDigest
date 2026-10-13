@@ -1,9 +1,10 @@
 """Análise de lados: a questão em disputa na pauta, quem responde a ela de cada lado, que veículo relata cada um
 e as ressalvas de grupos sem nome.
 
-Roda em toda pauta, inclusive nas de um veículo só, antes da geração e sobre os mesmos trechos que
-vão para o episódio. O número de lados define o elenco (um analista por lado) e o valor de
-houve_divergencia; quem confere isso no episódio é `qa.problemas_dos_analistas`.
+Roda em toda pauta, inclusive nas de um veículo só, antes da geração e sobre os textos inteiros. O
+número de lados define o elenco (um analista por lado) e o valor de houve_divergencia; quem confere
+isso no episódio é `qa.problemas_dos_analistas`. Os trechos de evidência que ela devolve dizem
+quais parágrafos de cada texto vão para a geração (ver `recorte.recortar`).
 """
 import json
 import logging
@@ -16,6 +17,7 @@ from techdigest.ai.qa import (
     MAX_LADO_FINO, MIN_LADO_FINO, QUANTIFICADORES, ator_citado, atores_exclusivos, frases, mesmo_ator, mesmo_veiculo,
     palavras_do_ator, termo_do_grupo, veiculos_distintos,
 )
+from techdigest.ai.recorte import cortar_em_paragrafo, literal, procurado
 
 logger = logging.getLogger("techdigest.ai.lados")
 
@@ -24,7 +26,7 @@ MAX_LADOS = 3
 MAX_RESSALVAS = 2           # acima disso ficam as primeiras, com aviso no log
 TEMPERATURA_LADOS = 0.1     # baixa, para a contagem dos lados variar pouco entre execuções
 MAX_SAIDA_LADOS = 1200      # tokens: a resposta é um JSON curto, com um trecho literal por ator
-MAX_BLOCO = 1600            # caracteres do bloco de lados na entrada do episódio; o orçamento reserva sempre isto
+MAX_BLOCO = 1600            # caracteres do bloco de lados na entrada do episódio, no máximo
 MAX_POSICAO = 220           # caracteres da frase de cada lado no bloco
 MIN_POSICAO = 60
 MAX_QUESTAO = 160           # caracteres da questão no bloco
@@ -54,7 +56,13 @@ LEMBRETE_DA_CORRECAO = (
     "Responda de novo, com o JSON completo. Uma questão só; cada lado é uma resposta diferente a ela; agrupe os "
     "atores pela resposta que dão à questão, nunca um lado por ator; sem disputa, a questão fica vazia e há um lado só; "
     'coletivo sem nome vai em "grupos", nunca em "atores"; com questão, "respostas_por_ator" traz a resposta de cada '
-    "ator e um trecho copiado ao pé da letra do texto."
+    "ator e um trecho copiado ao pé da letra do texto; a ressalva traz o grupo e o trecho dela."
+)
+# O que a nova tentativa pede quando um ator está num lado e não tem entrada em "respostas_por_ator".
+LEMBRETE_DAS_RESPOSTAS = (
+    "Responda de novo, com o JSON completo, e inclua a entrada de cada um desses atores: a resposta dele à questão e "
+    "um trecho copiado ao pé da letra do texto de um veículo. Ator sem trecho que comprove a resposta sai do lado. "
+    "Não mude o resto da resposta."
 )
 
 
@@ -70,7 +78,7 @@ class Lado:
     veiculos: tuple[str, ...]   # com a grafia da pauta
     resposta: str = ""          # a resposta do lado à questão; vazia quando a pauta tem um lado só
     trechos: tuple[str, ...] = ()   # os trechos dos textos que comprovam a resposta dos atores (só com questão)
-    mencoes: int | None = None      # em quantas frases dos textos recebidos os atores aparecem (None = não contado)
+    mencoes: int | None = None      # em quantas frases dos textos da geração os atores aparecem (None = não contado)
 
     @property
     def fino(self) -> bool:
@@ -85,7 +93,7 @@ class Evidencia:
     resposta: str
     trecho: str
     veiculo: str
-    comprovada: bool            # o trecho existe no texto desse veículo que a análise recebeu
+    comprovada: bool            # o trecho existe no texto inteiro desse veículo
 
 
 @dataclass(frozen=True)
@@ -94,9 +102,10 @@ class Ressalva:
 
     Não é lado e não ganha analista: entra no episódio como pergunta atribuída da Helena.
     """
-    grupos: tuple[str, ...]     # vazio quando o LLM não nomeou nem ator nem grupo
+    grupos: tuple[str, ...]
     posicao: str
     veiculos: tuple[str, ...]   # com a grafia da pauta
+    trecho: str = ""            # o trecho de um texto desses veículos que traz a posição do grupo
 
 
 @dataclass
@@ -109,19 +118,36 @@ class Analise:
     respostas: list[Evidencia] = field(default_factory=list)   # a resposta e o trecho de cada ator (só com questão)
     problemas: list[str] = field(default_factory=list)   # por que a resposta não valeu (e a pauta ficou com o lado neutro)
     ajustes: list[str] = field(default_factory=list)     # o que o código mudou na resposta (ator que passou a grupo...)
-    descartadas: list[Ressalva] = field(default_factory=list)   # as ressalvas que não entram no episódio
-    motivo_do_descarte: str = ""                         # por que as descartadas saíram
+    descartadas: list[tuple[Ressalva, str]] = field(default_factory=list)   # as ressalvas que não entram no episódio, com o motivo
+    faltam: list[str] = field(default_factory=list)      # atores que estão num lado e não têm entrada em respostas_por_ator
+    cortes: list[dict] = field(default_factory=list)     # se os textos não couberam inteiros na chamada: fonte, texto e lido
     resposta: dict | None = None
-    primeira: "Analise | None" = None                    # a primeira tentativa, quando ela não valeu e houve outra
+    primeira: "Analise | None" = None                    # a primeira tentativa, quando houve outra e a outra ficou valendo
+    segunda: "Analise | None" = None                     # a segunda tentativa, quando ela não valeu e a primeira ficou
 
 
 def entrada_dos_lados(textos) -> str:
-    """O que o LLM recebe: cada trecho com veículo e título. `textos` são os de `Entrada.textos`."""
+    """O que o LLM recebe: cada texto com veículo e título. `textos` são dicts com fonte, titulo e texto."""
     partes = [
         f"TEXTO {i}\nVeículo: {t['fonte']}\nTítulo: {t['titulo']}\nTexto:\n{t['texto']}" for i, t in enumerate(textos, 1)
     ]
     partes.append(f"VEÍCULOS DA PAUTA: {', '.join(veiculos_distintos(t['fonte'] for t in textos))}")
     return "\n\n".join(partes)
+
+
+def textos_que_cabem(textos, limite: int | None) -> tuple[list[dict], list[dict]]:
+    """Os textos como a análise vai lê-los: inteiros, a não ser que a entrada passe de `limite` caracteres.
+
+    Quando passa, cada texto perde na proporção do seu tamanho, com o corte em fim de parágrafo. O
+    segundo valor diz o que foi cortado (fonte, caracteres do texto e quantos foram lidos), e vem
+    vazio quando nada foi.
+    """
+    if limite is None or len(entrada_dos_lados(textos)) <= limite:
+        return list(textos), []
+    fixos = len(entrada_dos_lados([{**t, "texto": ""} for t in textos]))
+    total = sum(len(t["texto"]) for t in textos)
+    lidos = [{**t, "texto": cortar_em_paragrafo(t["texto"], len(t["texto"]) * max(limite - fixos, 0) // total)} for t in textos]
+    return lidos, [{"fonte": t["fonte"], "texto": len(t["texto"]), "lido": len(lido["texto"])} for t, lido in zip(textos, lidos)]
 
 
 def _sem_repetir(itens) -> tuple[str, ...]:
@@ -179,6 +205,8 @@ class _Rascunho:
     grupos: tuple[str, ...]
     veiculos: tuple[str, ...]
     resposta: str
+    trecho: str = ""            # o trecho da ressalva (lado que veio só com grupos)
+    veio_com_ator: bool = False   # tinha ator nomeado na resposta: se perder todos, é descartado e não vira ressalva
     trechos: list[str] = field(default_factory=list)
 
 
@@ -190,39 +218,41 @@ def _rascunhos(lados: list[dict], da_pauta: list[str]) -> tuple[list[_Rascunho],
         genericos = tuple(a for a in atores if ator_generico(a))
         if genericos:
             ajustes.append(f"ator genérico do lado {i} passou a grupo ({', '.join(genericos)})")
+        nomeados = [a for a in atores if a not in genericos]
         rascunhos.append(_Rascunho(
-            numero=i, posicao=_linha(lado["posicao"]), atores=[a for a in atores if a not in genericos],
+            numero=i, posicao=_linha(lado["posicao"]), atores=nomeados,
             grupos=tuple(g for g in _sem_repetir([*(lado.get("grupos") or []), *genericos]) if termo_do_grupo(g)),
             veiculos=tuple(v for v in da_pauta if any(mesmo_veiculo(v, citado) for citado in lado["veiculos"])),
-            resposta=_linha(lado.get("resposta")),
+            resposta=_linha(lado.get("resposta")), trecho=_linha(lado.get("trecho")), veio_com_ator=bool(nomeados),
         ))
     return rascunhos, ajustes
 
 
-def _literal(texto: str) -> str:
-    """O texto para a comparação de trechos: espaços e aspas normalizados, sem contar maiúsculas."""
-    texto = unicodedata.normalize("NFC", str(texto))
-    texto = re.sub("[“”„‟«»]", '"', re.sub("[‘’‚‛]", "'", texto))
-    return " ".join(texto.split()).casefold()
+def _comprovado(trecho: str, textos, veiculos) -> bool:
+    """Se o trecho está, ao pé da letra, no título ou no texto inteiro de um dos veículos.
+
+    Vale o trecho de pelo menos MIN_TRECHO caracteres, pela comparação de `recorte.literal`
+    (espaços, aspas e maiúsculas não contam, nem as reticências e as aspas em volta do trecho).
+    """
+    alvo = procurado(trecho)
+    return len(alvo) >= MIN_TRECHO and any(
+        alvo in literal(f"{t['titulo']}\n{t['texto']}")
+        for t in textos if any(mesmo_veiculo(t["fonte"], veiculo) for veiculo in veiculos)
+    )
 
 
-def _evidencias(entradas: list, textos, da_pauta: list[str]) -> list[Evidencia]:
-    """As respostas por ator da resposta do LLM, cada uma com o resultado da conferência do trecho.
+def _evidencias(entradas: list, textos) -> list[Evidencia]:
+    """As respostas por ator da resposta do LLM, cada uma com o resultado da conferência do trecho (ver `_comprovado`).
 
-    O trecho comprova a resposta quando tem pelo menos MIN_TRECHO caracteres e está, ao pé da
-    letra, no título ou no texto que a análise recebeu daquele veículo (o trecho já cortado pelo
-    orçamento). Reticências e aspas em volta do trecho não contam.
+    `textos` são os textos inteiros da pauta, mesmo quando a chamada leu um corte deles.
     """
     evidencias = []
     for entrada in entradas:
         if not isinstance(entrada, dict):
             continue
         ator, resposta, trecho, veiculo = (_linha(entrada.get(chave)) for chave in ("ator", "resposta", "trecho", "veiculo"))
-        if not ator:
-            continue
-        do_veiculo = _literal("\n".join(f"{t['titulo']}\n{t['texto']}" for t in textos if veiculo and mesmo_veiculo(t["fonte"], veiculo)))
-        procurado = _literal(trecho).strip("\"'. …")
-        evidencias.append(Evidencia(ator, resposta, trecho, veiculo, len(procurado) >= MIN_TRECHO and procurado in do_veiculo))
+        if ator:
+            evidencias.append(Evidencia(ator, resposta, trecho, veiculo, _comprovado(trecho, textos, [veiculo] if veiculo else [])))
     return evidencias
 
 
@@ -235,25 +265,26 @@ def _responde(resposta_do_ator: str, resposta_do_lado: str) -> bool:
     return bool(a) and b[:len(a)] == a
 
 
-def _conferir_atores(rascunhos: list[_Rascunho], evidencias: list[Evidencia]) -> list[str]:
+def _conferir_atores(rascunhos: list[_Rascunho], evidencias: list[Evidencia]) -> tuple[list[str], list[str]]:
     """Deixa em cada lado só os atores cuja resposta, comprovada por um trecho, é a do lado.
 
     Um ator pode ter mais de uma entrada, uma por trecho. O ator sem resposta listada ou sem
     trecho comprovado sai. O ator que está num lado de resposta diferente da dele vai para o lado
     da resposta dele, se existir, ou sai. Cada lado fica com os trechos comprovados dos atores que
-    ficaram nele. Devolve o que mudou.
+    ficaram nele. Devolve o que mudou e os atores que saíram por não terem entrada na lista.
     """
     def evidencias_de(ator: str) -> list[Evidencia]:
         iguais = [e for e in evidencias if palavras_do_ator(e.ator) == palavras_do_ator(ator)]
         return iguais or [e for e in evidencias if mesmo_ator(e.ator, ator)]
 
-    ajustes, ficam = [], {r.numero: [] for r in rascunhos}   # por lado: (ator, trechos)
+    ajustes, faltam, ficam = [], [], {r.numero: [] for r in rascunhos}   # por lado: (ator, trechos)
     for r in rascunhos:
         for ator in r.atores:
             listadas = evidencias_de(ator)
             comprovadas = [e for e in listadas if e.comprovada]
             if not listadas:
                 ajustes.append(f"ator do lado {r.numero} saiu: não está em respostas_por_ator ({ator})")
+                faltam.append(ator)
                 continue
             if not comprovadas:
                 ajustes.append(f"ator do lado {r.numero} saiu: o trecho não está no texto de {listadas[0].veiculo or 'nenhum veículo'} ({ator})")
@@ -276,24 +307,41 @@ def _conferir_atores(rascunhos: list[_Rascunho], evidencias: list[Evidencia]) ->
                 for trecho in trechos:
                     if trecho not in r.trechos:
                         r.trechos.append(trecho)
-    return ajustes
+    return ajustes, faltam
 
 
-def _separar(rascunhos: list[_Rascunho]) -> tuple[dict[int, Lado], list[Ressalva], list[str]]:
-    """Separa os lados conferidos: os que têm ator nomeado, pelo número, e as ressalvas.
+def _separar(rascunhos: list[_Rascunho], textos) -> tuple[dict[int, Lado], list[Ressalva], list[tuple[Ressalva, str]], list[str]]:
+    """Separa os lados conferidos: os que têm ator nomeado, pelo número, as ressalvas e as ressalvas descartadas.
 
-    O lado que fica sem ator nomeado (só com grupos, ou sem nada) vira ressalva; no lado que tem
-    ator nomeado, os grupos saem, porque concordam com ele. O terceiro valor diz o que foi mudado.
+    No lado que tem ator nomeado, os grupos saem, porque concordam com ele. O lado que veio com
+    ator nomeado e perdeu todos é descartado: nunca vira ressalva. O lado que veio só com grupos é
+    uma ressalva, e só fica se o trecho dela estiver num texto dos seus veículos (ver
+    `_comprovado`); senão é descartada, com o motivo. O último valor diz o que foi mudado.
     """
-    nomeados, ressalvas, ajustes = {}, [], []
+    nomeados, ressalvas, descartadas, ajustes = {}, [], [], []
     for r in rascunhos:
         if r.atores:
             nomeados[r.numero] = Lado(r.posicao, tuple(r.atores), r.veiculos, r.resposta, tuple(r.trechos))
-            continue
-        if not r.grupos:
-            ajustes.append(f"lado {r.numero}, sem ator nem grupo, virou ressalva")
-        ressalvas.append(Ressalva(r.grupos, r.posicao, r.veiculos))
-    return nomeados, ressalvas, ajustes
+        elif r.veio_com_ator:
+            ajustes.append(f"lado {r.numero} saiu: ficou sem ator nomeado")
+        elif _comprovado(r.trecho, textos, r.veiculos):
+            ressalvas.append(Ressalva(r.grupos, r.posicao, r.veiculos, r.trecho))
+        else:
+            motivo = f"o trecho não está no texto de {', '.join(r.veiculos)}" if r.trecho else "sem trecho de evidência"
+            descartadas.append((Ressalva(r.grupos, r.posicao, r.veiculos, r.trecho), motivo))
+            ajustes.append(f"ressalva do lado {r.numero} saiu: {motivo} ({', '.join(r.grupos)})")
+    return nomeados, ressalvas, descartadas, ajustes
+
+
+def trechos_de_evidencia(lados, ressalvas=()) -> list[tuple[str, str]]:
+    """Os trechos de evidência da pauta, cada um com o motivo que leva o parágrafo dele à geração.
+
+    Vêm na ordem de prioridade: um trecho de cada lado e de cada ressalva por vez, para que nenhum
+    lado fique sem o seu quando o espaço é curto.
+    """
+    filas = [[(f"trecho do lado {i}", trecho) for trecho in lado.trechos] for i, lado in enumerate(lados, 1)]
+    filas += [[(f"trecho da ressalva {i}", ressalva.trecho)] for i, ressalva in enumerate(ressalvas, 1) if ressalva.trecho]
+    return [fila[k] for k in range(max(map(len, filas), default=0)) for fila in filas if k < len(fila)]
 
 
 def mencoes(atores, textos) -> int:
@@ -306,6 +354,14 @@ def mencoes(atores, textos) -> int:
         any(ator_citado(ator, frase) for ator in atores)
         for texto in textos for frase in (texto["titulo"], *frases(texto["texto"]))
     )
+
+
+def com_mencoes(lados, textos) -> list[Lado]:
+    """Os lados com a contagem das frases de `textos` em que os atores de cada um aparecem (ver `mencoes`).
+
+    `textos` são os que a geração recebe: é neles que se vê se um lado é fino. O lado sem atores não é contado.
+    """
+    return [replace(lado, mencoes=mencoes(lado.atores, textos)) if lado.atores else lado for lado in lados]
 
 
 def lados_finos(lados) -> list[bool]:
@@ -332,22 +388,24 @@ def lado_unico(veiculos) -> list[Lado]:
 def analise_da_resposta(resposta, textos) -> Analise:
     """A análise que vale para a pauta, a partir da resposta do LLM (função pura).
 
-    `textos` são os trechos que a análise recebeu (os de `Entrada.textos`: fonte, titulo e texto).
-    Cada lado da resposta tem posição e pelo menos um veículo, todos da pauta (pela comparação
-    tolerante de `qa.mesmo_veiculo`). Só conta como lado o que tem ator nomeado: o ator genérico
-    (`ator_generico`) passa a grupo, e a posição que só grupos sustentam vira ressalva (ver
-    `_separar`). Ficam no máximo MAX_RESSALVAS ressalvas, as primeiras.
+    `textos` são os textos inteiros da pauta (fonte, titulo e texto): é neles que os trechos de
+    evidência são conferidos. Cada lado da resposta tem posição e pelo menos um veículo, todos da
+    pauta (pela comparação tolerante de `qa.mesmo_veiculo`), e todo veículo da pauta está em algum
+    lado da resposta. Só conta como lado o que tem ator nomeado: o ator genérico (`ator_generico`)
+    passa a grupo, e a posição que só grupos sustentam é uma ressalva, que fica se o trecho dela
+    estiver no texto (ver `_separar`). Ficam no máximo MAX_RESSALVAS ressalvas, as primeiras. O
+    lado sem ator nem grupo não vale; se ele é o único da resposta, a pauta fica com o lado neutro.
 
     Com questão, a resposta traz também "respostas_por_ator": a resposta de cada ator e um trecho
     literal de um texto da pauta que a comprova. O ator sem trecho comprovado sai, e o ator que
     está num lado de resposta diferente da dele vai para o lado certo, ou sai (ver
-    `_conferir_atores`). Sem questão, os atores ficam como vieram.
+    `_conferir_atores`); o que não tem entrada na lista fica em `faltam`. O lado que perde todos os
+    atores nomeados é descartado. Sem questão, os atores ficam como vieram.
 
     Dos lados com ator nomeado, vale até 3, cada um com um ator que nenhum outro tem. A questão só
     fica com 2 lados ou mais, e aí cada lado tem a sua resposta, diferente das outras; com um lado
     só, a questão sai. Sem nenhum lado com ator nomeado, a pauta fica com o lado neutro e as
-    ressalvas são descartadas. Todo veículo da pauta tem de estar em algum lado ou ressalva. Cada
-    lado sai com a contagem das frases dos textos em que os seus atores aparecem (ver `mencoes`).
+    ressalvas são descartadas. Os lados saem sem a contagem das menções (ver `com_mencoes`).
 
     Resposta que não cumpre isso vira o lado neutro, sem ressalvas, com o motivo em `problemas`.
     """
@@ -364,15 +422,24 @@ def analise_da_resposta(resposta, textos) -> Analise:
     if probs := _problemas_dos_campos(lados, da_pauta):
         return invalida(*probs)
     questao = _linha(resposta.get("questao"))
+    motivo = _linha(resposta.get("motivo"))
     rascunhos, ajustes = _rascunhos(lados, da_pauta)
-    respostas = []
+    vazios = [r.numero for r in rascunhos if not r.atores and not r.grupos]
+    if vazios and len(rascunhos) == 1:   # um lado só, sem ninguém que o sustente: é o relato dos fatos
+        ajustes.append("lado único sem ator nem grupo: a pauta fica com o lado neutro")
+        return Analise(lado_unico(da_pauta), motivo=motivo, ajustes=ajustes, resposta=resposta)
+    if vazios:
+        return invalida(*(f"lado {i} sem ator nem grupo (a ressalva tem de nomear o grupo que a sustenta)" for i in vazios))
+    sem_lado = [v for v in da_pauta if not any(v in r.veiculos for r in rascunhos)]
+    respostas, faltam = [], []
     if questao:
         entradas = resposta.get("respostas_por_ator")
         if not (isinstance(entradas, list) and entradas):
             return invalida('resposta com questão e sem "respostas_por_ator" (cada ator tem a sua resposta e um trecho literal)')
-        respostas = _evidencias(entradas, textos, da_pauta)
-        ajustes += _conferir_atores(rascunhos, respostas)
-    nomeados, ressalvas, mudou = _separar(rascunhos)
+        respostas = _evidencias(entradas, textos)
+        mudou, faltam = _conferir_atores(rascunhos, respostas)
+        ajustes += mudou
+    nomeados, ressalvas, descartadas, mudou = _separar(rascunhos, textos)
     ajustes += mudou
     if len(nomeados) > MAX_LADOS:
         return invalida(f"resposta com {len(nomeados)} lados (vale de 1 a {MAX_LADOS})")
@@ -389,33 +456,45 @@ def analise_da_resposta(resposta, textos) -> Analise:
     else:   # sem disputa entre atores nomeados, a questão sai
         questao = ""
         validos = [replace(lado, resposta="") for lado in nomeados.values()]
-    sem_lado = [v for v in da_pauta if not any(v in item.veiculos for item in (*validos, *ressalvas))]
     if sem_lado:
         probs.append(f"veículo da pauta em nenhum lado ({', '.join(sem_lado)})")
     if probs:
         return invalida(*probs)
     if not validos:   # sem lado com ator nomeado não há a quem a ressalva se oponha: fica só o relato dos fatos
-        validos, descartadas, ressalvas, motivo_do_descarte = lado_unico(da_pauta), ressalvas, [], "nenhum lado tem ator nomeado"
+        validos = lado_unico(da_pauta)
+        descartadas += [(ressalva, "nenhum lado tem ator nomeado") for ressalva in ressalvas]
+        ressalvas = []
         ajustes.append("nenhum lado com ator nomeado: a pauta fica com o lado neutro, sem ressalvas")
-    else:
-        descartadas, ressalvas = ressalvas[MAX_RESSALVAS:], ressalvas[:MAX_RESSALVAS]
-        motivo_do_descarte = f"a pauta já tem {MAX_RESSALVAS} ressalvas" if descartadas else ""
-        if descartadas:
-            ajustes.append(f"{len(descartadas)} ressalva(s) a mais: ficam as {MAX_RESSALVAS} primeiras")
-    validos = [replace(lado, mencoes=mencoes(lado.atores, textos)) if lado.atores else lado for lado in validos]
+    elif len(ressalvas) > MAX_RESSALVAS:
+        ajustes.append(f"{len(ressalvas) - MAX_RESSALVAS} ressalva(s) a mais: ficam as {MAX_RESSALVAS} primeiras")
+        descartadas += [(ressalva, f"a pauta já tem {MAX_RESSALVAS} ressalvas") for ressalva in ressalvas[MAX_RESSALVAS:]]
+        ressalvas = ressalvas[:MAX_RESSALVAS]
     return Analise(
-        validos, questao, _linha(resposta.get("motivo")), ressalvas=ressalvas, respostas=respostas,
-        ajustes=ajustes, descartadas=descartadas, motivo_do_descarte=motivo_do_descarte, resposta=resposta,
+        validos, questao, motivo, ressalvas=ressalvas, respostas=respostas, ajustes=ajustes,
+        descartadas=descartadas, faltam=faltam, resposta=resposta,
     )
+
+
+def _anterior(analise: Analise) -> list[str]:
+    """A resposta anterior, como volta ao LLM na nova tentativa (cortada em MAX_ANTERIOR caracteres)."""
+    if analise.resposta is None:
+        return []
+    return [f"Resposta anterior: {json.dumps(analise.resposta, ensure_ascii=False)[:MAX_ANTERIOR]}"]
 
 
 def pedido_de_correcao(recusada: Analise) -> str:
     """O que a nova tentativa acrescenta à entrada: o erro da resposta recusada, a própria resposta e o lembrete."""
-    partes = [f"CORREÇÃO: a sua resposta anterior não valeu: {'; '.join(recusada.problemas)}."]
-    if recusada.resposta is not None:
-        partes.append(f"Resposta anterior: {json.dumps(recusada.resposta, ensure_ascii=False)[:MAX_ANTERIOR]}")
-    partes.append(LEMBRETE_DA_CORRECAO)
-    return "\n".join(partes)
+    return "\n".join([
+        f"CORREÇÃO: a sua resposta anterior não valeu: {'; '.join(recusada.problemas)}.", *_anterior(recusada), LEMBRETE_DA_CORRECAO,
+    ])
+
+
+def pedido_das_respostas(incompleta: Analise) -> str:
+    """O que a nova tentativa acrescenta à entrada quando um ator de um lado não tem entrada em "respostas_por_ator"."""
+    return "\n".join([
+        f'CORREÇÃO: na sua resposta anterior, estes atores estão num lado e não têm entrada em "respostas_por_ator": '
+        f"{'; '.join(incompleta.faltam)}.", *_anterior(incompleta), LEMBRETE_DAS_RESPOSTAS,
+    ])
 
 
 def _tentar(chamar, entrada: str, textos) -> Analise:
@@ -428,22 +507,51 @@ def _tentar(chamar, entrada: str, textos) -> Analise:
     return analise_da_resposta(resposta, textos)
 
 
-def analisar_lados(chamar, textos) -> Analise:
+def analisar_lados(chamar, textos, limite: int | None = None) -> Analise:
     """Pergunta ao LLM a questão e os lados da pauta.
 
-    Chamada que falha ou resposta inválida ganham uma nova tentativa, com o erro anexado à entrada.
-    Se ela também não valer, a pauta segue com o lado único de emergência, com aviso no log.
+    `textos` são os textos inteiros da pauta, e é neles que os trechos são conferidos. Eles só são
+    cortados se a entrada passar de `limite` caracteres (o espaço da chamada), com aviso no log e o
+    corte em `Analise.cortes`.
+
+    Há no máximo uma nova tentativa. Chamada que falha ou resposta inválida ganham uma, com o erro
+    anexado à entrada; se ela também não valer, a pauta segue com o lado único de emergência, com
+    aviso no log. A resposta válida em que um ator está num lado sem entrada em
+    "respostas_por_ator" também ganha uma, que pede a entrada dele: se a nova resposta valer, é ela
+    que fica (e o ator que continuar sem entrada sai); se não valer, fica a primeira, sem o ator.
     `chamar(system, user, **opções)` é o chat_json do provider (ou o `_chamar` do Summarizer).
     """
-    entrada = entrada_dos_lados(textos)
-    analise = _tentar(chamar, entrada, textos)
+    def entrada(pedido: str = "") -> tuple[str, list[dict]]:
+        lidos, cortes = textos_que_cabem(textos, limite if limite is None or not pedido else limite - len(pedido) - 2)
+        if cortes:
+            logger.warning(
+                "Análise de lados: os textos não cabem inteiros na chamada e foram cortados (%s).",
+                "; ".join(f"{c['fonte']}: {c['lido']} de {c['texto']} caracteres" for c in cortes),
+            )
+        return entrada_dos_lados(lidos) + (f"\n\n{pedido}" if pedido else ""), cortes
+
+    mensagem, cortes = entrada()
+    analise = replace(_tentar(chamar, mensagem, textos), cortes=cortes)
     if analise.problemas:
         logger.warning("Análise de lados: a resposta não valeu (%s). Nova tentativa, com o erro anexado.", "; ".join(analise.problemas))
-        analise = replace(_tentar(chamar, f"{entrada}\n\n{pedido_de_correcao(analise)}", textos), primeira=analise)
+        mensagem, cortes = entrada(pedido_de_correcao(analise))
+        analise = replace(_tentar(chamar, mensagem, textos), cortes=cortes, primeira=analise)
+    elif analise.faltam:
+        logger.warning('Análise de lados: ator sem entrada em "respostas_por_ator" (%s). Nova tentativa, pedindo a entrada.',
+                       "; ".join(analise.faltam))
+        mensagem, cortes = entrada(pedido_das_respostas(analise))
+        nova = replace(_tentar(chamar, mensagem, textos), cortes=cortes)
+        if nova.problemas:
+            logger.warning("Análise de lados: a nova tentativa não valeu (%s). Fica a primeira resposta, sem o ator.",
+                           "; ".join(nova.problemas))
+            analise = replace(analise, segunda=nova)
+        else:
+            analise = replace(nova, primeira=analise)
     if analise.ajustes:
         logger.info("Análise de lados: ajustes na resposta (%s).", "; ".join(analise.ajustes))
     if analise.descartadas:
-        logger.warning("Análise de lados: %d ressalva(s) descartada(s): %s.", len(analise.descartadas), analise.motivo_do_descarte)
+        logger.warning("Análise de lados: %d ressalva(s) descartada(s): %s.", len(analise.descartadas),
+                       "; ".join(dict.fromkeys(motivo for _, motivo in analise.descartadas)))
     if analise.problemas:
         logger.warning(
             "Análise de lados inválida nas duas tentativas (%s): a pauta segue com um lado só, sem lados definidos.",
@@ -454,7 +562,7 @@ def analisar_lados(chamar, textos) -> Analise:
             "Lados da pauta: %d (%s)%s%s", len(analise.lados),
             " × ".join(", ".join(lado.atores) or "sem atores" for lado in analise.lados),
             f" · questão: {analise.questao}" if analise.questao else "",
-            f" · ressalvas: {'; '.join(', '.join(r.grupos) or 'sem grupo' for r in analise.ressalvas)}" if analise.ressalvas else "",
+            f" · ressalvas: {'; '.join(', '.join(r.grupos) for r in analise.ressalvas)}" if analise.ressalvas else "",
         )
     return analise
 
@@ -469,11 +577,10 @@ def _frase(texto: str) -> str:
     return texto if texto.endswith((".", "!", "?", "…")) else texto + "."
 
 
-def bloco_dos_lados(lados, questao: str = "", ressalvas=()) -> str:
-    """O bloco LADOS DA PAUTA da entrada do episódio: a questão, os lados, as ressalvas, o elenco exato e o alvo de palavras.
+def _linhas_do_bloco(lados, questao: str, ressalvas, finos: list[bool], teto: int) -> list[str]:
+    """As linhas do bloco: o cabeçalho (com a questão), uma por lado, uma por ressalva e o elenco.
 
-    Nunca passa de MAX_BLOCO caracteres, que é o que o orçamento da entrada reserva para ele: se
-    for preciso, as frases de posição encolhem.
+    `finos` diz quais lados são finos e `teto`, quantos caracteres a frase de posição de cada um pode ter.
     """
     n = len(lados)
     if n > 1:
@@ -496,7 +603,6 @@ def bloco_dos_lados(lados, questao: str = "", ressalvas=()) -> str:
             "reformulá-la, numa frase com o veículo, o grupo e um verbo de posição, seguida de uma pergunta aberta, como "
             'em "Segundo <veículo>, <grupo> alertam que... Como você vê isso?".'
         )
-    finos = lados_finos(lados)
     if any(finos):
         elenco += (
             f" Lado fino tem pouco material nas fontes: o analista dele fala de {MIN_LADO_FINO} a "
@@ -507,31 +613,50 @@ def bloco_dos_lados(lados, questao: str = "", ressalvas=()) -> str:
     if questao:
         cabecalho += f"\nQUESTÃO: {_encurtar(questao, MAX_QUESTAO)}"
 
-    def lado_descrito(i: int, lado: Lado, teto: int) -> str:
+    def lado_descrito(i: int, lado: Lado) -> str:
         resposta = f" (resposta: {_encurtar(lado.resposta, MAX_RESPOSTA).rstrip('.')}" if lado.resposta else ""
         resposta += ("; lado fino)" if finos[i - 1] else ")") if resposta else (" (lado fino)" if finos[i - 1] else "")
         atores = f" Atores: {', '.join(lado.atores)}." if lado.atores else ""
         return f"Lado {i}{resposta}: {_frase(_encurtar(lado.posicao, teto))}{atores} Veículos: {', '.join(lado.veiculos)}."
 
-    def ressalva_descrita(i: int, ressalva: Ressalva, teto: int) -> str:
+    def ressalva_descrita(i: int, ressalva: Ressalva) -> str:
         grupos = f" Grupos: {', '.join(ressalva.grupos)}." if ressalva.grupos else ""
         return f"Ressalva {i}: {_frase(_encurtar(ressalva.posicao, teto))}{grupos} Veículos: {', '.join(ressalva.veiculos)}."
 
-    def montar(teto: int) -> str:
-        return "\n".join([
-            cabecalho,
-            *(lado_descrito(i, lado, teto) for i, lado in enumerate(lados, 1)),
-            *(ressalva_descrita(i, ressalva, teto) for i, ressalva in enumerate(ressalvas, 1)),
-            elenco,
-        ])
+    return [
+        cabecalho,
+        *(lado_descrito(i, lado) for i, lado in enumerate(lados, 1)),
+        *(ressalva_descrita(i, ressalva) for i, ressalva in enumerate(ressalvas, 1)),
+        elenco,
+    ]
 
+
+def bloco_dos_lados(lados, questao: str = "", ressalvas=()) -> str:
+    """O bloco LADOS DA PAUTA da entrada do episódio: a questão, os lados, as ressalvas, o elenco exato e o alvo de palavras.
+
+    Nunca passa de MAX_BLOCO caracteres: se for preciso, as frases de posição encolhem. O orçamento
+    da entrada reserva para ele o tamanho que ele tem (ver `reserva_do_bloco`).
+    """
+    finos = lados_finos(lados)
     teto = MAX_POSICAO
-    bloco = montar(teto)
-    while len(bloco) > MAX_BLOCO and teto > MIN_POSICAO:
+    linhas = _linhas_do_bloco(lados, questao, ressalvas, finos, teto)
+    while len("\n".join(linhas)) > MAX_BLOCO and teto > MIN_POSICAO:
         teto -= 20
-        bloco = montar(teto)
+        linhas = _linhas_do_bloco(lados, questao, ressalvas, finos, teto)
+    bloco = "\n".join(linhas)
     if len(bloco) > MAX_BLOCO:   # listas de atores longas demais: o que fica de fora é o fim da última linha
         logger.warning("Bloco de lados com %d caracteres: cortado em %d.", len(bloco), MAX_BLOCO)
-        linhas = bloco[len(cabecalho) + 1:].split("\n")[:-1]
-        bloco = "\n".join([cabecalho, elenco, *linhas])[:MAX_BLOCO - 1] + "…"
+        cabecalho, *descritos, elenco = linhas
+        bloco = "\n".join([cabecalho, elenco, *descritos])[:MAX_BLOCO - 1] + "…"
     return bloco
+
+
+def reserva_do_bloco(lados, questao: str = "", ressalvas=()) -> int:
+    """Quantos caracteres guardar para o bloco antes de saber quais lados são finos.
+
+    O lado fino só é contado depois do recorte dos textos, e o recorte depende do espaço que o
+    bloco ocupa. Por isso a reserva é o tamanho do bloco com todos os lados finos (em pauta de 2
+    lados ou mais), sem encolher as posições e até MAX_BLOCO: o bloco de verdade nunca passa disso.
+    """
+    todos = [len(lados) >= 2] * len(lados)
+    return min(MAX_BLOCO, len("\n".join(_linhas_do_bloco(lados, questao, ressalvas, todos, MAX_POSICAO))))
