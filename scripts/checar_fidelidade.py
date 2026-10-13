@@ -34,6 +34,7 @@ from techdigest.ai.numeros import Token as _Token
 from techdigest.ai.numeros import dobrar as _plano
 from techdigest.ai.numeros import junto as _junto
 from techdigest.ai.numeros import tokens as _tokens
+from techdigest.ai.recorte import paragrafos
 from techdigest.ai.summarizer import _limpar
 from techdigest.config import Settings
 
@@ -190,6 +191,7 @@ class Fonte:
     texto: str                    # texto extraído completo
     enviado: int | None = None    # caracteres do texto que entraram na mensagem do LLM (None = todos)
     id: int | None = None
+    recorte: str | None = None    # o que entrou, quando não é só o começo do texto (None = os primeiros `enviado` caracteres)
 
     @property
     def completo(self) -> str:
@@ -197,7 +199,24 @@ class Fonte:
 
     @property
     def lido(self) -> str:
-        return f"{self.veiculo}\n{self.titulo}\n{self.texto[:self.enviado]}"
+        corpo = self.texto[:self.enviado] if self.recorte is None else self.recorte
+        return f"{self.veiculo}\n{self.titulo}\n{corpo}"
+
+
+def recorte_enviado(texto: str, corte: dict | None) -> str | None:
+    """O que entrou do texto na geração, pelos parágrafos que o relatório lista (o recorte por relevância).
+
+    Devolve None quando o relatório não traz os parágrafos: é um relatório antigo, em que entrava
+    o começo do texto, ou uma fonte que ficou fora da entrada.
+    """
+    entraram = (corte or {}).get("paragrafos_que_entraram")
+    if not entraram:
+        return None
+    por_numero = {p.numero: p for p in paragrafos(texto)}
+    return "\n".join(
+        texto[por_numero[e["paragrafo"]].inicio:por_numero[e["paragrafo"]].inicio + e["caracteres"]]
+        for e in entraram if e["paragrafo"] in por_numero
+    )
 
 
 @dataclass(frozen=True)
@@ -509,7 +528,8 @@ def _carregar(caminho: Path) -> list[Caso]:
         for k, artigo in enumerate(item["artigos"]):
             texto = _limpar(candidatos[artigo["id"]]["texto"])
             corte = cortes[k] if k < len(cortes) and cortes[k].get("texto") == len(texto) else None
-            fontes.append(Fonte(artigo["veiculo"], artigo["titulo"], texto, corte["incluido"] if corte else None, artigo["id"]))
+            fontes.append(Fonte(artigo["veiculo"], artigo["titulo"], texto, corte["incluido"] if corte else None, artigo["id"],
+                                recorte_enviado(texto, corte)))
         episodio = json.loads(Path(item["arquivo"]).read_text(encoding="utf-8"))
         casos.append(Caso(item["episodio"], item["caso"], item["situacao"], episodio, fontes, conferir(episodio, fontes)))
     return casos

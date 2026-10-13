@@ -184,6 +184,25 @@ def test_helena_nao_toma_posicao_mas_pode_relatar_a_de_alguem():
     assert achados[0].frase == "A decisão foi absurda, e o ministro saiu atropelando o rito."
 
 
+def test_com_o_recorte_por_relevancia_o_que_o_llm_recebeu_sao_os_paragrafos_do_relatorio():
+    primeiro, segundo, terceiro = "Primeiro parágrafo, sobre a eleição.", "Segundo parágrafo, com 290 contas afetadas.", "Terceiro parágrafo, com 512 anúncios."
+    texto = "\n".join([primeiro, segundo, terceiro])
+    corte = {"incluido": 80, "paragrafos_que_entraram": [{"paragrafo": 1, "motivo": "lide", "caracteres": len(primeiro)},
+                                                          {"paragrafo": 3, "motivo": "trecho do lado 1", "caracteres": len(terceiro)}]}
+    recorte = cf.recorte_enviado(texto, corte)
+    assert recorte == primeiro + "\n" + terceiro
+    fonte = Fonte("G1", "Título", texto, enviado=80, recorte=recorte)
+    assert "512 anúncios" in fonte.lido and "290 contas" not in fonte.lido and "290 contas" in fonte.completo
+    # o número do parágrafo pulado só tem fonte fora do que o LLM recebeu; o do parágrafo do trecho, não
+    episodio = _episodio("Olá.", "Foram 290 contas e 512 anúncios, diz o G1.")
+    resultado = cf.conferir(episodio, [fonte])
+    assert [a.rotulo for a in resultado.so_no_corte] == ["290"] and resultado.sem_fonte == []
+    # parágrafo que entrou em parte vai só até onde entrou; relatório antigo, sem os parágrafos, vale o começo do texto
+    assert cf.recorte_enviado(texto, {"paragrafos_que_entraram": [{"paragrafo": 2, "caracteres": 17}]}) == "Segundo parágrafo"
+    assert cf.recorte_enviado(texto, {"incluido": 80}) is None and cf.recorte_enviado(texto, None) is None
+    assert Fonte("G1", "Título", texto, enviado=36).lido.endswith("sobre a eleição.")
+
+
 # ── Relatório ─────────────────────────────────────────────────────────────────────────────
 
 def test_relatorio_traz_titulo_pauta_contagem_e_a_fala_de_cada_fato():
