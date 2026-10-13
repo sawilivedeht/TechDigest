@@ -442,6 +442,7 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
         "chamadas": chamadas,
         "problemas_antes_da_revisao": diagnostico.get("problemas"),
         "tipo_de_correcao": diagnostico.get("correcao"),
+        "titulos_reprovados": diagnostico.get("titulos_reprovados") or [],
         "problemas_depois_da_revisao": diagnostico.get("problemas_da_revisao"),
     })
     primeira_versao = diagnostico.get("primeira_versao")
@@ -471,6 +472,8 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
     print(f"  QA antes da correção: {relatorio['problemas_antes_da_revisao'] or 'sem problemas'}")
     if relatorio["tipo_de_correcao"]:
         print(f"  correção usada: {CORRECOES[relatorio['tipo_de_correcao']]}")
+    for recusado in relatorio["titulos_reprovados"]:
+        print(f"  título reprovado: {recusado['titulo']}")
     if relatorio["problemas_depois_da_revisao"] is not None:
         print(f"  QA depois da correção: {relatorio['problemas_depois_da_revisao'] or 'sem problemas'}")
     print(f"  situação: {situacao} · {segundos:.0f} s no total")

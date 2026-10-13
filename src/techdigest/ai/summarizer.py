@@ -34,6 +34,7 @@ LEMBRETE_DO_ROTEIRO = (
 FONTE_ANTES = "ARTIGO-FONTE (use somente fatos deste texto; não invente informações):\n"
 MAX_SAIDA_RESUMO = 700          # tokens: a correção do resumo devolve só o resumo
 MAX_SAIDA_TITULO = 200          # tokens: a correção do título devolve só o título
+TENTATIVAS_DO_TITULO = 2        # a correção do título pode ser tentada de novo, com os títulos já reprovados
 # Os tipos de correção depois de um QA reprovado e como cada um aparece nas mensagens.
 CORRECOES = {
     "titulo": "correção do título", "resumo": "correção do resumo", "roteiro": "revisão do roteiro", "completa": "revisão",
@@ -285,17 +286,20 @@ class Summarizer:
         analise = analisar_lados(self._chamar, previa.textos)
         return montar_entrada(principal, relacionados, limite, analise.lados, analise.questao, analise.ressalvas), analise
 
-    def _corrigir_titulo(self, analise: Analise, result: dict, probs: list[str]) -> tuple[dict, None]:
-        """Reescreve só o título, a partir do resumo: a chamada leva os atores dos lados e não leva os textos."""
+    def _corrigir_titulo(self, analise: Analise, result: dict, reprovados: list[dict]) -> dict:
+        """Reescreve só o título, a partir do resumo: a chamada leva os atores dos lados e não leva os textos.
+
+        `reprovados` são os títulos que o QA já recusou neste episódio, cada um com os seus motivos.
+        """
         atores = [ator for lado in analise.lados for ator in lado.atores]
         usuario = (
             "RESUMO:\n" + str(result[RESUMO])
             + "\n\nATORES: " + (", ".join(atores) or "nenhum ator nomeado")
-            + "\n\nPROBLEMAS DETECTADOS:\n- " + "\n- ".join(probs)
-            + "\n\nTÍTULO ORIGINAL:\n" + str(result[TITULO])
+            + "\n\nTÍTULOS JÁ REPROVADOS:\n"
+            + "\n".join(f'- "{r["titulo"]}": {"; ".join(r["motivos"])}' for r in reprovados)
         )
         resposta = self._chamar(PROMPT_TITULO, usuario, chaves=(TITULO,), max_saida=MAX_SAIDA_TITULO)
-        return {**result, TITULO: resposta[TITULO]}, None
+        return {**result, TITULO: resposta[TITULO]}
 
     def _corrigir_resumo(self, entrada: Entrada, analise: Analise, result: dict, probs: list[str]) -> tuple[dict, Entrada]:
         """Reescreve só o resumo, com os mesmos trechos que foram para a geração e sem o episódio inteiro."""
@@ -348,13 +352,14 @@ class Summarizer:
         """Devolve um episódio que passou no QA; do contrário levanta QAReprovado (item é pulado).
 
         O episódio reprovado ganha uma correção só, do tipo que os problemas pedem (ver
-        `tipo_de_correcao`), e passa pelo QA de novo.
+        `tipo_de_correcao`), e passa pelo QA de novo. A do título é a única que pode ser repetida:
+        se o título novo ainda reprova, uma segunda chamada leva os dois títulos recusados.
         """
         entrada, analise = self.preparar(principal, relacionados)
         pauta = [f"{artigo['title']}\n{artigo['text']}" for artigo in (principal, *(relacionados or []))]
         diagnostico = self.ultimo_diagnostico = {
             "entrada": entrada, "lados": analise, "episodio": None, "primeira_versao": None,
-            "problemas": None, "correcao": None, "revisao": None, "problemas_da_revisao": None,
+            "problemas": None, "correcao": None, "revisao": None, "problemas_da_revisao": None, "titulos_reprovados": [],
         }
         logger.debug("Início da entrada enviada ao LLM: %r", entrada.texto[:600])
 
@@ -370,9 +375,11 @@ class Summarizer:
 
         tipo = diagnostico["correcao"] = tipo_de_correcao(problemas)
         logger.warning("QA reprovou a 1ª versão: %s — acionando %s", probs, CORRECOES[tipo])
+        reprovados = diagnostico["titulos_reprovados"]
         try:
             if tipo == "titulo":
-                corrigido, fonte = self._corrigir_titulo(analise, result, probs)
+                reprovados.append({"titulo": str(result[TITULO]), "motivos": probs})
+                corrigido, fonte = self._corrigir_titulo(analise, result, reprovados), None
             elif tipo == "resumo":
                 corrigido, fonte = self._corrigir_resumo(entrada, analise, result, probs)
             elif tipo == "roteiro":
@@ -386,7 +393,18 @@ class Summarizer:
             ) from e
         diagnostico["revisao"], diagnostico["episodio"] = fonte, corrigido
 
-        probs2 = diagnostico["problemas_da_revisao"] = [p.texto for p in qa(corrigido)]
+        problemas2 = qa(corrigido)
+        while tipo == "titulo" and problemas2 and len(reprovados) < TENTATIVAS_DO_TITULO and {p.campo for p in problemas2} == {TITULO}:
+            reprovados.append({"titulo": str(corrigido[TITULO]), "motivos": [p.texto for p in problemas2]})
+            logger.warning("Título corrigido ainda reprovado (%s): nova tentativa, com os títulos já recusados", reprovados[-1]["motivos"])
+            try:
+                corrigido = diagnostico["episodio"] = self._corrigir_titulo(analise, result, reprovados)
+            except Exception as e:
+                raise QAReprovado(
+                    f"{CORRECOES[tipo]} falhou ({type(e).__name__}: {str(e)[:200]}); 1ª versão reprovada: {probs}"
+                ) from e
+            problemas2 = qa(corrigido)
+        probs2 = diagnostico["problemas_da_revisao"] = [p.texto for p in problemas2]
         if not probs2:
             logger.info("%s aprovada pelo QA.", CORRECOES[tipo].capitalize())
             return corrigido

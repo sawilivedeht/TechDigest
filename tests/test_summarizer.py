@@ -424,11 +424,37 @@ def test_problema_so_no_titulo_reescreve_so_o_titulo_a_partir_do_resumo(ollama_8
     assert mensagem == (
         "RESUMO:\n" + com_proporcao["resumo_didatico"]
         + "\n\nATORES: Terra de Direitos, Justiça Global"
-        + f"\n\nPROBLEMAS DETECTADOS:\n- {diagnostico['problemas'][0]}"
-        + "\n\nTÍTULO ORIGINAL:\nMaioria das candidatas sofre ataques"
+        + f'\n\nTÍTULOS JÁ REPROVADOS:\n- "Maioria das candidatas sofre ataques": {diagnostico["problemas"][0]}'
     )
     assert diagnostico["problemas"][0].startswith("título com percentual ou proporção (Maioria)")
     assert "ARTIGO" not in mensagem and "roteiro_podcast" not in mensagem             # sem os textos e sem o resto do episódio
+    assert diagnostico["titulos_reprovados"] == [{"titulo": "Maioria das candidatas sofre ataques", "motivos": diagnostico["problemas"]}]
+
+
+def test_titulo_corrigido_que_ainda_reprova_ganha_uma_segunda_tentativa_com_os_dois_recusados(ollama_8192):
+    # como no episódio 2 de 12/10/2026: a correção trocou "maioria" por "60 dos 102", outra proporção
+    primeiro, segundo = "Mulheres concentram maioria dos casos de violência", "Mulheres são alvo de 60 dos 102 episódios de violência"
+    com_proporcao = {**_episodio(["G1"]), "titulo_reescrito": primeiro,
+                     "resumo_didatico": "Foram 102 episódios, e 60 tiveram mulheres como vítimas. " + "Uma frase. " * 7}
+    lados = {"lados": [{"posicao": "Fato central.", "atores": ["Terra de Direitos"], "veiculos": ["G1"]}]}
+    artigo = _artigo("G1", 3000)
+    artigo["text"] += "\n\nForam 102 episódios, e 60 tiveram mulheres como vítimas."
+    provider = ProviderFalso(com_proporcao, {"titulo_reescrito": segundo}, {"titulo_reescrito": "Mulheres são o principal alvo da violência política"}, lados=lados)
+    s = Summarizer(provider=provider)
+
+    assert s.process(artigo)["titulo_reescrito"] == "Mulheres são o principal alvo da violência política"
+    diagnostico = s.ultimo_diagnostico
+    assert diagnostico["correcao"] == "titulo" and diagnostico["problemas_da_revisao"] == []
+    assert [r["titulo"] for r in diagnostico["titulos_reprovados"]] == [primeiro, segundo]
+    (_, (sistema1, tentativa1), (sistema2, tentativa2)) = (args for args, _ in provider.chamadas)
+    assert sistema1 == sistema2 == PROMPT_TITULO and segundo not in tentativa1
+    assert tentativa2.startswith(tentativa1 + f'\n- "{segundo}": título com percentual ou proporção (60 dos 102)')   # leva os dois, cada um com o motivo
+
+    # a segunda tentativa é a última: se ela também reprova, o item é pulado
+    teimoso = ProviderFalso(com_proporcao, {"titulo_reescrito": segundo}, {"titulo_reescrito": "Metade das vítimas é mulher"}, lados=lados)
+    with pytest.raises(QAReprovado, match="correção do título ainda reprovada pelo QA: .*Metade"):
+        Summarizer(provider=teimoso).process(artigo)
+    assert len(teimoso.chamadas) == 3
 
 
 def test_papel_com_nome_de_ator_vai_para_a_revisao_do_roteiro_que_so_troca_o_papel(ollama_8192):

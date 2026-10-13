@@ -177,12 +177,14 @@ Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
 "roteiro_podcast": [{"personagem": "<nome exato>", "fala": "<texto falado>"}]}"""
 
 PROMPT_TITULO = """Você é o editor-chefe de controle de qualidade dos boletins \
-TechDigest/PulsoBR. Receberá o RESUMO de um episódio, os ATORES da história, uma lista de problemas \
-detectados e o TÍTULO do episódio. Reescreva só o título, para eliminar TODOS os problemas listados.
+TechDigest/PulsoBR. Receberá o RESUMO de um episódio, os ATORES da história e os TÍTULOS JÁ REPROVADOS, \
+cada um com o motivo. Escreva um título novo para o episódio.
+- Não repita nenhum título reprovado nem troque um motivo de reprovação por outro do mesmo tipo: quem \
+tira "maioria" não põe "60 dos 102" no lugar.
 - Título curto e chamativo, sem sensacionalismo, tirado do resumo: não afirma nada que o resumo não afirme.
 - Sem percentuais, "x vezes" (nem "dobro", "triplo" ou "quádruplo") nem proporções ("metade", "um terço", \
-"três em cada quatro", "maioria", "minoria", "maior parte", "grande parte"). Quantidade absoluta pode \
-aparecer ("12 mortos", "mais de 100 mortos"), com o número que o resumo traz.
+"três em cada quatro", "60 dos 102", "maioria", "minoria", "maior parte", "grande parte"). Quantidade \
+absoluta pode aparecer ("12 mortos", "mais de 100 mortos"), com o número que o resumo traz.
 - Nomeia os atores como as fontes os nomeiam: não troque uma pessoa pela instituição ou pelo estado dela.
 - Não atribui nada a grupo sem nome ("especialistas", "analistas").
 Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
