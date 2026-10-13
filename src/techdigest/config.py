@@ -65,7 +65,8 @@ class Settings(BaseSettings):
     # Agrupamento de notícias em pautas. Só scripts/testar_agrupamento.py usa; o pipeline ainda não agrupa
     agrup_chars_texto: int = 1500      # caracteres iniciais do texto extraído que entram no TF-IDF
     agrup_peso_titulo: float = 0.4     # score = peso × título + (1 − peso) × texto
-    agrup_limiar: float = 0.18         # score mínimo da pauta provisória (provisório: calibrado numa amostra só); quem confirma é o LLM
+    agrup_limiar: float = 0.18         # score mínimo da pauta provisória; quem confirma é o LLM. Mantido depois de uma segunda
+                                       # amostra (12/10/2026): entre 0,15 e 0,18 só havia pares de fatos diferentes
     agrup_limiar_duplicata: float = 0.95   # similaridade de texto a partir da qual é republicação, não outra fonte
     agrup_max_artigos: int = 3         # artigos por pauta (principal + 2 relacionados, o limite do _montar_entrada)
     agrup_chars_etapa3: int = 900      # caracteres iniciais de cada texto que o LLM recebe para confirmar a pauta
