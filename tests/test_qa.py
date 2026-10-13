@@ -183,7 +183,9 @@ def test_titulo_com_ano_ordinal_ou_quantidade_absoluta_passa(titulo):
 # ── Verbos de posição ─────────────────────────────────────────────────────────────────────
 
 def test_verbos_de_posicao_sao_formas_inteiras_e_nao_radicais():
-    assert len(VERBOS_DE_POSICAO) == 16 and len(FORMAS_DE_POSICAO) == 16 * 7
+    assert len(VERBOS_DE_POSICAO) == 21 and len(FORMAS_DE_POSICAO) == 21 * 7
+    assert verbos_de_posicao("O ministro entendeu, decidiu e determinou; a defesa argumenta e destaca.") == [
+        "entendeu", "decidiu", "determinou", "argumenta", "destaca"]
     assert verbos_de_posicao("Analistas avaliam o risco, e o ministro ponderou.") == ["avaliam", "ponderou"]
     assert verbos_de_posicao("A Meta nega, mas a campanha Acusou e segue cobrando.") == ["nega", "acusou", "cobrando"]
     assert verbos_de_posicao("O partido afirmava, e os aliados defendiam, rebatendo a crítica.") == ["afirmava", "defendiam", "rebatendo"]
@@ -549,9 +551,23 @@ def test_papel_de_analista_com_nome_de_ator_dos_lados_reprova():
     assert qa.problemas_dos_papeis(episodio, LADOS_DA_META) == []
 
 
-def test_analista_de_lado_fino_tem_minimo_menor_e_o_total_nao_muda():
-    grosso = Lado("A campanha acusa.", ("campanha de Lula",), ("CartaCapital",), "Sim", ("um trecho", "outro trecho"))
-    fino = Lado("A Meta nega.", ("Meta",), ("Agência Brasil",), "Não", ("um trecho só",))
+def test_verbo_de_quem_decide_conta_na_frase_do_analista():
+    # os lados e a frase do Dr. Ramos no episódio 5 de v4 (12/10/2026), reprovado porque "entender" não estava na lista
+    lados = [Lado("O canal deve ser suspenso.", ("Kassio Nunes Marques",), ("O GLOBO",), "Sim"),
+             Lado("A suspensão é tendenciosa.", ("Lula", "André Janones"), ("O GLOBO", "G1", "Agência Brasil"), "Não")]
+    debate = _debate(
+        ("Dr. Ramos", "Segundo o O Globo, o ministro Kassio Nunes Marques entendeu que o canal, que saltou de 50 mil para mais de três "
+                      "milhões de seguidores após o primeiro turno, se tornou um vetor de disseminação de conteúdos que a própria Corte "
+                      "já reconheceu como desprovidos de lastro mínimo."),
+        ("Bia", "Segundo o G1, o presidente Lula classificou a medida como absurda e afirmou que já percebe decisões tendenciosas."),
+    )
+    assert qa.lados_de_cada_analista(debate, lados) == {"Dr. Ramos": [0], "Bia": [1]}
+    assert qa.problemas_dos_analistas(debate, lados) == []
+
+
+def test_analista_de_lado_fino_fala_de_120_a_200_palavras_e_o_total_nao_muda():
+    grosso = Lado("A campanha acusa.", ("campanha de Lula",), ("CartaCapital",), "Sim", mencoes=5)
+    fino = Lado("A Meta nega.", ("Meta",), ("Agência Brasil",), "Não", mencoes=1)
     cheio = " ".join(["palavra"] * qa.MIN_POR_PERSONAGEM)
     pouco = " ".join(["palavra"] * qa.MIN_LADO_FINO)
 
@@ -564,15 +580,20 @@ def test_analista_de_lado_fino_tem_minimo_menor_e_o_total_nao_muda():
                 ]}
 
     curto_no_fino = episodio(cheio, pouco)
-    assert qa.minimo_de_cada_personagem(curto_no_fino, [grosso, fino]) == {
-        "Helena": qa.MIN_POR_PERSONAGEM, "Bia": qa.MIN_POR_PERSONAGEM, "Ramos": qa.MIN_LADO_FINO}
+    de_sempre = (qa.MIN_POR_PERSONAGEM, qa.MAX_POR_PERSONAGEM)
+    assert qa.limites_de_cada_personagem(curto_no_fino, [grosso, fino]) == {
+        "Helena": de_sempre, "Bia": de_sempre, "Ramos": (qa.MIN_LADO_FINO, qa.MAX_LADO_FINO)}
     assert qa.problemas(curto_no_fino, ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS) == []
     # o mesmo tamanho no analista do outro lado reprova, e sem lado fino o mínimo é o de sempre para todos
-    [problema] = qa.problemas(episodio(pouco, cheio), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS)
-    assert problema.startswith(f"Bia com {qa.MIN_LADO_FINO + 10} palavras (alvo {qa.MIN_POR_PERSONAGEM}-")
-    assert qa.minimo_de_cada_personagem(curto_no_fino, [grosso, grosso])["Ramos"] == qa.MIN_POR_PERSONAGEM
+    problemas = qa.problemas(episodio(pouco, cheio), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS)
+    assert problemas[0].startswith(f"Bia com {qa.MIN_LADO_FINO + 10} palavras (alvo {qa.MIN_POR_PERSONAGEM}-")
+    assert qa.limites_de_cada_personagem(curto_no_fino, [grosso, grosso])["Ramos"] == de_sempre
+    # o analista do lado fino também tem teto: o que seria normal para os outros reprova
+    [problema] = qa.problemas(episodio(cheio, cheio), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS)
+    assert problema == (f"Ramos com {qa.MIN_POR_PERSONAGEM + 9} palavras (alvo {qa.MIN_LADO_FINO}-{qa.MAX_LADO_FINO}: é o analista de um lado "
+                        "fino, que não amplia além do que as fontes trazem)")
     # abaixo do mínimo do lado fino também reprova, com o mínimo dele na mensagem
     problemas = qa.problemas(episodio(cheio, "palavra"), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS)
-    assert problemas[0].startswith(f"Ramos com 10 palavras (alvo {qa.MIN_LADO_FINO}-")
+    assert problemas[0].startswith(f"Ramos com 10 palavras (alvo {qa.MIN_LADO_FINO}-{qa.MAX_LADO_FINO}: é o analista de um lado fino")
     assert problemas[1].startswith("total de ")                                           # os limites totais não mudam
 

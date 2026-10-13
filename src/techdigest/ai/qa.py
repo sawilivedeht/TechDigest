@@ -17,7 +17,8 @@ settings = Settings()
 # Faixas editoriais (regras 2, 3 e 6). Os valores vêm do .env (QA_*); os defaults do
 # config.py são as regras originais do dono.
 MIN_POR_PERSONAGEM, MAX_POR_PERSONAGEM = settings.qa_min_por_personagem, settings.qa_max_por_personagem
-MIN_LADO_FINO = settings.qa_min_lado_fino   # o mínimo do analista de um lado fino (ver `ai/lados.py`)
+# A faixa do analista de um lado fino (ver `ai/lados.py`): ele não amplia além do que as fontes trazem.
+MIN_LADO_FINO, MAX_LADO_FINO = settings.qa_min_lado_fino, settings.qa_max_lado_fino
 MIN_TOTAL, MAX_TOTAL = settings.qa_min_total, settings.qa_max_total
 MIN_FRASES_RESUMO, MAX_FRASES_RESUMO = settings.qa_min_frases, settings.qa_max_frases
 
@@ -228,17 +229,17 @@ def lado_de_cada_analista(result: dict, lados) -> dict[str, int]:
     return {}
 
 
-def minimo_de_cada_personagem(result: dict, lados) -> dict[str, int]:
-    """O mínimo de palavras de cada personagem que fala.
+def limites_de_cada_personagem(result: dict, lados) -> dict[str, tuple[int, int]]:
+    """O mínimo e o máximo de palavras de cada personagem que fala.
 
-    É MIN_POR_PERSONAGEM, a não ser para o analista de um lado fino (um só trecho de evidência, em
-    pauta de 2 lados ou mais), que tem MIN_LADO_FINO. Sem correspondência entre analistas e lados,
-    vale o mínimo de sempre para todos.
+    São MIN_POR_PERSONAGEM e MAX_POR_PERSONAGEM, a não ser para o analista de um lado fino (ver
+    `ai/lados.py`; só em pauta de 2 lados ou mais), que fala de MIN_LADO_FINO a MAX_LADO_FINO. Sem
+    correspondência entre analistas e lados, vale a faixa de sempre para todos.
     """
     finos = {i for i, lado in enumerate(lados) if len(lados) >= 2 and lado.fino}
     do_lado = lado_de_cada_analista(result, lados) if finos else {}
     return {
-        nome: MIN_LADO_FINO if do_lado.get(nome) in finos else MIN_POR_PERSONAGEM
+        nome: (MIN_LADO_FINO, MAX_LADO_FINO) if do_lado.get(nome) in finos else (MIN_POR_PERSONAGEM, MAX_POR_PERSONAGEM)
         for nome in palavras_por_personagem(result["roteiro_podcast"])
     }
 
@@ -466,10 +467,10 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos) -> lis
         probs.append(Problema(RESUMO, f"resumo com {frases_do_resumo} frases (alvo {MIN_FRASES_RESUMO}-{MAX_FRASES_RESUMO})"))
 
     por_pers = palavras_por_personagem(result["roteiro_podcast"])
-    minimos = minimo_de_cada_personagem(result, lados)
-    for nome, n in por_pers.items():
-        if not (minimos[nome] <= n <= MAX_POR_PERSONAGEM):
-            probs.append(Problema(ROTEIRO, f"{nome} com {n} palavras (alvo {minimos[nome]}-{MAX_POR_PERSONAGEM})"))
+    for nome, (minimo, maximo) in limites_de_cada_personagem(result, lados).items():
+        if not (minimo <= por_pers[nome] <= maximo):
+            fino = ": é o analista de um lado fino, que não amplia além do que as fontes trazem" if maximo == MAX_LADO_FINO else ""
+            probs.append(Problema(ROTEIRO, f"{nome} com {por_pers[nome]} palavras (alvo {minimo}-{maximo}{fino})"))
 
     total = sum(por_pers.values())
     if not (MIN_TOTAL <= total <= MAX_TOTAL):

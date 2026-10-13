@@ -25,6 +25,12 @@ VERBOS_DE_POSICAO = {
     "rebater": ("rebate", "rebatem", "rebateu", "rebateram", "rebatia", "rebatiam", "rebatendo"),
     "avaliar": ("avalia", "avaliam", "avaliou", "avaliaram", "avaliava", "avaliavam", "avaliando"),
     "ponderar": ("pondera", "ponderam", "ponderou", "ponderaram", "ponderava", "ponderavam", "ponderando"),
+    # os de quem decide ou fundamenta uma decisão
+    "entender": ("entende", "entendem", "entendeu", "entenderam", "entendia", "entendiam", "entendendo"),
+    "argumentar": ("argumenta", "argumentam", "argumentou", "argumentaram", "argumentava", "argumentavam", "argumentando"),
+    "destacar": ("destaca", "destacam", "destacou", "destacaram", "destacava", "destacavam", "destacando"),
+    "determinar": ("determina", "determinam", "determinou", "determinaram", "determinava", "determinavam", "determinando"),
+    "decidir": ("decide", "decidem", "decidiu", "decidiram", "decidia", "decidiam", "decidindo"),
 }
 FORMAS_DE_POSICAO = frozenset(forma for formas in VERBOS_DE_POSICAO.values() for forma in formas)
 INFINITIVOS = ", ".join(VERBOS_DE_POSICAO)   # como a lista aparece nos prompts e nas mensagens do QA

@@ -70,7 +70,7 @@ de posição (ex.: "segundo <veículo>, <ator> acusa..."). Ele sustenta a posiç
 com os argumentos das fontes: não critica a própria posição, não endossa a do outro lado e \
 não emite juízo próprio. Ele fala na terceira pessoa ("a campanha sustenta...") e nunca como \
 porta-voz ("nós", "não podemos aceitar"). O analista de um lado que o bloco marca como fino \
-fala menos, como o bloco diz, e não amplia além do que as fontes trazem. Verbos de \
+fala só de 120 a 200 palavras e não amplia além do que as fontes trazem. Verbos de \
 posição: """ + INFINITIVOS + """.
 
 ### roteiro_podcast
@@ -92,8 +92,8 @@ inaceitáveis neste formato.
 do episódio; total entre 600 e 1300 palavras. Antes de responder, conte mentalmente \
 as palavras de cada personagem e expanda as falas até cumprir o mínimo. Mire no alvo \
 por personagem que o bloco LADOS DA PAUTA indica, nunca perto do teto de 480: passar \
-de 480 em um personagem ou de 1300 no total reprova o episódio. Só o analista de lado fino \
-pode ficar abaixo de 240, na faixa que o bloco dá.
+de 480 em um personagem ou de 1300 no total reprova o episódio. O analista de lado fino \
+é a exceção: fala de 120 a 200 palavras, nem menos nem mais.
 - Escreva para ser FALADO: sem markdown, sem URLs (diga "o site do veículo" se \
 precisar), sem listas; siglas pronunciáveis (IA, CPI); números por extenso quando \
 ficar mais natural à locução.
@@ -124,8 +124,8 @@ omitir um lado ou uma ressalva do bloco é tão grave quanto.
 "fontes_citadas", haja ou não divergência."""
 
 _REGRAS_DO_ROTEIRO = """Regras do roteiro: diálogo de 600-1300 palavras no total, 240-480 por personagem, \
-10-20 turnos, falas de 50-90 palavras, tom de conversa. Só o analista de um lado que o bloco marca \
-como fino pode ficar abaixo de 240 palavras, na faixa que o bloco dá, sem ampliar além das fontes.
+10-20 turnos, falas de 50-90 palavras, tom de conversa. O analista de um lado que o bloco marca \
+como fino é a exceção: fala de 120 a 200 palavras, nem menos nem mais, sem ampliar além das fontes.
 Elenco: Helena e um analista por lado, até 3 analistas, conforme o bloco LADOS DA PAUTA do \
 artigo-fonte. Helena só media, sem tomar posição. A questão do bloco é um guia interno: Helena a \
 apresenta uma vez, na abertura, com palavras naturais, sem repeti-la ao pé da letra e sem transformar \
@@ -225,9 +225,6 @@ na disputa, inclusive quem pediu ou tomou a decisão em disputa. Cada entrada tr
 - "trecho": um trecho de até 200 caracteres, copiado AO PÉ DA LETRA do texto de um veículo recebido, \
 que comprove essa resposta. Copie, não resuma nem corrija;
 - "veiculo": o veículo de onde o trecho saiu.
-Quando os textos trazem mais de um trecho que sustenta a resposta de um ator, repita o ator em até 3 \
-entradas, uma por trecho diferente. Se só há um trecho, liste um só: o número de trechos mostra quanto \
-material as fontes têm para cada lado.
 Quem pede ou toma uma decisão responde a favor dela; quem a critica responde contra.
 Com questão, cada lado com atores é uma das respostas dessa lista, com as mesmas palavras, e reúne os \
 atores que a deram. Ator sem trecho que comprove a resposta não entra em lado nenhum.

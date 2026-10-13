@@ -13,8 +13,8 @@ from dataclasses import dataclass, field, replace
 
 from techdigest.ai.prompt import PROMPT_LADOS
 from techdigest.ai.qa import (
-    MIN_LADO_FINO, QUANTIFICADORES, atores_exclusivos, mesmo_ator, mesmo_veiculo, palavras_do_ator, termo_do_grupo,
-    veiculos_distintos,
+    MAX_LADO_FINO, MIN_LADO_FINO, QUANTIFICADORES, ator_citado, atores_exclusivos, frases, mesmo_ator, mesmo_veiculo,
+    palavras_do_ator, termo_do_grupo, veiculos_distintos,
 )
 
 logger = logging.getLogger("techdigest.ai.lados")
@@ -31,7 +31,7 @@ MAX_QUESTAO = 160           # caracteres da questão no bloco
 MAX_RESPOSTA = 60           # caracteres da resposta de cada lado no bloco
 MAX_ANTERIOR = 2000         # caracteres da resposta recusada que voltam ao LLM na nova tentativa
 MIN_TRECHO = 20             # caracteres: trecho de evidência menor que isto não comprova nada
-FOLGA_DO_LADO_FINO = 80     # palavras: o alvo do analista de lado fino vai do mínimo dele até o mínimo mais isto
+MAX_MENCOES_DO_LADO_FINO = 1   # frases dos textos em que os atores de um lado fino aparecem, no máximo
 # A posição do lado neutro: quando nenhum lado tem ator nomeado ou quando as duas tentativas da análise não valem.
 POSICAO_DE_EMERGENCIA = "relato dos fatos, sem lados definidos"
 # Alvo de palavras por personagem conforme o número de analistas: com Helena, o total cabe em 600-1300.
@@ -70,11 +70,12 @@ class Lado:
     veiculos: tuple[str, ...]   # com a grafia da pauta
     resposta: str = ""          # a resposta do lado à questão; vazia quando a pauta tem um lado só
     trechos: tuple[str, ...] = ()   # os trechos dos textos que comprovam a resposta dos atores (só com questão)
+    mencoes: int | None = None      # em quantas frases dos textos recebidos os atores aparecem (None = não contado)
 
     @property
     def fino(self) -> bool:
-        """Lado com um só trecho de evidência: há pouco material nas fontes para sustentá-lo."""
-        return len(set(self.trechos)) == 1
+        """Lado cujos atores aparecem em no máximo uma frase dos textos: há pouco material para sustentá-lo."""
+        return self.mencoes is not None and self.mencoes <= MAX_MENCOES_DO_LADO_FINO
 
 
 @dataclass(frozen=True)
@@ -108,7 +109,8 @@ class Analise:
     respostas: list[Evidencia] = field(default_factory=list)   # a resposta e o trecho de cada ator (só com questão)
     problemas: list[str] = field(default_factory=list)   # por que a resposta não valeu (e a pauta ficou com o lado neutro)
     ajustes: list[str] = field(default_factory=list)     # o que o código mudou na resposta (ator que passou a grupo...)
-    descartadas: list[Ressalva] = field(default_factory=list)   # as ressalvas além de MAX_RESSALVAS
+    descartadas: list[Ressalva] = field(default_factory=list)   # as ressalvas que não entram no episódio
+    motivo_do_descarte: str = ""                         # por que as descartadas saíram
     resposta: dict | None = None
     primeira: "Analise | None" = None                    # a primeira tentativa, quando ela não valeu e houve outra
 
@@ -294,6 +296,18 @@ def _separar(rascunhos: list[_Rascunho]) -> tuple[dict[int, Lado], list[Ressalva
     return nomeados, ressalvas, ajustes
 
 
+def mencoes(atores, textos) -> int:
+    """Em quantas frases dos textos (o título e as frases do texto de cada um) aparece algum dos atores.
+
+    Conta o nome, pela regra de `qa.ator_citado`: "o ministro" não vale por "Waldez Góes". É a
+    medida de quanto material as fontes trazem sobre quem sustenta um lado.
+    """
+    return sum(
+        any(ator_citado(ator, frase) for ator in atores)
+        for texto in textos for frase in (texto["titulo"], *frases(texto["texto"]))
+    )
+
+
 def lados_finos(lados) -> list[bool]:
     """Para cada lado, se ele é fino. Só há lado fino em pauta de 2 lados ou mais."""
     return [len(lados) >= 2 and lado.fino for lado in lados]
@@ -331,8 +345,9 @@ def analise_da_resposta(resposta, textos) -> Analise:
 
     Dos lados com ator nomeado, vale até 3, cada um com um ator que nenhum outro tem. A questão só
     fica com 2 lados ou mais, e aí cada lado tem a sua resposta, diferente das outras; com um lado
-    só, a questão sai. Sem nenhum lado com ator nomeado, a pauta fica com o lado neutro e mantém
-    as ressalvas. Todo veículo da pauta tem de estar em algum lado ou ressalva.
+    só, a questão sai. Sem nenhum lado com ator nomeado, a pauta fica com o lado neutro e as
+    ressalvas são descartadas. Todo veículo da pauta tem de estar em algum lado ou ressalva. Cada
+    lado sai com a contagem das frases dos textos em que os seus atores aparecem (ver `mencoes`).
 
     Resposta que não cumpre isso vira o lado neutro, sem ressalvas, com o motivo em `problemas`.
     """
@@ -379,15 +394,18 @@ def analise_da_resposta(resposta, textos) -> Analise:
         probs.append(f"veículo da pauta em nenhum lado ({', '.join(sem_lado)})")
     if probs:
         return invalida(*probs)
-    if not validos:
-        ajustes.append("nenhum lado com ator nomeado: a pauta fica com o lado neutro")
-        validos = lado_unico(da_pauta)
-    descartadas = ressalvas[MAX_RESSALVAS:]
-    if descartadas:
-        ajustes.append(f"{len(descartadas)} ressalva(s) a mais: ficam as {MAX_RESSALVAS} primeiras")
+    if not validos:   # sem lado com ator nomeado não há a quem a ressalva se oponha: fica só o relato dos fatos
+        validos, descartadas, ressalvas, motivo_do_descarte = lado_unico(da_pauta), ressalvas, [], "nenhum lado tem ator nomeado"
+        ajustes.append("nenhum lado com ator nomeado: a pauta fica com o lado neutro, sem ressalvas")
+    else:
+        descartadas, ressalvas = ressalvas[MAX_RESSALVAS:], ressalvas[:MAX_RESSALVAS]
+        motivo_do_descarte = f"a pauta já tem {MAX_RESSALVAS} ressalvas" if descartadas else ""
+        if descartadas:
+            ajustes.append(f"{len(descartadas)} ressalva(s) a mais: ficam as {MAX_RESSALVAS} primeiras")
+    validos = [replace(lado, mencoes=mencoes(lado.atores, textos)) if lado.atores else lado for lado in validos]
     return Analise(
-        validos, questao, _linha(resposta.get("motivo")), ressalvas=ressalvas[:MAX_RESSALVAS], respostas=respostas,
-        ajustes=ajustes, descartadas=descartadas, resposta=resposta,
+        validos, questao, _linha(resposta.get("motivo")), ressalvas=ressalvas, respostas=respostas,
+        ajustes=ajustes, descartadas=descartadas, motivo_do_descarte=motivo_do_descarte, resposta=resposta,
     )
 
 
@@ -425,9 +443,7 @@ def analisar_lados(chamar, textos) -> Analise:
     if analise.ajustes:
         logger.info("Análise de lados: ajustes na resposta (%s).", "; ".join(analise.ajustes))
     if analise.descartadas:
-        logger.warning(
-            "Análise de lados: %d ressalva(s) a mais na pauta; ficam as %d primeiras.", len(analise.descartadas), MAX_RESSALVAS,
-        )
+        logger.warning("Análise de lados: %d ressalva(s) descartada(s): %s.", len(analise.descartadas), analise.motivo_do_descarte)
     if analise.problemas:
         logger.warning(
             "Análise de lados inválida nas duas tentativas (%s): a pauta segue com um lado só, sem lados definidos.",
@@ -484,7 +500,7 @@ def bloco_dos_lados(lados, questao: str = "", ressalvas=()) -> str:
     if any(finos):
         elenco += (
             f" Lado fino tem pouco material nas fontes: o analista dele fala de {MIN_LADO_FINO} a "
-            f"{MIN_LADO_FINO + FOLGA_DO_LADO_FINO} palavras e não amplia além do que as fontes trazem."
+            f"{MAX_LADO_FINO} palavras e não amplia além do que as fontes trazem."
         )
     elenco += f" Alvo: {ALVO_POR_PERSONAGEM[n]} palavras por personagem{', fora o de lado fino' if any(finos) else ''}."
     cabecalho = f"\nLADOS DA PAUTA: {n} lado{'s' if n > 1 else ''}."

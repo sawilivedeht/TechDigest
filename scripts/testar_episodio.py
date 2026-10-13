@@ -15,7 +15,8 @@ não roda. --so-lados faz só a análise de lados de cada pauta, sem gerar epis�
 
 Antes de cada chamada ao LLM mostra memória disponível, swap e temperaturas. Para se a memória
 disponível estiver abaixo de --min-memoria (GiB) ou se o Ollama sair do ar ou descarregar o modelo
-no meio da rodada. Grava em data/agrupamento/<pasta>/ o JSON de cada episódio e um
+no meio da rodada. Se a CPU passar de --max-cpu (°C) antes de uma chamada, espera até ela baixar de
+--retomar-cpu e continua. Grava em data/agrupamento/<pasta>/ o JSON de cada episódio e um
 relatorio_<data-hora>.json (ou lados_<data-hora>.json) com tudo o que foi medido.
 """
 import argparse
@@ -29,7 +30,7 @@ from pathlib import Path
 
 import testar_agrupamento as diag
 from techdigest.ai import qa
-from techdigest.ai.llm import _amostra_sistema, get_provider
+from techdigest.ai.llm import _amostra_sistema, _temperatura_cpu, get_provider
 from techdigest.ai.lados import lados_finos
 from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
 from techdigest.ai.summarizer import CORRECOES, TETO_PRINCIPAL, TETO_RELACIONADO, QAReprovado, Summarizer
@@ -63,6 +64,10 @@ def _argumentos() -> argparse.Namespace:
                    help="quantas pautas com várias fontes gerar (padrão: %(default)s)")
     p.add_argument("--min-memoria", type=float, default=4.0, metavar="GIB",
                    help="para se a memória disponível cair abaixo disto, em GiB (padrão: %(default)s)")
+    p.add_argument("--max-cpu", type=float, default=95.0, metavar="°C",
+                   help="com a CPU acima disto antes de uma chamada, a rodada espera esfriar (padrão: %(default)s)")
+    p.add_argument("--retomar-cpu", type=float, default=85.0, metavar="°C",
+                   help="a rodada continua quando a CPU baixa disto (padrão: %(default)s)")
     args = p.parse_args()
     if not args.amostra and not args.repetir:
         p.error("informe --amostra ou --repetir")
@@ -154,12 +159,17 @@ def _estado_da_maquina() -> tuple[float, str]:
     return mem["MemAvailable"] / 1048576, _amostra_sistema()
 
 
-class ProviderMonitorado:
-    """Envolve o provider: confere a memória e o Ollama antes de cada chamada e guarda tempo, tokens e resposta."""
+ESPERA_MAXIMA_DA_CPU = 900   # segundos: se a CPU não esfria nesse tempo, a rodada para
+INTERVALO_DA_CPU = 10        # segundos entre duas leituras da temperatura durante a espera
 
-    def __init__(self, provider, min_memoria: float):
+
+class ProviderMonitorado:
+    """Envolve o provider: confere a memória, a temperatura e o Ollama antes de cada chamada e guarda tempo, tokens e resposta."""
+
+    def __init__(self, provider, min_memoria: float, max_cpu: float = 95.0, retomar_cpu: float = 85.0):
         self.provider = provider
         self.min_memoria = min_memoria
+        self.max_cpu, self.retomar_cpu = max_cpu, retomar_cpu
         self.chamadas: list[dict] = []
         self.modelo_ja_carregou = False
 
@@ -182,10 +192,30 @@ class ProviderMonitorado:
                 f"(carregados agora: {', '.join(carregados) or 'nenhum'})."
             )
 
+    def _esperar_a_cpu(self) -> float:
+        """Com a CPU acima de `max_cpu`, espera até ela baixar de `retomar_cpu`. Devolve os segundos esperados."""
+        temperatura = _temperatura_cpu()
+        if temperatura is None or temperatura <= self.max_cpu:
+            return 0.0
+        print(f"      CPU a {temperatura:.0f} °C, acima de {self.max_cpu:.0f} °C: esperando baixar de {self.retomar_cpu:.0f} °C",
+              flush=True)
+        inicio = time.perf_counter()
+        while temperatura is not None and temperatura >= self.retomar_cpu:
+            if time.perf_counter() - inicio > ESPERA_MAXIMA_DA_CPU:
+                raise RodadaInterrompida(
+                    f"\nPAREI: a CPU continua a {temperatura:.0f} °C depois de {ESPERA_MAXIMA_DA_CPU // 60} minutos de espera."
+                )
+            time.sleep(INTERVALO_DA_CPU)
+            temperatura = _temperatura_cpu()
+        esperou = time.perf_counter() - inicio
+        print(f"      CPU a {temperatura or 0:.0f} °C depois de {esperou:.0f} s: a rodada continua", flush=True)
+        return esperou
+
     def chat_json(self, system: str, user: str, **opcoes) -> dict:
+        esperou = self._esperar_a_cpu()
         disponivel, resumo = _estado_da_maquina()
         chamada = {
-            "prompt": ROTULOS.get(system, "outro"),
+            "prompt": ROTULOS.get(system, "outro"), "espera_pela_cpu": round(esperou, 1),
             "chars_sistema": len(system), "chars_entrada": len(user), "maquina_antes": resumo,
             "memoria_disponivel": round(disponivel, 2), "memoria_por_processo": (memoria := _memoria_por_processo()),
         }
@@ -308,10 +338,10 @@ def _lados(analise, chamadas: list[dict]) -> dict:
         "tentativas": len(feitas), "lado_de_emergencia": bool(analise.problemas), "invalida_porque": analise.problemas,
         "ajustes": analise.ajustes,
         "ressalvas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos)} for r in analise.ressalvas],
-        "ressalvas_descartadas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos)}
-                                  for r in analise.descartadas],
+        "ressalvas_descartadas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos),
+                                   "motivo": analise.motivo_do_descarte} for r in analise.descartadas],
         "lados": [{"resposta": lado.resposta, "posicao": lado.posicao, "atores": list(lado.atores), "veiculos": list(lado.veiculos),
-                   "trechos": list(lado.trechos), "fino": fino}
+                   "trechos": list(lado.trechos), "frases_com_os_atores": lado.mencoes, "fino": fino}
                   for lado, fino in zip(analise.lados, lados_finos(analise.lados))],
         "respostas_por_ator": [{"ator": e.ator, "resposta": e.resposta, "trecho": e.trecho, "veiculo": e.veiculo,
                                 "comprovada": e.comprovada} for e in analise.respostas],
@@ -333,10 +363,12 @@ def _lados(analise, chamadas: list[dict]) -> dict:
         resposta = f"[{lado['resposta']}] " if lado["resposta"] else ""
         print(f"    lado {i}{' (FINO)' if lado['fino'] else ''}: {resposta}{lado['posicao']}")
         print(f"            atores: {', '.join(lado['atores']) or '-'} · veículos: {', '.join(lado['veiculos'])} · "
-              f"trechos de evidência: {len(set(lado['trechos']))}")
+              f"frases dos textos com os atores: {lado['frases_com_os_atores']}")
     for i, ressalva in enumerate(registro["ressalvas"], 1):
         print(f"    ressalva {i}: {ressalva['posicao']}")
         print(f"            grupos: {', '.join(ressalva['grupos']) or '-'} · veículos: {', '.join(ressalva['veiculos'])}")
+    for ressalva in registro["ressalvas_descartadas"]:
+        print(f"    ressalva descartada ({ressalva['motivo']}): {ressalva['posicao']} · grupos: {', '.join(ressalva['grupos']) or '-'}")
     print(f"    motivo: {registro['motivo'] or '-'}")
     for ajuste in analise.ajustes:
         print(f"    ajuste: {ajuste}")
@@ -463,12 +495,12 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
         analise = diagnostico.get("lados")
         try:
             relatorio["palavras_por_personagem"] = qa.palavras_por_personagem(episodio["roteiro_podcast"])
-            relatorio["minimo_por_personagem"] = qa.minimo_de_cada_personagem(episodio, analise.lados) if analise else None
+            relatorio["limites_por_personagem"] = qa.limites_de_cada_personagem(episodio, analise.lados) if analise else None
             relatorio["lado_de_cada_analista"] = qa.lado_de_cada_analista(episodio, analise.lados) if analise else None
         except (KeyError, TypeError, AttributeError):   # episódio fora do formato
             pass
         print(f"  turnos: {relatorio['turnos']} · palavras: {relatorio.get('palavras_por_personagem')} · "
-              f"mínimos: {relatorio.get('minimo_por_personagem')}")
+              f"limites: {relatorio.get('limites_por_personagem')}")
         print(f"  papéis: {[(p.get('nome'), p.get('papel')) for p in relatorio['personagens'] or [] if isinstance(p, dict)]}")
         for item in relatorio["frases_na_primeira_pessoa"]:
             print(f"  primeira pessoa ({item['personagem']}; {', '.join(item['marcas'])}): {item['frase']}")
@@ -518,7 +550,7 @@ def main() -> None:
         sys.exit(f"PAREI antes de começar: memória disponível em {disponivel:.1f} GiB, abaixo de {args.min_memoria:.1f} GiB.")
 
     provider = get_provider(settings)
-    monitor = ProviderMonitorado(provider, args.min_memoria)
+    monitor = ProviderMonitorado(provider, args.min_memoria, args.max_cpu, args.retomar_cpu)
     summarizer = Summarizer(provider=monitor)
     candidatos, ids = diag._carregar_amostra(args.amostra)
     if args.repetir or args.pautas:

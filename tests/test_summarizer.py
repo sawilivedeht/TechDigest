@@ -55,6 +55,14 @@ def _episodio(fontes: list[str]) -> dict:
     }
 
 
+def _artigos_da_meta() -> tuple[dict, list[dict]]:
+    """Os dois artigos da pauta da Meta, cada um citando o seu ator em mais de uma frase (nenhum lado é fino)."""
+    principal, relacionado = _artigo("Agência Brasil", 2000), _artigo("CartaCapital", 2000)
+    principal["text"] += "\n\nA Meta nega o favorecimento. A Meta fala em problemas técnicos."
+    relacionado["text"] += "\n\nA campanha de Lula acusa a empresa. A campanha de Lula acionou o tribunal."
+    return principal, [relacionado]
+
+
 class ProviderFalso:
     """Devolve as respostas em fila e guarda o que recebeu; conta 1 token a cada 4 caracteres.
 
@@ -297,7 +305,7 @@ def test_process_com_dois_lados_exige_um_analista_por_lado(ollama_8192):
     provider = ProviderFalso(um_analista, debate, lados=dois_lados)
     s = Summarizer(provider=provider)
 
-    assert s.process(_artigo("Agência Brasil", 2000), [_artigo("CartaCapital", 2000)]) is debate
+    assert s.process(*_artigos_da_meta()) is debate
     assert [lado.atores for lado in s.ultimo_diagnostico["lados"].lados] == [("campanha de Lula",), ("Meta",)]
     assert s.ultimo_diagnostico["problemas"] == [
         "1 analista(s) (Ramos) para 2 lado(s): o elenco é Helena e exatamente 2 analista(s), um por lado",
@@ -306,7 +314,7 @@ def test_process_com_dois_lados_exige_um_analista_por_lado(ollama_8192):
     (_, entrada), (_, revisao) = (args for args, _ in provider.chamadas)
     for mensagem in (entrada, revisao):                                   # o bloco vai na geração e na revisão
         assert ("\nLADOS DA PAUTA: 2 lados.\nQUESTÃO: A Meta favoreceu um candidato?\n"
-                "Lado 1 (resposta: Sim; lado fino): A campanha acusa a Meta. Atores: campanha de Lula. Veículos: CartaCapital.\n") in mensagem
+                "Lado 1 (resposta: Sim): A campanha acusa a Meta. Atores: campanha de Lula. Veículos: CartaCapital.\n") in mensagem
         assert 'ELENCO: Helena e exatamente 2 analistas, um por lado; "houve_divergencia": true.' in mensagem
     assert len(provider.analises) == 1                                    # os lados são analisados uma vez só, antes da geração
 
@@ -450,7 +458,7 @@ def test_papel_com_nome_de_ator_vai_para_a_revisao_do_roteiro_que_so_troca_o_pap
     provider = ProviderFalso(porta_voz, devolvido, lados=dois_lados)
     s = Summarizer(provider=provider)
 
-    episodio = s.process(_artigo("Agência Brasil", 2000), [_artigo("CartaCapital", 2000)])
+    episodio = s.process(*_artigos_da_meta())
     assert episodio["personagens"] == [                                               # os mesmos nomes, na mesma ordem: só o papel muda
         {"nome": "Helena", "papel": "apresentadora"}, {"nome": "Bia", "papel": "analista de política"},
         {"nome": "Ramos", "papel": "analista de tecnologia"},

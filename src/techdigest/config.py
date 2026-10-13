@@ -72,7 +72,8 @@ class Settings(BaseSettings):
 
     # QA editorial (regras 2, 3 e 6). Os defaults são as regras originais; ajuste no .env (QA_*)
     qa_min_por_personagem: int = 240
-    qa_min_lado_fino: int = 120        # mínimo de palavras do analista de um lado com um só trecho de evidência
+    qa_min_lado_fino: int = 120        # o analista de um lado fino (atores em no máximo uma frase dos textos) fala
+    qa_max_lado_fino: int = 200        # entre estes dois limites
     qa_max_por_personagem: int = 480
     qa_min_total: int = 600
     qa_max_total: int = 1300
