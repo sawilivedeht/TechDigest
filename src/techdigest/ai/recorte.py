@@ -34,6 +34,98 @@ def procurado(trecho) -> str:
     return literal(trecho).strip("\"'. …")
 
 
+# ── O trecho quase literal ────────────────────────────────────────────────────────────────
+
+PALAVRAS_POR_DIFERENCA = 10   # o trecho pode diferir do texto em uma palavra a cada tantas (arredondado para baixo)
+NEGACOES = frozenset({"não", "nem", "nunca", "jamais"})   # palavra que nenhuma diferença pode envolver
+_PROIBIDA = float("inf")
+_ABRE_ASPAS, _FECHA_ASPAS = "\"'“‘«", "\"'”’»"
+
+
+def _palavras(texto) -> list[re.Match]:
+    """As palavras do texto, sem pontuação: a comparação palavra por palavra ignora vírgulas, aspas e o resto."""
+    return list(re.finditer(r"\w+", unicodedata.normalize("NFC", str(texto))))
+
+
+def _alinhar(pedidas: list[str], do_texto: list[str], maximo: int) -> tuple[int, int] | None:
+    """O pedaço contínuo do texto mais parecido com o trecho, em índices de palavra (início, fim); None se não há.
+
+    Diferença é uma palavra trocada, a mais ou a menos. Vale o pedaço com até `maximo` diferenças,
+    nenhuma delas com uma palavra de NEGACOES. No empate fica o pedaço mais curto e que termina primeiro.
+    """
+    n = len(pedidas)
+
+    def custo(palavra: str) -> float:
+        return _PROIBIDA if palavra in NEGACOES else 1
+
+    coluna = [(0.0, 0)]                     # por quantas palavras do trecho já foram alinhadas: (diferenças, início)
+    for i in range(1, n + 1):
+        coluna.append((coluna[-1][0] + custo(pedidas[i - 1]), 0))
+    melhor = None
+    for j, palavra in enumerate(do_texto, 1):
+        nova = [(0.0, j)]                   # o pedaço pode começar em qualquer palavra do texto
+        for i in range(1, n + 1):
+            pedida = pedidas[i - 1]
+            trocada = 0 if pedida == palavra else max(custo(pedida), custo(palavra))
+            candidatos = (
+                (coluna[i - 1][0] + trocada, coluna[i - 1][1]),   # a mesma palavra, ou uma trocada
+                (nova[i - 1][0] + custo(pedida), nova[i - 1][1]),  # palavra do trecho que o texto não tem
+                (coluna[i][0] + custo(palavra), coluna[i][1]),     # palavra do texto que o trecho não tem
+            )
+            nova.append(min(candidatos, key=lambda c: (c[0], -c[1])))
+        coluna = nova
+        diferencas, inicio = coluna[n]
+        if diferencas <= maximo and (melhor is None or diferencas < melhor[0]):
+            melhor = (diferencas, inicio, j)
+    return None if melhor is None else (melhor[1], melhor[2])
+
+
+def localizar_trecho(trecho, texto) -> tuple[str, int] | None:
+    """Onde o trecho está no texto: o trecho como vale e quantas palavras ele difere do texto; None se não está.
+
+    Primeiro a comparação literal de `procurado` e `literal`: achado assim, o trecho vale como veio
+    (o mesmo objeto), com 0 diferenças. Senão, palavra por palavra, sem pontuação nem maiúsculas (o
+    tipo de aspas não conta): vale o pedaço contínuo do texto que difere do trecho em até uma
+    palavra a cada PALAVRAS_POR_DIFERENCA (trocada, a mais ou a menos; arredondado para baixo, então
+    trecho de menos de dez palavras tem de ter as mesmas palavras), sem nenhuma diferença que
+    envolva negação. Achado assim, vale o trecho como está no texto, que é o que localiza o
+    parágrafo dele no recorte; as diferenças podem ser 0, quando só a pontuação mudou.
+    """
+    alvo = procurado(trecho)
+    if not alvo:
+        return None
+    if alvo in literal(texto):
+        return str(trecho), 0
+    pedidas = [m.group().casefold() for m in _palavras(trecho)]
+    achadas = _palavras(texto)
+    if not pedidas:
+        return None
+    pedaco = _alinhar(pedidas, [m.group().casefold() for m in achadas], len(pedidas) // PALAVRAS_POR_DIFERENCA)
+    if pedaco is None:
+        return None
+    inicio, fim = pedaco
+    de, ate = achadas[inicio].start(), achadas[fim - 1].end()
+    texto = str(texto)
+    while de > 0 and texto[de - 1] in _ABRE_ASPAS:       # as aspas em volta das primeiras e das últimas palavras vão junto
+        de -= 1
+    while ate < len(texto) and texto[ate] in _FECHA_ASPAS:
+        ate += 1
+    versao = texto[de:ate]
+    vistas = [m.group().casefold() for m in achadas[inicio:fim]]
+    return versao, _diferencas(pedidas, vistas)
+
+
+def _diferencas(a: list[str], b: list[str]) -> int:
+    """Quantas palavras trocadas, a mais ou a menos separam duas listas de palavras (a distância de edição)."""
+    anterior = list(range(len(b) + 1))
+    for i, x in enumerate(a, 1):
+        atual = [i]
+        for j, y in enumerate(b, 1):
+            atual.append(min(anterior[j - 1] + (x != y), anterior[j] + 1, atual[j - 1] + 1))
+        anterior = atual
+    return anterior[-1]
+
+
 @dataclass(frozen=True)
 class Paragrafo:
     numero: int     # a partir de 1, na ordem do texto

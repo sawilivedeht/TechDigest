@@ -11,7 +11,7 @@ Uso (da raiz do projeto, com o venv ativo):
     python scripts/testar_agrupamento.py --incluir-vistos --salvar-amostra   # guarda os candidatos extraídos
     python scripts/testar_agrupamento.py --amostra data/agrupamento/amostra_<data-hora>.json   # sem rede
     python scripts/testar_agrupamento.py --amostra <amostra> --rotulos <rotulos.csv>           # confere com os rótulos
-    python scripts/testar_agrupamento.py --amostra <amostra> --rotulos <rotulos.csv> --etapa3 --repeticoes 3
+    python scripts/testar_agrupamento.py --amostra <amostra> --rotulos <rotulos.csv> --etapa3 --repeticoes 3 --log-ollama <log>
 
 Grava data/agrupamento/pares_<data-hora>.csv com os pares de maior score. A coluna mesmo_fato
 fica vazia, para marcar à mão e calibrar os limiares. Cada coleta traz notícias diferentes: para
@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
 
+from techdigest.ai import gpu
 from techdigest.ai.llm import get_provider
 from techdigest.ai.prompt import PROMPT_AGRUPADOR
 from techdigest.collectors import rss
@@ -101,6 +102,9 @@ def _argumentos() -> argparse.Namespace:
                          help="usa os candidatos de uma amostra gravada, sem coletar, extrair nem acessar a rede")
     p.add_argument("--etapa3", action="store_true",
                    help="confirma cada pauta provisória com o LLM do projeto (exige --amostra)")
+    p.add_argument("--log-ollama", metavar="ARQUIVO",
+                   help="arquivo em que o ollama serve grava a saída: antes da etapa 3, a conferência da GPU lê nele a "
+                        "linha \"inference compute\" (obrigatório com --etapa3 e LLM_PROVIDER=ollama)")
     p.add_argument("--rotulos", metavar="ARQUIVO",
                    help="compara o resultado com um CSV de pares rotulados (exige --amostra)")
     p.add_argument("--repeticoes", type=int, default=1, metavar="N",
@@ -110,6 +114,8 @@ def _argumentos() -> argparse.Namespace:
         p.error("--amostra já traz os candidatos: não combina com --incluir-vistos nem com --max-candidatos")
     if (args.etapa3 or args.rotulos) and not args.amostra:
         p.error("--etapa3 e --rotulos exigem --amostra: os rótulos e a comparação valem para uma amostra fixa")
+    if args.etapa3 and settings.llm_provider == "ollama" and not args.log_ollama:
+        p.error("--etapa3 exige --log-ollama: sem o log do ollama serve não dá para saber se o servidor achou a GPU")
     if args.repeticoes < 1 or (args.repeticoes > 1 and not args.etapa3):
         p.error("--repeticoes é um número a partir de 1 e só vale com --etapa3")
     return args
@@ -413,22 +419,41 @@ def _resumo_do_veredito(chamada: Chamada, ids: dict[ag.Candidato, int]) -> str:
             f"varios_fatos: {', '.join(varios) or '-'}")
 
 
-def _rodar_etapa3(provisorias: list[ag.Pauta], ids: dict[ag.Candidato, int], repeticoes: int) -> list[Chamada]:
-    """Uma chamada ao LLM por pauta provisória de 2 ou mais artigos, em cada repetição."""
+def _rodar_etapa3(provisorias: list[ag.Pauta], ids: dict[ag.Candidato, int], repeticoes: int,
+                  log_ollama: str | None = None) -> list[Chamada]:
+    """Uma chamada ao LLM por pauta provisória de 2 ou mais artigos, em cada repetição.
+
+    Com o Ollama, confere a GPU antes da primeira chamada (o driver da NVIDIA e o log do ollama
+    serve) e, depois dela, pelo /api/ps, que parte do modelo está na GPU (ver `ai/gpu.py`); se uma
+    conferência falha, a etapa para, com o motivo.
+    """
     print(f"\n== Etapa 3: o LLM confirma {len(provisorias)} pauta(s) provisória(s), {repeticoes} vez(es) "
           f"(temperatura {TEMPERATURA_ETAPA3}, saída de até {MAX_SAIDA_ETAPA3} tokens, "
           f"{settings.agrup_chars_etapa3} caracteres de cada texto) ==", flush=True)
     if not provisorias:
         print("  nenhuma pauta provisória com 2 ou mais artigos: nada a confirmar")
         return []
+    com_ollama = settings.llm_provider == "ollama"
+    if com_ollama:
+        try:
+            for linha in gpu.conferir_antes_de_carregar(log_ollama):
+                print(f"  GPU antes da carga: {linha}", flush=True)
+        except gpu.SemGPU as e:
+            sys.exit(f"PAREI antes de carregar o modelo: {e}.")
     provider = get_provider(settings)
-    modelo = settings.ollama_model if settings.llm_provider == "ollama" else settings.openai_model
+    modelo = settings.ollama_model if com_ollama else settings.openai_model
     print(f"  modelo: {modelo} ({settings.llm_provider})", flush=True)
-    chamadas = []
+    chamadas, gpu_conferida = [], not com_ollama
     for repeticao in range(1, repeticoes + 1):
         for n, pauta in enumerate(provisorias, 1):
             chamada = _consultar_llm(provider, pauta, repeticao)
             chamadas.append(chamada)
+            if not gpu_conferida and not chamada.erro.startswith("a chamada falhou"):
+                try:
+                    print(f"  GPU depois da carga: {gpu.modelo_na_gpu(provider.client, provider.model)}", flush=True)
+                except gpu.SemGPU as e:
+                    sys.exit(f"PAREI depois da primeira chamada: {e}.")
+                gpu_conferida = True
             tokens = (f"{chamada.tokens.get('prompt', 0)} + {chamada.tokens.get('saida', 0)} tokens"
                       if chamada.tokens else "sem contagem de tokens")
             print(f"  [repetição {repeticao}] pauta {n}/{len(provisorias)} · {len(pauta.artigos)} artigos "
@@ -603,7 +628,7 @@ def _etapa3_e_rotulos(args: argparse.Namespace, pautas: list[ag.Pauta], ids: dic
     motivos: dict[tuple[int, ag.Pauta | None], str] = {}
     tipos: dict[tuple[int, ag.Candidato], str] = {}
     if args.etapa3:
-        chamadas = _rodar_etapa3(provisorias, ids, args.repeticoes)
+        chamadas = _rodar_etapa3(provisorias, ids, args.repeticoes, args.log_ollama)
         finais_por_repeticao = {r: list(sozinhas) for r in range(1, args.repeticoes + 1)}
         for chamada in chamadas:
             finais_por_repeticao[chamada.repeticao] += chamada.finais

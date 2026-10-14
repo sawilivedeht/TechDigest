@@ -6,7 +6,10 @@ Compara cada episódio com os textos da pauta que o gerou e lista o que não tem
   falas que não aparecem em nenhum texto da pauta (número por extenso vale pelo algarismo);
 - atribuições vagas ("especialistas afirmam", "segundo as análises") a um grupo que a pauta não cita;
 - veículos da pauta fora de fontes_citadas;
-- com houve_divergencia true: menos de dois analistas, e falas em que Helena parece tomar posição.
+- com houve_divergencia true: menos de dois analistas, e falas em que Helena parece tomar posição;
+- e, só como diagnóstico, as frases que atribuem algo a um veículo ("segundo o G1...", "o G1 relata
+  que..."), com a fração das palavras da frase que está no texto do veículo citado e a maior fração
+  num outro veículo da pauta; nos episódios com disputa, a frase que apresenta cada lado.
 
 Uso (da raiz do projeto, com o venv ativo):
     python scripts/checar_fidelidade.py                          # o relatorio_*.json mais recente
@@ -29,12 +32,16 @@ from pathlib import Path
 from techdigest.ai import qa
 from techdigest.ai.atribuicoes import GRUPOS as _GRUPOS
 from techdigest.ai.atribuicoes import atribuicoes_a_grupos as atribuicoes_vagas
+from techdigest.ai.numeros import _ESCALAS as _escalas
+from techdigest.ai.numeros import _PARCELAS as _parcelas
 from techdigest.ai.numeros import Numero, formatar, numeros
 from techdigest.ai.numeros import Token as _Token
 from techdigest.ai.numeros import dobrar as _plano
 from techdigest.ai.numeros import junto as _junto
 from techdigest.ai.numeros import tokens as _tokens
+from techdigest.ai.lados import Lado
 from techdigest.ai.recorte import paragrafos
+from techdigest.ai.verbos import FORMAS_DE_POSICAO
 from techdigest.ai.summarizer import _limpar
 from techdigest.config import Settings
 
@@ -55,7 +62,15 @@ COMO_LER = """Como ler
   Judiciário, Governo, Justiça).
   O que a checagem não vê: o sentido (um número certo usado para dizer outra coisa passa), nome
   que só aparece em começo de frase, "um" e "uma" sozinhos, ordinais e frações além de "terço".
-  Posição de Helena: lista de expressões de juízo fora de citação; é indício para leitura, não prova."""
+  Posição de Helena: lista de expressões de juízo fora de citação; é indício para leitura, não prova.
+  Atribuição a veículo (só diagnóstico, só com dois veículos ou mais): frase do resumo ou de uma fala
+  com "segundo", "de acordo com" ou "conforme" antes do nome do veículo, ou com um verbo de relato
+  depois dele ("o G1 relata que..."). Contam as palavras de 4 letras ou mais, comparadas pela raiz
+  sem acento (sem plural, gênero e terminação de verbo: "derrubou" = "derrubada"), menos as palavras
+  sem conteúdo, os números por extenso, os verbos de posição, os nomes dos veículos, dos atores e dos
+  personagens e as palavras que estão em todos os textos da pauta, que não distinguem um veículo do outro. Mostra a fração delas no texto completo do
+  veículo citado e a maior fração num outro veículo. Compara palavras, não sentido: a frase pode usar
+  as palavras do veículo para dizer outra coisa."""
 
 HELENA = "helena"
 PROGRAMAS = {"techdigest", "pulsobr"}
@@ -415,6 +430,190 @@ def conferir(episodio: dict, fontes: list[Fonte]) -> Resultado:
 
 # ── Relatório ─────────────────────────────────────────────────────────────────────────────
 
+# ── Atribuição a veículo (só diagnóstico) ─────────────────────────────────────────────────
+
+MIN_LETRAS = 4            # palavra mais curta que isto não conta
+MIN_RAIZ = 3              # a raiz nunca fica mais curta que isto
+# Terminações de verbo e de derivação que a raiz tira, da mais longa para a mais curta (sem acento).
+_TERMINACOES = ("amento", "imento", "mente", "acao", "icao", "ando", "endo", "indo", "aram", "eram", "iram", "avam",
+                "ado", "ada", "ido", "ida", "ava", "iam", "ou", "iu", "ar", "er", "ir", "am", "em")
+_numeros_por_extenso = set(_parcelas) | set(_escalas)
+# Antes do nome do veículo, numa janela de até JANELA palavras: "segundo o G1", "de acordo com a Folha".
+_MARCADORES = (["segundo"], ["conforme"], ["de", "acordo", "com"])
+JANELA = 4
+# Depois do nome do veículo: "o G1 relata que...", "a Folha mostrou".
+_VERBOS_DE_RELATO = {raiz + fim for raiz in ("relat", "inform", "mostr", "destac", "apont", "registr", "notici", "acrescent",
+                                             "detalh", "revel", "explic", "public", "lembr", "report", "descrev")
+                     for fim in ("a", "am", "ou", "aram")} | {"diz", "dizem", "disse", "traz", "trouxe", "afirma", "afirmou"}
+# Palavras de 4 letras ou mais que não dizem de que fato a frase fala (sem acento).
+_SEM_CONTEUDO = {
+    "para", "pelo", "pela", "pelos", "pelas", "como", "mais", "menos", "sobre", "entre", "tambem", "ainda", "porque", "quando",
+    "onde", "isso", "isto", "esse", "essa", "esses", "essas", "este", "esta", "estes", "estas", "aquele", "aquela", "aqueles",
+    "aquelas", "aquilo", "seus", "suas", "dele", "dela", "deles", "delas", "eles", "elas", "muito", "muita", "muitos", "muitas",
+    "pode", "podem", "poderia", "seria", "sera", "seja", "sejam", "foram", "sido", "estar", "estao", "estava", "estavam", "tinha",
+    "tinham", "teve", "tendo", "temos", "sendo", "apenas", "desde", "apos", "contra", "outro", "outra", "outros", "outras",
+    "mesmo", "mesma", "mesmos", "mesmas", "todo", "toda", "todos", "todas", "cada", "qual", "quais", "assim", "entao", "depois",
+    "antes", "durante", "nesta", "neste", "nessa", "nesse", "nestas", "nestes", "nessas", "nesses", "dessa", "desse", "dessas",
+    "desses", "deste", "desta", "destes", "destas", "pois", "porem", "embora", "enquanto", "fazer", "feito", "aqui", "agora",
+    "hoje", "ontem", "segundo", "acordo", "conforme", "alem", "disso", "tanto", "quanto", "qualquer", "algum", "alguma",
+    "alguns", "algumas", "nada", "nenhum", "nenhuma", "tudo", "vezes", "coisa", "ponto", "parte", "forma", "caso", "maneira",
+    "modo", "lado", "lados", "veiculo", "texto", "reportagem", "informacoes", "dados", "afirma", "afirmou",
+    "cento", "porcento", "virgula",
+} | _VERBOS_DE_RELATO | {qa._palavras_do_nome(forma)[0] for forma in FORMAS_DE_POSICAO if qa._palavras_do_nome(forma)} \
+  | set(_numeros_por_extenso)
+
+
+def raiz(palavra: str) -> str:
+    """A raiz de uma palavra sem acento e em minúsculas: sem plural, gênero e terminação de verbo ou de derivação.
+
+    "derrubou", "derrubado" e "derrubada" dão "derrub"; "publicou" e "publicações", "public";
+    "subindo" e "subiram", "sub". Derivações maiores ("Canadá" e "canadense") ficam diferentes.
+    """
+    if palavra.endswith(("oes", "aes")):
+        palavra = palavra[:-3] + "ao"
+    elif palavra.endswith(("res", "zes")):
+        palavra = palavra[:-2]
+    elif palavra.endswith("s") and len(palavra) > MIN_LETRAS:
+        palavra = palavra[:-1]
+    for fim in _TERMINACOES:
+        if palavra.endswith(fim) and len(palavra) - len(fim) >= MIN_RAIZ:
+            return palavra[:-len(fim)]
+    return palavra[:-1] if palavra.endswith(("a", "o", "e")) and len(palavra) > MIN_LETRAS else palavra
+
+
+def _raizes(texto) -> set[str]:
+    """As raízes das palavras de conteúdo do texto (sem acento, com MIN_LETRAS ou mais): ver `raiz`."""
+    return {raiz(p) for p in qa._palavras_do_nome(texto) if len(p) >= MIN_LETRAS and p not in _SEM_CONTEUDO}
+
+
+def veiculos_atribuidos(frase: str, veiculos) -> list[str]:
+    """Os veículos a que a frase atribui algo: "segundo o G1", "de acordo com a Folha", "o G1 relata que..."."""
+    palavras = qa._palavras_do_nome(frase)
+    achados = []
+    for veiculo in veiculos:
+        for forma in qa._formas_faladas(veiculo):
+            for k in range(len(palavras) - len(forma) + 1):
+                if palavras[k:k + len(forma)] != forma:
+                    continue
+                antes, depois = palavras[max(k - JANELA, 0):k], palavras[k + len(forma):]
+                marcado = any(antes[i:i + len(m)] == m for m in _MARCADORES for i in range(len(antes) - len(m) + 1))
+                if marcado or (depois and depois[0] in _VERBOS_DE_RELATO):
+                    achados.append(veiculo)
+                    break
+            if veiculo in achados:
+                break
+    return achados
+
+
+@dataclass(frozen=True)
+class Medida:
+    """Quanto das palavras de uma frase atribuída a um veículo está no texto dele e no de outro veículo."""
+    contadas: int                   # palavras que contam (ver COMO_LER)
+    no_citado: float | None         # a fração delas no texto completo do veículo citado
+    outro: str                      # o veículo da pauta, fora o citado, com a maior fração
+    no_outro: float | None
+    fora_do_citado: tuple[str, ...]  # as palavras que o veículo citado não tem
+
+
+def medir(frase: str, veiculo: str, fontes: list[Fonte], fora: set[str]) -> Medida:
+    """A fração das palavras da frase no texto do veículo citado e a maior num outro veículo da pauta.
+
+    `fora` são as raízes que não contam: nomes de veículos, atores e personagens e as palavras de
+    todos os textos da pauta.
+    """
+    contam = {p for p in qa._palavras_do_nome(frase) if len(p) >= MIN_LETRAS and p not in _SEM_CONTEUDO and raiz(p) not in fora}
+    raizes = {raiz(p) for p in contam}
+    if not raizes:
+        return Medida(0, None, "", None, ())
+    por_veiculo = {}
+    for v in qa.veiculos_distintos(f.veiculo for f in fontes):
+        por_veiculo[v] = set().union(*(_raizes(f.completo) for f in fontes if qa.mesmo_veiculo(f.veiculo, v)))
+    citado = next((v for v in por_veiculo if qa.mesmo_veiculo(v, veiculo)), veiculo)
+    no_citado = len(raizes & por_veiculo.get(citado, set())) / len(raizes)
+    outros = {v: len(raizes & r) / len(raizes) for v, r in por_veiculo.items() if v != citado}
+    outro = max(outros, key=outros.get, default="")
+    faltam = tuple(sorted(p for p in contam if raiz(p) not in por_veiculo.get(citado, set())))
+    return Medida(len(raizes), no_citado, outro, outros.get(outro), faltam)
+
+
+def _fora_da_conta(episodio: dict, fontes: list[Fonte], atores) -> set[str]:
+    """As raízes que não distinguem um veículo do outro: nomes de veículos, atores e personagens e o que todos os textos têm."""
+    nomes = [f.veiculo for f in fontes] + list(atores)
+    personagens = episodio.get("personagens") if isinstance(episodio.get("personagens"), list) else []
+    nomes += [str(p.get("nome", "")) for p in personagens if isinstance(p, dict)] + [str(t.get("personagem", "")) for t in _roteiro(episodio)]
+    fora = {raiz(p) for nome in nomes for p in qa._palavras_do_nome(nome)}
+    todos = [_raizes(f.completo) for f in fontes]
+    return fora | (set.intersection(*todos) if todos else set())
+
+
+@dataclass(frozen=True)
+class Atribuicao:
+    local: str          # "resumo_didatico" ou "fala 3 [Bia]"
+    frase: str
+    veiculo: str
+    medida: Medida
+
+
+def atribuicoes_a_veiculos(episodio: dict, fontes: list[Fonte], atores=()) -> list[Atribuicao]:
+    """As frases do resumo e das falas que atribuem algo a um veículo, cada uma com a medida (ver `medir`).
+
+    Só com dois veículos ou mais na pauta: com um só, não há outro veículo para comparar.
+    """
+    veiculos = qa.veiculos_distintos(f.veiculo for f in fontes)
+    if len(veiculos) < 2:
+        return []
+    fora = _fora_da_conta(episodio, fontes, atores)
+    lugares = [("resumo_didatico", episodio.get("resumo_didatico"))]
+    lugares += [(f"fala {i} [{t.get('personagem')}]", t.get("fala")) for i, t in enumerate(_roteiro(episodio), 1)]
+    achadas = []
+    for local, texto in lugares:
+        for frase in qa.frases(texto if isinstance(texto, str) else ""):
+            achadas += [Atribuicao(local, frase, v, medir(frase, v, fontes, fora)) for v in veiculos_atribuidos(frase, veiculos)]
+    return achadas
+
+
+@dataclass(frozen=True)
+class Apresentacao:
+    """A frase de um analista que apresenta um lado, com o veículo do lado que ela cita e a medida."""
+    lado: int           # a partir de 1
+    atores: tuple[str, ...]
+    personagem: str
+    frase: str
+    veiculo: str
+    medida: Medida
+
+
+def apresentacoes_dos_lados(episodio: dict, fontes: list[Fonte], lados: list[Lado]) -> list[Apresentacao]:
+    """Nos episódios com 2 lados ou mais, a frase que apresenta cada lado (pela regra do QA) e a medida dela.
+
+    Vale a frase do analista que a correspondência um a um do QA dá ao lado; sem correspondência,
+    a de qualquer analista.
+    """
+    if len(lados) < 2:
+        return []
+    try:
+        achadas = qa.frases_que_apresentam(episodio, lados)
+        do_lado = {i: nome for nome, i in qa.lado_de_cada_analista(episodio, lados).items()}
+    except (KeyError, TypeError, AttributeError):
+        return []
+    fora = _fora_da_conta(episodio, fontes, [a for lado in lados for a in lado.atores])
+    feitas = []
+    for i, (lado, frases) in enumerate(zip(lados, achadas)):
+        dele = [(p, f) for p, f in frases if p == do_lado.get(i)] or frases
+        for personagem, frase in dele:
+            for v in lado.veiculos:
+                if qa.veiculo_citado(v, frase):
+                    feitas.append(Apresentacao(i + 1, lado.atores, personagem, frase, v, medir(frase, v, fontes, fora)))
+    return feitas
+
+
+def _medida_em_texto(m: Medida) -> str:
+    if m.no_citado is None:
+        return "nenhuma palavra que distinga os veículos"
+    outro = f"; maior em outro veículo: {m.outro} {m.no_outro:.0%}" if m.outro else ""
+    return f"{m.no_citado:.0%} de {m.contadas} palavra(s) no citado{outro}"
+
+
 @dataclass
 class Caso:
     """Um episódio do relatório de testar_episodio.py, com a pauta e o resultado da checagem."""
@@ -424,6 +623,8 @@ class Caso:
     episodio: dict
     fontes: list[Fonte]
     resultado: Resultado
+    atribuicoes: list[Atribuicao] = field(default_factory=list)
+    apresentacoes: list[Apresentacao] = field(default_factory=list)
 
 
 def _plural(n: int, singular: str, plural: str) -> str:
@@ -478,6 +679,17 @@ def montar_relatorio(origem: str, casos: list[Caso], gerado_em: str) -> str:
         else:
             linhas.append(f"  divergência: houve_divergencia é true; {_plural(len(r.divergencia), 'problema', 'problemas')}")
             linhas += [f"    - {a.tipo} ({a.local}): {a.rotulo} · \"{a.frase}\"" for a in r.divergencia]
+        if len(qa.veiculos_distintos(f.veiculo for f in caso.fontes)) >= 2:
+            linhas.append(f"  atribuições a veículo (diagnóstico): {len(caso.atribuicoes)} frase(s)")
+            for a in caso.atribuicoes:
+                m = a.medida
+                fora = f" · fora do citado: {', '.join(m.fora_do_citado)}" if m.fora_do_citado else ""
+                alerta = "  <- OUTRO VEÍCULO TEM MAIS" if m.no_outro is not None and m.no_citado is not None and m.no_outro > m.no_citado else ""
+                linhas.append(f"    {a.local} -> {a.veiculo}: {_medida_em_texto(m)}{alerta} · \"{a.frase}\"{fora}")
+        if caso.apresentacoes:
+            linhas.append("  frase que apresenta cada lado (diagnóstico):")
+            for a in caso.apresentacoes:
+                linhas.append(f"    lado {a.lado} ({', '.join(a.atores)}) · {a.personagem} · {a.veiculo}: {_medida_em_texto(a.medida)} · \"{a.frase}\"")
         if r.sem_fonte:
             linhas += ["", "  -- Sem fonte --"] + _listar(r.sem_fonte, textos)
         if r.arredondados:
@@ -492,7 +704,9 @@ def montar_relatorio(origem: str, casos: list[Caso], gerado_em: str) -> str:
             f"  episódio {caso.numero} ({caso.nome}): {sum(distintos(r.sem_fonte).values())} fato(s) sem fonte · "
             f"{sum(distintos(r.arredondados).values())} arredondado(s) · "
             f"{sum(distintos(r.so_no_corte).values())} só depois do corte · "
-            f"{len(r.fontes_faltando)} veículo(s) fora de fontes_citadas · {len(r.divergencia)} problema(s) de divergência"
+            f"{len(r.fontes_faltando)} veículo(s) fora de fontes_citadas · {len(r.divergencia)} problema(s) de divergência · "
+            f"{sum(a.medida.no_outro is not None and a.medida.no_citado is not None and a.medida.no_outro > a.medida.no_citado for a in caso.atribuicoes)}"
+            f" de {len(caso.atribuicoes)} atribuição(ões) com mais palavras em outro veículo"
         )
     return "\n".join(linhas) + "\n"
 
@@ -531,7 +745,11 @@ def _carregar(caminho: Path) -> list[Caso]:
             fontes.append(Fonte(artigo["veiculo"], artigo["titulo"], texto, corte["incluido"] if corte else None, artigo["id"],
                                 recorte_enviado(texto, corte)))
         episodio = json.loads(Path(item["arquivo"]).read_text(encoding="utf-8"))
-        casos.append(Caso(item["episodio"], item["caso"], item["situacao"], episodio, fontes, conferir(episodio, fontes)))
+        lados = [Lado(lado["posicao"], tuple(lado["atores"]), tuple(lado["veiculos"]), lado.get("resposta", ""))
+                 for lado in (item.get("lados") or {}).get("lados", [])]
+        atores = [a for lado in lados for a in lado.atores]
+        casos.append(Caso(item["episodio"], item["caso"], item["situacao"], episodio, fontes, conferir(episodio, fontes),
+                          atribuicoes_a_veiculos(episodio, fontes, atores), apresentacoes_dos_lados(episodio, fontes, lados)))
     return casos
 
 

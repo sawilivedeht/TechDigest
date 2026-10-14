@@ -37,7 +37,7 @@ ou pelo estado dela.
 ### resumo_didatico
 - 8 a 9 frases completas, todas com fatos, em linguagem acessível, preservando contexto e precisão.
 - Se houver artigos relacionados, traga o que é consenso entre as fontes, citando os \
-veículos pelo nome (ex.: "segundo o TechCrunch...", "a Folha acrescenta...").
+veículos pelo nome (ex.: "segundo o Jornal do Vale...", "o Diário do Litoral acrescenta...").
 - Só quando "houve_divergencia" é true, acrescente uma frase final a mais, avisando que o \
 episódio traz o debate. Com um lado só, essa frase não aparece.
 
@@ -61,14 +61,14 @@ veículo, o grupo e um verbo de posição, seguida de uma pergunta aberta, que n
 alerta com palavras dela (ex.: "Segundo <veículo>, <grupo> alertam que... Como você vê isso?").
 - Crie exatamente o número de analistas que o bloco LADOS DA PAUTA indica, com papéis \
 coerentes com a notícia. O papel diz a especialidade do analista ("analista de regulação"), \
-nunca um vínculo com um ator dos lados ("analista da Meta").
+nunca um vínculo com um ator dos lados ("analista da Construtora Alfa").
 - Com um lado só: o analista explica a posição e responde às ressalvas com o que as \
 fontes dizem, sem tomar partido: ele explica, não advoga.
 - Com 2 ou 3 lados: cada analista responde por UM lado: apresenta a posição dele, atribuída \
 aos atores desse lado, numa frase que nomeia o ator, cita um veículo do lado e usa um verbo \
 de posição (ex.: "segundo <veículo>, <ator> acusa..."). Ele sustenta a posição do seu lado \
 com os argumentos das fontes: não critica a própria posição, não endossa a do outro lado e \
-não emite juízo próprio. Ele fala na terceira pessoa ("a campanha sustenta...") e nunca como \
+não emite juízo próprio. Ele fala na terceira pessoa ("o sindicato sustenta...") e nunca como \
 porta-voz ("nós", "não podemos aceitar"). O analista de um lado que o bloco marca como fino \
 fala só de 120 a 200 palavras e não amplia além do que as fontes trazem. Verbos de \
 posição: """ + INFINITIVOS + """.
@@ -133,7 +133,7 @@ as posições dos lados em perguntas atribuídas aos atores; quem apresenta as p
 Com 2 ou 3 lados, cada analista responde por um lado, numa frase que nomeia um ator do lado, cita um \
 veículo do lado e usa um verbo de posição (""" + INFINITIVOS + """); ele sustenta a posição do seu \
 lado com os argumentos das fontes, sem criticar a própria posição, endossar a do outro lado ou emitir \
-juízo próprio; fala na terceira pessoa ("a campanha sustenta..."), nunca como porta-voz ("nós", "não \
+juízo próprio; fala na terceira pessoa ("o sindicato sustenta..."), nunca como porta-voz ("nós", "não \
 podemos aceitar"). Com um lado só, o analista explica e não advoga.
 Helena traz cada ressalva do bloco como pergunta atribuída, sem avaliá-la: uma fala com ponto de \
 interrogação em que uma frase cita o veículo, nomeia o grupo e usa um verbo de posição; a pergunta é \
@@ -166,7 +166,7 @@ Reescreva o roteiro para eliminar TODOS os problemas listados, mantendo o tema e
 SOMENTE fatos do artigo-fonte e do roteiro original: não invente informações.
 Os personagens são os mesmos, com os mesmos nomes: não crie, não retire nem renomeie ninguém. Devolva-os \
 como vieram; só mude o "papel" quando um problema apontar o papel: ele diz a especialidade do analista \
-("analista de regulação"), nunca um vínculo com um ator dos lados ("analista da Meta").
+("analista de regulação"), nunca um vínculo com um ator dos lados ("analista da Construtora Alfa").
 Ajuste o tamanho conforme cada problema: se um personagem ou o total estiver ACIMA do \
 máximo, ENXUGUE as falas (corte repetições e detalhes secundários); se estiver ABAIXO do \
 mínimo, EXPANDA. Não altere o que já está dentro dos limites e mire no meio da faixa \
@@ -180,10 +180,10 @@ PROMPT_TITULO = """Você é o editor-chefe de controle de qualidade dos boletins
 TechDigest/PulsoBR. Receberá o RESUMO de um episódio, os ATORES da história e os TÍTULOS JÁ REPROVADOS, \
 cada um com o motivo. Escreva um título novo para o episódio.
 - Não repita nenhum título reprovado nem troque um motivo de reprovação por outro do mesmo tipo: quem \
-tira "maioria" não põe "60 dos 102" no lugar.
+tira "maioria" não põe "45 dos 80" no lugar.
 - Título curto e chamativo, sem sensacionalismo, tirado do resumo: não afirma nada que o resumo não afirme.
 - Sem percentuais, "x vezes" (nem "dobro", "triplo" ou "quádruplo") nem proporções ("metade", "um terço", \
-"três em cada quatro", "60 dos 102", "maioria", "minoria", "maior parte", "grande parte"). Quantidade \
+"três em cada quatro", "45 dos 80", "maioria", "minoria", "maior parte", "grande parte"). Quantidade \
 absoluta pode aparecer ("12 mortos", "mais de 100 mortos"), com o número que o resumo traz.
 - Nomeia os atores como as fontes os nomeiam: não troque uma pessoa pela instituição ou pelo estado dela.
 - Não atribui nada a grupo sem nome ("especialistas", "analistas").
@@ -207,8 +207,8 @@ uma notícia, ou algumas notícias da mesma história, cada uma com veículo e t
 em disputa na história e quais LADOS respondem a ela.
 
 ## A QUESTÃO
-A questão é UMA pergunta só, que os atores da história respondem de formas opostas (ex.: "O canal deve \
-ser suspenso?"). Ela resume a disputa no fato: acusação contra defesa, decisão contra crítica, afirmação \
+A questão é UMA pergunta só, que os atores da história respondem de formas opostas (ex.: "A empresa \
+descumpriu o contrato?"). Ela resume a disputa no fato: acusação contra defesa, decisão contra crítica, afirmação \
 contra negação.
 A questão trata do FATO NOVO da pauta: o que os textos relatam como acontecido agora. Episódios \
 anteriores que os textos recapitulam (o que já tinha acontecido, o histórico do caso) são contexto, não a questão.
@@ -220,8 +220,8 @@ Sem disputa, a questão fica vazia ("") e a história tem UM lado só. Na dúvid
 
 ## OS LADOS
 Cada lado é uma resposta diferente à questão. Todos os atores que dão a mesma resposta ficam no MESMO \
-lado, mesmo com argumentos diferentes (ex.: quem critica a decisão e quem defende o canal atingido por \
-ela dão a mesma resposta). Nunca um lado por ator.
+lado, mesmo com argumentos diferentes (ex.: quem critica a multa e quem defende a empresa multada dão a \
+mesma resposta). Nunca um lado por ator.
 Com questão, são 2 ou 3 lados; o terceiro só existe se a resposta dele se opõe às outras duas.
 
 ## A RESPOSTA DE CADA ATOR
@@ -242,10 +242,11 @@ com "atores": [], o grupo em "grupos" e o trecho dela em "trecho", haja ou não 
 
 ## ATORES E GRUPOS
 - Ator é quem sustenta a posição, pelo nome ou por uma designação específica, na forma que os textos \
-mais usam (ex.: "Lula", "Nunes Marques", "Meta", "campanha de Lula"). Não expanda para o nome completo.
+mais usam (ex.: "Duarte", "Construtora Alfa", "Sindicato dos Metalúrgicos de Joinville", "gestão de Duarte"). \
+Não expanda para o nome completo.
 - Grupo é um coletivo sem nome (economistas, especialistas, analistas, críticos, observadores) ou uma \
 designação vaga sem qualificador ("o governo", "a empresa"). Grupo vai em "grupos", NUNCA em "atores". \
-Com qualificador a designação é ator: "governo federal" e "governo do Amazonas".
+Com qualificador a designação é ator: "governo do Espírito Santo" e "prefeitura de Curitiba".
 - A posição que só um grupo sustenta é uma RESSALVA: escreva-a como um lado com "atores": [], o grupo \
 em "grupos" e, em "trecho", um trecho de até 200 caracteres, copiado AO PÉ DA LETRA do texto de um dos \
 veículos dela, que traga o alerta do grupo. A ressalva não conta para a questão nem para o número de \
@@ -298,7 +299,7 @@ relatado na outra, nos mesmos dias (a cobrança e a resposta a ela, a decisão e
 as datas: o desdobramento vem depois do fato que o provocou e se refere a ele.
 Mesmo tema NÃO é mesma história. Não junte notícias que só têm em comum o assunto, a pessoa, a \
 empresa, o produto, o lugar ou a data, nem textos do mesmo formato sobre objetos diferentes.
-Uma nova declaração num debate em andamento (uma PEC em tramitação, uma eleição) é só o mesmo tema, \
+Uma nova declaração num debate em andamento (uma reforma em discussão, uma greve longa) é só o mesmo tema, \
 a não ser que responda a um fato específico relatado na outra notícia.
 
 ## NA DÚVIDA, NÃO JUNTE

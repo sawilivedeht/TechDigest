@@ -222,3 +222,56 @@ def test_relatorio_traz_titulo_pauta_contagem_e_a_fala_de_cada_fato():
     assert "    - percentual: trinta por cento (= 30%) · na pauta: 30,7% · na frase:" in texto
     assert "  -- Com fonte só depois do corte (o LLM não recebeu esse trecho) --" in texto and "    - nome próprio: ANPD ·" in texto
     assert "  episódio 1 (controle_fonte_unica): 1 fato(s) sem fonte · 1 arredondado(s) · 1 só depois do corte" in texto
+
+
+# ── Atribuição a veículo (diagnóstico) ────────────────────────────────────────────────────
+
+VALE = Fonte("Jornal do Vale", "Prefeitura multa construtora", (
+    "A prefeitura de Curitiba multou a Construtora Alfa por atrasar a entrega da ponte. "
+    "Segundo a prefeitura, o contrato previa a entrega em março, e a multa chega a dois milhões de reais."
+), id=1)
+LITORAL = Fonte("Diário do Litoral", "Construtora recorre da multa", (
+    "A Construtora Alfa vai recorrer da multa na Justiça. A empresa culpa as chuvas pelo atraso da ponte "
+    "e diz que os engenheiros trabalharam em turnos dobrados durante o inverno."
+), id=2)
+
+
+def test_frases_que_atribuem_algo_a_um_veiculo():
+    veiculos = ["Jornal do Vale", "Diário do Litoral"]
+    assert cf.veiculos_atribuidos("Segundo o Jornal do Vale, a prefeitura multou a construtora.", veiculos) == ["Jornal do Vale"]
+    assert cf.veiculos_atribuidos("De acordo com o Diário do Litoral, a empresa vai recorrer.", veiculos) == ["Diário do Litoral"]
+    assert cf.veiculos_atribuidos("O Diário do Litoral relata que a empresa culpa as chuvas.", veiculos) == ["Diário do Litoral"]
+    assert cf.veiculos_atribuidos("A obra, conforme mencionado pelo Jornal do Vale, atrasou.", veiculos) == ["Jornal do Vale"]
+    assert cf.veiculos_atribuidos("O Jornal do Vale e o Diário do Litoral cobriram a obra.", veiculos) == []   # sem marcador nem verbo de relato
+    assert cf.raiz("derrubou") == cf.raiz("derrubada") == "derrub" and cf.raiz("subindo") == cf.raiz("subiram") == "sub"
+    assert cf.raiz("publicações") != cf.raiz("publicacoes") and cf.raiz("publicacoes") == cf.raiz("publicou")   # a raiz recebe a palavra sem acento
+
+
+def test_a_medida_compara_o_veiculo_citado_com_os_outros():
+    episodio = _episodio(
+        "Segundo o Diário do Litoral, a prefeitura afirma que o contrato previa a entrega em março.",   # o fato é do Jornal do Vale
+        "O Diário do Litoral relata que os engenheiros trabalharam em turnos dobrados durante o inverno.",
+        "Segundo o Jornal do Vale, a Construtora Alfa atrasou a ponte.",                      # só palavras que os dois textos têm
+    )
+    errada, certa, comum = cf.atribuicoes_a_veiculos(episodio, [VALE, LITORAL], atores=["Construtora Alfa", "prefeitura de Curitiba"])
+    assert (errada.local, errada.veiculo) == ("fala 1 [Helena]", "Diário do Litoral")
+    assert errada.medida.no_citado == 0 and errada.medida.outro == "Jornal do Vale" and errada.medida.no_outro == 1
+    assert set(errada.medida.fora_do_citado) == {"contrato", "previa", "entrega", "marco"}
+    assert certa.medida.no_citado == 1 and certa.medida.no_outro == 0
+    # "atrasou", "ponte" e os nomes estão nos dois textos ou são nomes: não sobra palavra que distinga os veículos
+    assert comum.medida.contadas == 0 and comum.medida.no_citado is None
+    # com um veículo só não há o que comparar
+    assert cf.atribuicoes_a_veiculos(episodio, [VALE]) == []
+
+
+def test_a_frase_que_apresenta_cada_lado_vem_com_o_veiculo_citado_e_a_medida():
+    lados = [cf.Lado("A prefeitura diz que houve atraso.", ("prefeitura de Curitiba",), ("Jornal do Vale",), "Sim"),
+             cf.Lado("A construtora culpa as chuvas.", ("Construtora Alfa",), ("Diário do Litoral",), "Não")]
+    episodio = {**_episodio("Abertura.", "Segundo o Jornal do Vale, a prefeitura de Curitiba afirma que o contrato previa a entrega em março."),
+                "personagens": [{"nome": "Helena"}, {"nome": "Dr. Ramos"}, {"nome": "Bia"}]}
+    episodio["roteiro_podcast"].append({"personagem": "Bia", "fala": "Segundo o Diário do Litoral, a Construtora Alfa alega que as chuvas causaram o atraso."})
+    ramos, bia = cf.apresentacoes_dos_lados(episodio, [VALE, LITORAL], lados)
+    assert (ramos.lado, ramos.personagem, ramos.veiculo, ramos.medida.no_citado) == (1, "Dr. Ramos", "Jornal do Vale", 1)
+    assert (bia.lado, bia.personagem, bia.veiculo, bia.medida.no_citado) == (2, "Bia", "Diário do Litoral", 0.5)
+    assert bia.medida.fora_do_citado == ("causaram",) and bia.medida.no_outro == 0          # "chuvas" está só no Diário do Litoral
+    assert cf.apresentacoes_dos_lados(episodio, [VALE, LITORAL], lados[:1]) == []         # sem disputa, não há lados a apresentar

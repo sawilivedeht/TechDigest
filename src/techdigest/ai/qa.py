@@ -17,8 +17,10 @@ settings = Settings()
 # Faixas editoriais (regras 2, 3 e 6). Os valores vêm do .env (QA_*); os defaults do
 # config.py são as regras originais do dono.
 MIN_POR_PERSONAGEM, MAX_POR_PERSONAGEM = settings.qa_min_por_personagem, settings.qa_max_por_personagem
-# A faixa do analista de um lado fino (ver `ai/lados.py`): ele não amplia além do que as fontes trazem.
+# O analista de um lado fino (ver `ai/lados.py`) não amplia além do que as fontes trazem: o QA cobra
+# o mínimo dele, e o teto que o prompt pede (MAX_LADO_FINO) é só diagnóstico.
 MIN_LADO_FINO, MAX_LADO_FINO = settings.qa_min_lado_fino, settings.qa_max_lado_fino
+MIN_HELENA_COM_DEBATE = settings.qa_min_helena_com_debate   # com dois analistas ou mais, Helena pode falar menos
 MIN_TOTAL, MAX_TOTAL = settings.qa_min_total, settings.qa_max_total
 MIN_FRASES_RESUMO, MAX_FRASES_RESUMO = settings.qa_min_frases, settings.qa_max_frases
 
@@ -193,27 +195,36 @@ def atores_exclusivos(lados) -> list[list[str]]:
     ]
 
 
-def lados_de_cada_analista(result: dict, lados) -> dict[str, list[int]]:
-    """Para cada personagem que não é Helena, os lados (pela posição na lista) que ele apresenta.
+def frases_que_apresentam(result: dict, lados) -> list[list[tuple[str, str]]]:
+    """Para cada lado (pela posição na lista), as frases dos analistas que o apresentam: (personagem, frase).
 
     Apresentar um lado é ter uma frase que cita um veículo do lado, usa um verbo de posição e
     nomeia um ator que só aquele lado tem.
     """
     exclusivos = atores_exclusivos(lados)
     alheios = [[a for j, outro in enumerate(lados) if j != i for a in outro.atores] for i in range(len(lados))]
-    apresenta: dict[str, list[int]] = {}
+    achadas: list[list[tuple[str, str]]] = [[] for _ in lados]
     for turno in result["roteiro_podcast"]:
         if _palavras_do_nome(turno["personagem"]) == [HELENA]:
             continue
-        feitos = apresenta.setdefault(turno["personagem"], [])
         for frase in frases(turno["fala"]):
             if not verbos_de_posicao(frase):
                 continue
-            feitos += [
-                i for i, lado in enumerate(lados)
-                if i not in feitos and any(veiculo_citado(v, frase) for v in lado.veiculos)
-                and any(ator_citado(a, frase, alheios[i]) for a in exclusivos[i])
-            ]
+            for i, lado in enumerate(lados):
+                if any(veiculo_citado(v, frase) for v in lado.veiculos) and any(ator_citado(a, frase, alheios[i]) for a in exclusivos[i]):
+                    achadas[i].append((turno["personagem"], frase))
+    return achadas
+
+
+def lados_de_cada_analista(result: dict, lados) -> dict[str, list[int]]:
+    """Para cada personagem que não é Helena, os lados (pela posição na lista) que ele apresenta (ver `frases_que_apresentam`)."""
+    apresenta: dict[str, list[int]] = {
+        turno["personagem"]: [] for turno in result["roteiro_podcast"] if _palavras_do_nome(turno["personagem"]) != [HELENA]
+    }
+    for i, achadas in enumerate(frases_que_apresentam(result, lados)):
+        for personagem, _ in achadas:
+            if i not in apresenta[personagem]:
+                apresenta[personagem].append(i)
     return apresenta
 
 
@@ -229,19 +240,35 @@ def lado_de_cada_analista(result: dict, lados) -> dict[str, int]:
     return {}
 
 
+def analistas_de_lado_fino(result: dict, lados) -> set[str]:
+    """Os analistas que apresentam um lado fino (ver `ai/lados.py`; só em pauta de 2 lados ou mais).
+
+    Vem da correspondência um a um entre analistas e lados: sem ela, nenhum.
+    """
+    finos = {i for i, lado in enumerate(lados) if len(lados) >= 2 and lado.fino}
+    return {nome for nome, lado in (lado_de_cada_analista(result, lados) if finos else {}).items() if lado in finos}
+
+
 def limites_de_cada_personagem(result: dict, lados) -> dict[str, tuple[int, int]]:
     """O mínimo e o máximo de palavras de cada personagem que fala.
 
-    São MIN_POR_PERSONAGEM e MAX_POR_PERSONAGEM, a não ser para o analista de um lado fino (ver
-    `ai/lados.py`; só em pauta de 2 lados ou mais), que fala de MIN_LADO_FINO a MAX_LADO_FINO. Sem
-    correspondência entre analistas e lados, vale a faixa de sempre para todos.
+    O máximo é sempre MAX_POR_PERSONAGEM. O mínimo é MIN_POR_PERSONAGEM, a não ser para o analista
+    de um lado fino (ver `analistas_de_lado_fino`), que é MIN_LADO_FINO, e para Helena em episódio
+    com dois analistas ou mais, que é MIN_HELENA_COM_DEBATE. O teto que o prompt pede ao analista
+    de lado fino (MAX_LADO_FINO) não entra aqui: é só diagnóstico.
     """
-    finos = {i for i, lado in enumerate(lados) if len(lados) >= 2 and lado.fino}
-    do_lado = lado_de_cada_analista(result, lados) if finos else {}
-    return {
-        nome: (MIN_LADO_FINO, MAX_LADO_FINO) if do_lado.get(nome) in finos else (MIN_POR_PERSONAGEM, MAX_POR_PERSONAGEM)
-        for nome in palavras_por_personagem(result["roteiro_podcast"])
-    }
+    por_pers = palavras_por_personagem(result["roteiro_podcast"])
+    analistas = [nome for nome in por_pers if _palavras_do_nome(nome) != [HELENA]]
+    finos = analistas_de_lado_fino(result, lados)
+
+    def minimo(nome: str) -> int:
+        if nome in finos:
+            return MIN_LADO_FINO
+        if _palavras_do_nome(nome) == [HELENA] and len(analistas) >= 2:
+            return MIN_HELENA_COM_DEBATE
+        return MIN_POR_PERSONAGEM
+
+    return {nome: (minimo(nome), MAX_POR_PERSONAGEM) for nome in por_pers}
 
 
 def problemas_dos_papeis(result: dict, lados) -> list[str]:
@@ -467,9 +494,10 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos) -> lis
         probs.append(Problema(RESUMO, f"resumo com {frases_do_resumo} frases (alvo {MIN_FRASES_RESUMO}-{MAX_FRASES_RESUMO})"))
 
     por_pers = palavras_por_personagem(result["roteiro_podcast"])
+    finos = analistas_de_lado_fino(result, lados)
     for nome, (minimo, maximo) in limites_de_cada_personagem(result, lados).items():
         if not (minimo <= por_pers[nome] <= maximo):
-            fino = ": é o analista de um lado fino, que não amplia além do que as fontes trazem" if maximo == MAX_LADO_FINO else ""
+            fino = ": é o analista de um lado fino, que não amplia além do que as fontes trazem" if nome in finos else ""
             probs.append(Problema(ROTEIRO, f"{nome} com {por_pers[nome]} palavras (alvo {minimo}-{maximo}{fino})"))
 
     total = sum(por_pers.values())

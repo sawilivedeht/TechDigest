@@ -17,7 +17,7 @@ from techdigest.ai.qa import (
     MAX_LADO_FINO, MIN_LADO_FINO, QUANTIFICADORES, ator_citado, atores_exclusivos, frases, mesmo_ator, mesmo_veiculo,
     palavras_do_ator, termo_do_grupo, veiculos_distintos,
 )
-from techdigest.ai.recorte import cortar_em_paragrafo, literal, procurado
+from techdigest.ai.recorte import cortar_em_paragrafo, literal, localizar_trecho, procurado
 
 logger = logging.getLogger("techdigest.ai.lados")
 
@@ -91,9 +91,11 @@ class Evidencia:
     """A resposta de um ator à questão e o trecho que a comprova, como o LLM os listou."""
     ator: str
     resposta: str
-    trecho: str
+    trecho: str                 # o trecho que vale: o do LLM ou, se ele era quase literal, o do veículo
     veiculo: str
-    comprovada: bool            # o trecho existe no texto inteiro desse veículo
+    comprovada: bool            # o trecho está no texto inteiro desse veículo, ao pé da letra ou quase
+    trecho_do_llm: str = ""     # o que o LLM escreveu, quando difere do texto e foi aceito como quase literal
+    diferencas: int = 0         # quantas palavras o trecho do LLM difere do texto do veículo
 
 
 @dataclass(frozen=True)
@@ -105,7 +107,7 @@ class Ressalva:
     grupos: tuple[str, ...]
     posicao: str
     veiculos: tuple[str, ...]   # com a grafia da pauta
-    trecho: str = ""            # o trecho de um texto desses veículos que traz a posição do grupo
+    trecho: str = ""            # o trecho de um texto desses veículos que traz a posição do grupo, como está no veículo
 
 
 @dataclass
@@ -228,21 +230,25 @@ def _rascunhos(lados: list[dict], da_pauta: list[str]) -> tuple[list[_Rascunho],
     return rascunhos, ajustes
 
 
-def _comprovado(trecho: str, textos, veiculos) -> bool:
-    """Se o trecho está, ao pé da letra, no título ou no texto inteiro de um dos veículos.
+def _no_texto(trecho: str, textos, veiculos) -> tuple[str, int] | None:
+    """Onde o trecho está, no título ou no texto inteiro de um dos veículos: o trecho que vale e as diferenças.
 
-    Vale o trecho de pelo menos MIN_TRECHO caracteres, pela comparação de `recorte.literal`
-    (espaços, aspas e maiúsculas não contam, nem as reticências e as aspas em volta do trecho).
+    Vale o trecho de pelo menos MIN_TRECHO caracteres, ao pé da letra (espaços, aspas e maiúsculas
+    não contam, nem as reticências e as aspas em volta) ou quase (ver `recorte.localizar_trecho`):
+    a cópia literal em qualquer texto vem antes da quase literal. Achado quase literal, vale o
+    trecho como está no veículo. None se não está em nenhum texto desses veículos.
     """
     alvo = procurado(trecho)
-    return len(alvo) >= MIN_TRECHO and any(
-        alvo in literal(f"{t['titulo']}\n{t['texto']}")
-        for t in textos if any(mesmo_veiculo(t["fonte"], veiculo) for veiculo in veiculos)
-    )
+    if len(alvo) < MIN_TRECHO:
+        return None
+    dos_veiculos = [f"{t['titulo']}\n{t['texto']}" for t in textos if any(mesmo_veiculo(t["fonte"], v) for v in veiculos)]
+    if any(alvo in literal(texto) for texto in dos_veiculos):
+        return trecho, 0
+    return next(filter(None, (localizar_trecho(trecho, texto) for texto in dos_veiculos)), None)
 
 
 def _evidencias(entradas: list, textos) -> list[Evidencia]:
-    """As respostas por ator da resposta do LLM, cada uma com o resultado da conferência do trecho (ver `_comprovado`).
+    """As respostas por ator da resposta do LLM, cada uma com o resultado da conferência do trecho (ver `_no_texto`).
 
     `textos` são os textos inteiros da pauta, mesmo quando a chamada leu um corte deles.
     """
@@ -251,8 +257,13 @@ def _evidencias(entradas: list, textos) -> list[Evidencia]:
         if not isinstance(entrada, dict):
             continue
         ator, resposta, trecho, veiculo = (_linha(entrada.get(chave)) for chave in ("ator", "resposta", "trecho", "veiculo"))
-        if ator:
-            evidencias.append(Evidencia(ator, resposta, trecho, veiculo, _comprovado(trecho, textos, [veiculo] if veiculo else [])))
+        if not ator:
+            continue
+        achado = _no_texto(trecho, textos, [veiculo] if veiculo else [])
+        if achado and achado[0] != trecho:   # achado palavra por palavra: vale o trecho como está no veículo
+            evidencias.append(Evidencia(ator, resposta, achado[0], veiculo, True, trecho_do_llm=trecho, diferencas=achado[1]))
+        else:
+            evidencias.append(Evidencia(ator, resposta, trecho, veiculo, achado is not None))
     return evidencias
 
 
@@ -315,17 +326,43 @@ def _separar(rascunhos: list[_Rascunho], textos) -> tuple[dict[int, Lado], list[
 
     No lado que tem ator nomeado, os grupos saem, porque concordam com ele. O lado que veio com
     ator nomeado e perdeu todos é descartado: nunca vira ressalva. O lado que veio só com grupos é
-    uma ressalva, e só fica se o trecho dela estiver num texto dos seus veículos (ver
-    `_comprovado`); senão é descartada, com o motivo. O último valor diz o que foi mudado.
+    uma ressalva. Se um grupo dela é ator de um lado (pela comparação de nomes de
+    `qa.mesmo_ator`), ela sai, e o trecho dela, se estiver no texto, passa para esse lado, com os
+    seus veículos. Nos outros casos a ressalva só fica se o trecho estiver num texto dos seus
+    veículos (ver `_no_texto`), e vale o trecho como está no veículo; senão é descartada, com o
+    motivo. O último valor diz o que foi mudado.
     """
+    da_pauta = veiculos_distintos(t["fonte"] for t in textos)
     nomeados, ressalvas, descartadas, ajustes = {}, [], [], []
     for r in rascunhos:
         if r.atores:
             nomeados[r.numero] = Lado(r.posicao, tuple(r.atores), r.veiculos, r.resposta, tuple(r.trechos))
         elif r.veio_com_ator:
             ajustes.append(f"lado {r.numero} saiu: ficou sem ator nomeado")
-        elif _comprovado(r.trecho, textos, r.veiculos):
-            ressalvas.append(Ressalva(r.grupos, r.posicao, r.veiculos, r.trecho))
+    for r in rascunhos:
+        if r.atores or r.veio_com_ator:
+            continue
+        achado = _no_texto(r.trecho, textos, r.veiculos)
+        trecho = achado[0] if achado else r.trecho
+        dono = next(((numero, grupo) for numero, lado in nomeados.items() for grupo in r.grupos
+                     if any(mesmo_ator(grupo, ator) for ator in lado.atores)), None)
+        if dono:
+            numero, grupo = dono
+            if achado:
+                lado = nomeados[numero]
+                nomeados[numero] = replace(
+                    lado, trechos=lado.trechos + (() if trecho in lado.trechos else (trecho,)),
+                    veiculos=tuple(v for v in da_pauta if v in lado.veiculos or v in r.veiculos),
+                )
+            ajustes.append(
+                f"ressalva do lado {r.numero} saiu: o grupo dela é ator do lado {numero} ({grupo}); "
+                + ("o trecho passou para esse lado" if achado else "o trecho não está no texto e não passou")
+            )
+        elif achado:
+            if trecho != r.trecho:
+                ajustes.append(f"trecho da ressalva do lado {r.numero} aceito como quase literal ({achado[1]} palavra(s) "
+                               f"diferente(s)): vale o do veículo")
+            ressalvas.append(Ressalva(r.grupos, r.posicao, r.veiculos, trecho))
         else:
             motivo = f"o trecho não está no texto de {', '.join(r.veiculos)}" if r.trecho else "sem trecho de evidência"
             descartadas.append((Ressalva(r.grupos, r.posicao, r.veiculos, r.trecho), motivo))
@@ -437,6 +474,10 @@ def analise_da_resposta(resposta, textos) -> Analise:
         if not (isinstance(entradas, list) and entradas):
             return invalida('resposta com questão e sem "respostas_por_ator" (cada ator tem a sua resposta e um trecho literal)')
         respostas = _evidencias(entradas, textos)
+        ajustes += [
+            f"trecho de {e.ator} aceito como quase literal ({e.diferencas} palavra(s) diferente(s) do texto de {e.veiculo}): "
+            f"vale o do veículo" for e in respostas if e.trecho_do_llm
+        ]
         mudou, faltam = _conferir_atores(rascunhos, respostas)
         ajustes += mudou
     nomeados, ressalvas, descartadas, mudou = _separar(rascunhos, textos)

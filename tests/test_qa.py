@@ -565,7 +565,7 @@ def test_verbo_de_quem_decide_conta_na_frase_do_analista():
     assert qa.problemas_dos_analistas(debate, lados) == []
 
 
-def test_analista_de_lado_fino_fala_de_120_a_200_palavras_e_o_total_nao_muda():
+def test_analista_de_lado_fino_fala_pelo_menos_120_palavras_e_o_total_nao_muda():
     grosso = Lado("A campanha acusa.", ("campanha de Lula",), ("CartaCapital",), "Sim", mencoes=5)
     fino = Lado("A Meta nega.", ("Meta",), ("Agência Brasil",), "Não", mencoes=1)
     cheio = " ".join(["palavra"] * qa.MIN_POR_PERSONAGEM)
@@ -582,18 +582,42 @@ def test_analista_de_lado_fino_fala_de_120_a_200_palavras_e_o_total_nao_muda():
     curto_no_fino = episodio(cheio, pouco)
     de_sempre = (qa.MIN_POR_PERSONAGEM, qa.MAX_POR_PERSONAGEM)
     assert qa.limites_de_cada_personagem(curto_no_fino, [grosso, fino]) == {
-        "Helena": de_sempre, "Bia": de_sempre, "Ramos": (qa.MIN_LADO_FINO, qa.MAX_LADO_FINO)}
+        "Helena": (qa.MIN_HELENA_COM_DEBATE, qa.MAX_POR_PERSONAGEM), "Bia": de_sempre, "Ramos": (qa.MIN_LADO_FINO, qa.MAX_POR_PERSONAGEM)}
+    assert qa.analistas_de_lado_fino(curto_no_fino, [grosso, fino]) == {"Ramos"}
     assert qa.problemas(curto_no_fino, ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS) == []
-    # o mesmo tamanho no analista do outro lado reprova, e sem lado fino o mínimo é o de sempre para todos
+    # o mesmo tamanho no analista do outro lado reprova, e sem lado fino o mínimo é o de sempre para os analistas
     problemas = qa.problemas(episodio(pouco, cheio), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS)
     assert problemas[0].startswith(f"Bia com {qa.MIN_LADO_FINO + 10} palavras (alvo {qa.MIN_POR_PERSONAGEM}-")
     assert qa.limites_de_cada_personagem(curto_no_fino, [grosso, grosso])["Ramos"] == de_sempre
-    # o analista do lado fino também tem teto: o que seria normal para os outros reprova
-    [problema] = qa.problemas(episodio(cheio, cheio), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS)
-    assert problema == (f"Ramos com {qa.MIN_POR_PERSONAGEM + 9} palavras (alvo {qa.MIN_LADO_FINO}-{qa.MAX_LADO_FINO}: é o analista de um lado "
-                        "fino, que não amplia além do que as fontes trazem)")
-    # abaixo do mínimo do lado fino também reprova, com o mínimo dele na mensagem
+    # o teto de MAX_LADO_FINO saiu do QA: o analista do lado fino pode falar o que os outros falam
+    assert qa.problemas(episodio(cheio, cheio), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS) == []
+    # abaixo do mínimo do lado fino reprova, com o mínimo dele na mensagem
     problemas = qa.problemas(episodio(cheio, "palavra"), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS)
-    assert problemas[0].startswith(f"Ramos com 10 palavras (alvo {qa.MIN_LADO_FINO}-{qa.MAX_LADO_FINO}: é o analista de um lado fino")
+    assert problemas[0] == (f"Ramos com 10 palavras (alvo {qa.MIN_LADO_FINO}-{qa.MAX_POR_PERSONAGEM}: é o analista de um lado fino, "
+                            "que não amplia além do que as fontes trazem)")
     assert problemas[1].startswith("total de ")                                           # os limites totais não mudam
+
+
+def test_com_dois_analistas_helena_pode_falar_menos():
+    lados = [Lado("A campanha acusa.", ("campanha de Lula",), ("CartaCapital",), "Sim", mencoes=5),
+             Lado("A Meta nega.", ("Meta",), ("Agência Brasil",), "Não", mencoes=5)]
+    cheio = " ".join(["palavra"] * (qa.MIN_POR_PERSONAGEM + 60))
+    helena = " ".join(["palavra"] * (qa.MIN_HELENA_COM_DEBATE - 1))
+
+    def debate(fala_da_helena: str) -> dict:
+        return {**_episodio(["G1"]), "houve_divergencia": True, "personagens": [{"nome": "Helena"}, {"nome": "Bia"}, {"nome": "Ramos"}],
+                "roteiro_podcast": [
+                    {"personagem": "Helena", "fala": fala_da_helena},
+                    {"personagem": "Bia", "fala": cheio + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
+                    {"personagem": "Ramos", "fala": cheio + ". Já a Agência Brasil registra que a Meta nega."},
+                ]}
+
+    assert qa.problemas(debate(helena + " palavra"), ["G1"], lados, SEM_RESSALVAS, SEM_TEXTOS) == []          # 180 palavras passam
+    assert qa.problemas(debate(helena), ["G1"], lados, SEM_RESSALVAS, SEM_TEXTOS) == [
+        f"Helena com {qa.MIN_HELENA_COM_DEBATE - 1} palavras (alvo {qa.MIN_HELENA_COM_DEBATE}-{qa.MAX_POR_PERSONAGEM})"]
+    # com um analista só, Helena continua com o mínimo de sempre
+    um = {**_episodio(["G1"]), "roteiro_podcast": [{"personagem": "Helena", "fala": helena + " palavra"}, {"personagem": "Ramos", "fala": cheio}]}
+    assert qa.limites_de_cada_personagem(um, lados[:1])["Helena"] == (qa.MIN_POR_PERSONAGEM, qa.MAX_POR_PERSONAGEM)
+    assert qa.problemas(um, ["G1"], lados[:1], SEM_RESSALVAS, SEM_TEXTOS)[0].startswith(
+        f"Helena com {qa.MIN_HELENA_COM_DEBATE} palavras (alvo {qa.MIN_POR_PERSONAGEM}-")
 

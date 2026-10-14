@@ -4,7 +4,7 @@ Com uma amostra fixa, gera com Summarizer.process os episódios de algumas pauta
 não envia nada ao Telegram, não chama mark_seen e não abre o digest.db.
 
 Uso (da raiz do projeto, com o venv ativo, o LLM no ar e nenhum pipeline rodando):
-    python scripts/testar_episodio.py --amostra data/agrupamento/amostra_<data-hora>.json
+    python scripts/testar_episodio.py --amostra data/agrupamento/amostra_<data-hora>.json --log-ollama <log do ollama serve>
     python scripts/testar_episodio.py --repetir data/agrupamento/episodios/relatorio_<data-hora>.json --pasta episodios_v2
     python scripts/testar_episodio.py --repetir <relatório> --pautas "86+71" --so-lados
 
@@ -18,6 +18,11 @@ por relevância: o relatório diz, por fonte, que parágrafos entraram em cada c
 trecho do lado N, ordem do texto) e quais ficaram de fora tendo trecho de evidência. Nas pautas com
 disputa mostra também, para cada trecho de evidência, a fala de analista que mais palavras dele
 repete (é uma medida de palavras em comum, não uma regra).
+
+Antes de tudo confere a GPU (ver `ai/gpu.py`): o driver da NVIDIA tem de responder e o log do
+ollama serve (--log-ollama) tem de mostrar que o servidor achou a GPU ao subir; senão para antes de
+carregar o modelo. Depois da primeira chamada, confere pelo /api/ps que parte do modelo está na GPU;
+senão descarrega o modelo e para.
 
 Antes de cada chamada ao LLM mostra memória disponível, swap e temperaturas. Para se a memória
 disponível estiver abaixo de --min-memoria (GiB) ou se o Ollama sair do ar ou descarregar o modelo
@@ -35,7 +40,7 @@ import time
 from pathlib import Path
 
 import testar_agrupamento as diag
-from techdigest.ai import qa
+from techdigest.ai import gpu, qa
 from techdigest.ai.llm import _amostra_sistema, _temperatura_cpu, get_provider
 from techdigest.ai.lados import lados_finos
 from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
@@ -75,9 +80,14 @@ def _argumentos() -> argparse.Namespace:
                    help="com a CPU acima disto antes de uma chamada, a rodada espera esfriar (padrão: %(default)s)")
     p.add_argument("--retomar-cpu", type=float, default=85.0, metavar="°C",
                    help="a rodada continua quando a CPU baixa disto (padrão: %(default)s)")
+    p.add_argument("--log-ollama", metavar="ARQUIVO",
+                   help="arquivo em que o ollama serve grava a saída: a conferência da GPU lê nele a linha "
+                        "\"inference compute\" (obrigatório com LLM_PROVIDER=ollama)")
     args = p.parse_args()
     if not args.amostra and not args.repetir:
         p.error("informe --amostra ou --repetir")
+    if settings.llm_provider == "ollama" and not args.log_ollama:
+        p.error("informe --log-ollama: sem o log do ollama serve não dá para saber se o servidor achou a GPU")
     return args
 
 
@@ -179,6 +189,7 @@ class ProviderMonitorado:
         self.max_cpu, self.retomar_cpu = max_cpu, retomar_cpu
         self.chamadas: list[dict] = []
         self.modelo_ja_carregou = False
+        self.gpu_depois_da_carga = ""   # o que a conferência do /api/ps achou depois da primeira chamada
 
     @property
     def ultimo_uso(self) -> dict:
@@ -242,6 +253,12 @@ class ProviderMonitorado:
             self._conferir_ollama()   # se foi o servidor que caiu, a rodada para aqui em vez de seguir falhando
             raise
         self.modelo_ja_carregou = True
+        if not self.gpu_depois_da_carga and settings.llm_provider == "ollama":
+            try:
+                self.gpu_depois_da_carga = gpu.modelo_na_gpu(self.provider.client, self.provider.model)
+            except gpu.SemGPU as e:
+                raise RodadaInterrompida(f"\nPAREI depois da primeira chamada: {e}.") from None
+            print(f"      GPU depois da carga: {self.gpu_depois_da_carga}", flush=True)
         tokens = dict(self.provider.ultimo_uso)
         chamada.update(segundos=time.perf_counter() - inicio, tokens_entrada=tokens.get("prompt", 0),
                        tokens_saida=tokens.get("saida", 0), resposta=resposta)
@@ -352,7 +369,8 @@ def _lados(analise, chamadas: list[dict]) -> dict:
                    "trechos": list(lado.trechos), "frases_com_os_atores": lado.mencoes, "fino": fino}
                   for lado, fino in zip(analise.lados, lados_finos(analise.lados))],
         "respostas_por_ator": [{"ator": e.ator, "resposta": e.resposta, "trecho": e.trecho, "veiculo": e.veiculo,
-                                "comprovada": e.comprovada} for e in analise.respostas],
+                                "comprovada": e.comprovada, "trecho_do_llm": e.trecho_do_llm, "diferencas": e.diferencas}
+                               for e in analise.respostas],
         "resposta_do_llm": analise.resposta,
         "primeira_tentativa": None if analise.primeira is None else {
             "invalida_porque": analise.primeira.problemas, "atores_sem_entrada": analise.primeira.faltam,
@@ -371,8 +389,9 @@ def _lados(analise, chamadas: list[dict]) -> dict:
         print(f"    TEXTO CORTADO NA ANÁLISE: {corte['fonte']} · lidos {corte['lido']} de {corte['texto']} caracteres")
     print(f"    questão: {registro['questao'] or '(sem disputa)'}")
     for e in registro["respostas_por_ator"]:
+        quase = f" (quase literal, {e['diferencas']} palavra(s) diferente(s); o LLM escreveu: \"{e['trecho_do_llm']}\")" if e["trecho_do_llm"] else ""
         print(f"    resposta de {e['ator']}: {e['resposta'] or '-'} · {'comprovada' if e['comprovada'] else 'TRECHO NÃO ENCONTRADO'} "
-              f"em {e['veiculo'] or '-'}: \"{e['trecho']}\"")
+              f"em {e['veiculo'] or '-'}: \"{e['trecho']}\"{quase}")
     for i, lado in enumerate(registro["lados"], 1):
         resposta = f"[{lado['resposta']}] " if lado["resposta"] else ""
         print(f"    lado {i}{' (FINO)' if lado['fino'] else ''}: {resposta}{lado['posicao']}")
@@ -586,10 +605,16 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
             relatorio["palavras_por_personagem"] = qa.palavras_por_personagem(episodio["roteiro_podcast"])
             relatorio["limites_por_personagem"] = qa.limites_de_cada_personagem(episodio, analise.lados) if analise else None
             relatorio["lado_de_cada_analista"] = qa.lado_de_cada_analista(episodio, analise.lados) if analise else None
+            relatorio["lado_fino_acima_do_teto"] = {   # o teto do analista de lado fino é só diagnóstico: o QA não cobra
+                nome: relatorio["palavras_por_personagem"][nome] for nome in qa.analistas_de_lado_fino(episodio, analise.lados)
+                if relatorio["palavras_por_personagem"][nome] > qa.MAX_LADO_FINO
+            } if analise else {}
         except (KeyError, TypeError, AttributeError):   # episódio fora do formato
             pass
         print(f"  turnos: {relatorio['turnos']} · palavras: {relatorio.get('palavras_por_personagem')} · "
               f"limites: {relatorio.get('limites_por_personagem')}")
+        for nome, palavras in (relatorio.get("lado_fino_acima_do_teto") or {}).items():
+            print(f"  diagnóstico: {nome}, analista de lado fino, com {palavras} palavras (o prompt pede até {qa.MAX_LADO_FINO})")
         print(f"  papéis: {[(p.get('nome'), p.get('papel')) for p in relatorio['personagens'] or [] if isinstance(p, dict)]}")
         for item in relatorio["frases_na_primeira_pessoa"]:
             print(f"  primeira pessoa ({item['personagem']}; {', '.join(item['marcas'])}): {item['frase']}")
@@ -648,6 +673,14 @@ def main() -> None:
     if disponivel < args.min_memoria:
         sys.exit(f"PAREI antes de começar: memória disponível em {disponivel:.1f} GiB, abaixo de {args.min_memoria:.1f} GiB.")
 
+    conferencias_da_gpu = []
+    if settings.llm_provider == "ollama":
+        try:
+            conferencias_da_gpu = gpu.conferir_antes_de_carregar(args.log_ollama)
+        except gpu.SemGPU as e:
+            sys.exit(f"PAREI antes de carregar o modelo: {e}.")
+        for linha in conferencias_da_gpu:
+            print(f"== GPU antes da carga: {linha} ==")
     provider = get_provider(settings)
     monitor = ProviderMonitorado(provider, args.min_memoria, args.max_cpu, args.retomar_cpu)
     summarizer = Summarizer(provider=monitor)
@@ -667,7 +700,9 @@ def main() -> None:
     def gravar() -> None:
         caminho.write_text(json.dumps(
             {"amostra": args.amostra, "limiar": None if args.repetir or args.pautas else args.limiar,   # sem etapa 3, não há limiar
-             "num_ctx": settings.ollama_num_ctx, "episodios": relatorios},
+             "num_ctx": settings.ollama_num_ctx,
+             "gpu": {"antes_da_carga": conferencias_da_gpu, "depois_da_carga": monitor.gpu_depois_da_carga},
+             "episodios": relatorios},
             ensure_ascii=False, indent=1, default=str,
         ), encoding="utf-8")
 

@@ -73,8 +73,9 @@ class Settings(BaseSettings):
 
     # QA editorial (regras 2, 3 e 6). Os defaults são as regras originais; ajuste no .env (QA_*)
     qa_min_por_personagem: int = 240
-    qa_min_lado_fino: int = 120        # o analista de um lado fino (atores em no máximo uma frase dos textos) fala
-    qa_max_lado_fino: int = 200        # entre estes dois limites
+    qa_min_helena_com_debate: int = 180   # o mínimo de Helena em episódio com dois analistas ou mais
+    qa_min_lado_fino: int = 120        # o mínimo do analista de um lado fino (atores em no máximo uma frase dos textos)
+    qa_max_lado_fino: int = 200        # o teto que o prompt pede a ele: só diagnóstico, o QA não cobra
     qa_max_por_personagem: int = 480
     qa_min_total: int = 600
     qa_max_total: int = 1300

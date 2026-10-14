@@ -346,6 +346,84 @@ def test_lado_fino_e_o_que_tem_os_atores_em_no_maximo_uma_frase_dos_textos():
     assert not Lado("p", ("Meta",), ("G1",)).fino                       # lado que não passou pela contagem não é fino
 
 
+# ── Trecho quase literal ──────────────────────────────────────────────────────────────────
+
+# Uma pauta inventada, com frases de mais de dez palavras: a cópia quase literal pode diferir em uma palavra a cada dez.
+OBRA = [
+    {"fonte": "Jornal do Vale", "titulo": "Prefeitura multa construtora",
+     "texto": ("A prefeitura de Curitiba multou a Construtora Alfa por atrasar a entrega da ponte em mais de seis meses.\n"
+               "A construtora afirmou em nota que o atraso foi causado pelas chuvas e que vai recorrer da multa na Justiça.")},
+    {"fonte": "Diário do Litoral", "titulo": "Engenheiros veem risco na obra",
+     "texto": ("Engenheiros ouvidos pelo jornal alertam que a pressa para terminar a ponte pode comprometer a segurança da estrutura.\n"
+               "A Construtora Alfa sustenta que a obra segue todas as normas técnicas e que não há risco para os motoristas.")},
+]
+MULTOU = "A prefeitura de Curitiba multou a Construtora Alfa por atrasar a entrega da ponte em mais de seis meses."
+RECORRE = "A construtora afirmou em nota que o atraso foi causado pelas chuvas e que vai recorrer da multa na Justiça."
+ALERTAM = "Engenheiros ouvidos pelo jornal alertam que a pressa para terminar a ponte pode comprometer a segurança da estrutura."
+SUSTENTA = "A Construtora Alfa sustenta que a obra segue todas as normas técnicas e que não há risco para os motoristas."
+
+
+def _obra(trecho_da_construtora=RECORRE, trecho_da_prefeitura=MULTOU, *ressalvas) -> dict:
+    return {"questao": "A construtora descumpriu o contrato?", "respostas_por_ator": [
+        _evidencia("prefeitura de Curitiba", "Sim", trecho_da_prefeitura, "Jornal do Vale"),
+        _evidencia("Construtora Alfa", "Não", trecho_da_construtora, "Jornal do Vale"),
+    ], "lados": [_lado("A prefeitura diz que a construtora atrasou.", ["prefeitura de Curitiba"], ["Jornal do Vale"], "Sim"),
+                 _lado("A construtora culpa as chuvas.", ["Construtora Alfa"], ["Jornal do Vale", "Diário do Litoral"], "Não"),
+                 *ressalvas]}
+
+
+def test_trecho_quase_literal_do_ator_vale_como_esta_no_veiculo():
+    quase = "A construtora afirmou, em nota, que o atraso foi provocado pelas chuvas e que vai recorrer da multa na Justiça."   # 1 em 21
+    analise = analise_da_resposta(_obra(quase), OBRA)
+    assert [lado.atores for lado in analise.lados] == [("prefeitura de Curitiba",), ("Construtora Alfa",)] and analise.problemas == []
+    assert analise.lados[1].trechos == ("A construtora afirmou em nota que o atraso foi causado pelas chuvas e que vai recorrer da multa na Justiça",)
+    construtora = analise.respostas[1]
+    assert (construtora.comprovada, construtora.trecho_do_llm, construtora.diferencas) == (True, quase, 1)
+    assert analise.ajustes == [
+        "trecho de Construtora Alfa aceito como quase literal (1 palavra(s) diferente(s) do texto de Jornal do Vale): vale o do veículo"
+    ]
+    # o trecho literal continua como veio, sem ajuste
+    literal = analise_da_resposta(_obra(), OBRA)
+    assert literal.lados[1].trechos == (RECORRE,) and literal.respostas[1].trecho_do_llm == "" and literal.ajustes == []
+
+
+def test_trecho_quase_literal_com_negacao_tira_o_ator():
+    com_nao = RECORRE.replace("vai recorrer", "não vai recorrer")
+    analise = analise_da_resposta(_obra(com_nao), OBRA)
+    assert [lado.atores for lado in analise.lados] == [("prefeitura de Curitiba",)] and analise.respostas[1].comprovada is False
+    assert analise.ajustes[0] == "ator do lado 2 saiu: o trecho não está no texto de Jornal do Vale (Construtora Alfa)"
+
+
+def test_trecho_quase_literal_da_ressalva_vale_como_esta_no_veiculo():
+    quase = "Engenheiros ouvidos pelo jornal alertam que a pressa de terminar a ponte pode comprometer a segurança da estrutura."
+    ressalva = _lado("A pressa pode comprometer a segurança.", [], ["Diário do Litoral"], grupos=["engenheiros"], trecho=quase)
+    analise = analise_da_resposta(_obra(RECORRE, MULTOU, ressalva), OBRA)
+    assert [r.trecho for r in analise.ressalvas] == [ALERTAM.removesuffix(".")] and analise.descartadas == []
+    assert analise.ajustes == ["trecho da ressalva do lado 3 aceito como quase literal (1 palavra(s) diferente(s)): vale o do veículo"]
+
+
+def test_ressalva_cujo_grupo_e_ator_de_um_lado_sai_e_o_trecho_vai_para_o_lado():
+    # como na pauta Lula/TSE de 13/10/2026: a campanha, que já é ator de um lado, veio como "grupo" de uma ressalva
+    do_ator = _lado("A obra segue as normas.", [], ["Diário do Litoral"], grupos=["Construtora Alfa"], trecho=SUSTENTA)
+    analise = analise_da_resposta(_obra(RECORRE, MULTOU, do_ator), OBRA)
+    assert analise.ressalvas == [] and analise.descartadas == [] and analise.problemas == []
+    construtora = analise.lados[1]
+    assert construtora.trechos == (RECORRE, SUSTENTA) and construtora.veiculos == ("Jornal do Vale", "Diário do Litoral")
+    assert analise.ajustes == ["ressalva do lado 3 saiu: o grupo dela é ator do lado 2 (Construtora Alfa); o trecho passou para esse lado"]
+    # os veículos da ressalva entram no lado que recebe o trecho
+    so_no_jornal = _obra(RECORRE, MULTOU, do_ator)
+    so_no_jornal["lados"][1]["veiculos"] = ["Jornal do Vale"]
+    assert analise_da_resposta(so_no_jornal, OBRA).lados[1].veiculos == ("Jornal do Vale", "Diário do Litoral")
+    # sem o trecho no texto, a ressalva sai do mesmo jeito, e o lado fica como estava
+    inventada = _lado("A obra segue as normas.", [], ["Diário do Litoral"], grupos=["a Construtora Alfa"], trecho="A Construtora Alfa garante que a ponte é segura.")
+    sem_trecho = analise_da_resposta(_obra(RECORRE, MULTOU, inventada), OBRA)
+    assert sem_trecho.ressalvas == [] and sem_trecho.lados[1].trechos == (RECORRE,)
+    assert sem_trecho.ajustes == ["ressalva do lado 3 saiu: o grupo dela é ator do lado 2 (a Construtora Alfa); o trecho não está no texto e não passou"]
+    # grupo que não é ator de nenhum lado continua ressalva
+    engenheiros = _lado("A pressa pode comprometer a segurança.", [], ["Diário do Litoral"], grupos=["engenheiros"], trecho=ALERTAM)
+    assert [r.grupos for r in analise_da_resposta(_obra(RECORRE, MULTOU, engenheiros), OBRA).ressalvas] == [("engenheiros",)]
+
+
 # ── Ressalvas ─────────────────────────────────────────────────────────────────────────────
 
 FLAVIO = _lado("Flávio propõe flexibilizar o Mercosul.", ["Flávio Bolsonaro", "Milei"], ["Agência Brasil"], "Sim")

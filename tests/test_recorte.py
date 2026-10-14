@@ -1,8 +1,10 @@
-"""Testes de ai/recorte.py: o lide, os parágrafos dos trechos de evidência e o recorte por relevância."""
+"""Testes de ai/recorte.py: o trecho quase literal, o lide, os parágrafos dos trechos de evidência e o recorte por relevância."""
 import pytest
 
 from techdigest.ai import recorte
-from techdigest.ai.recorte import cortar_em_paragrafo, lide, literal, paragrafos, paragrafos_com, procurado, recortar
+from techdigest.ai.recorte import (
+    cortar_em_paragrafo, lide, literal, localizar_trecho, paragrafos, paragrafos_com, procurado, recortar,
+)
 
 CONTEXTO = "Um parágrafo de contexto sobre a eleição, com uma frase. E outra frase, para o parágrafo ter corpo."   # 99 caracteres
 ACUSACAO = "Em nota, a campanha de Lula acusou a empresa de favorecer um candidato na reta final."
@@ -13,6 +15,60 @@ TRECHOS = [("trecho do lado 1", "a campanha de Lula acusou a empresa"), ("trecho
 
 def _numeros(feito) -> list[int]:
     return [e["paragrafo"] for e in feito.entraram]
+
+
+# ── O trecho quase literal ────────────────────────────────────────────────────────────────
+
+# Frases dos textos das amostras de 11 e 12/10/2026 em que o LLM copiou o trecho quase ao pé da letra.
+DO_GLOBO_NO_CANAL = (
+    "Nunes Marques passa por cima de corregedor do TSE e manda derrubar canal 'Exército de Lula'\n"
+    "Presidente do TSE entendeu que o canal, com mais de 3 milhões de seguidores, se converteu 'em vetor de disseminação' "
+    "de conteúdos reconhecidos como 'desprovidos de lastro mínimo'. Petista classificou a decisão 'tendenciosa' contra a candidatura"
+)
+DO_GLOBO_COM_LULA = (
+    "— afirmou Lula.\nCueva derrubou ainda no domingo a decisão do presidente da Corte e manteve no ar o canal \"Exército do Lula\". "
+    "Na decisão mais recente, além de manter o grupo no ar, o ministro também determinou o envio"
+)
+NUNES = ("O presidente do TSE entendeu que o canal, com mais de 3 milhões de seguidores, se converteu 'em vetor de disseminação' "
+         "de conteúdos reconhecidos como 'desprovidos de lastro mínimo'.")                     # 29 palavras, com um "O" a mais
+CUEVA = "Cueva derrubou ainda no domingo, a decisão do presidente da Corte e manteve em ar o canal \"Exército do Lula\"."   # 20 palavras
+
+
+def test_os_dois_trechos_quase_literais_das_amostras_passam_e_valem_como_estao_no_veiculo():
+    assert localizar_trecho(NUNES, DO_GLOBO_NO_CANAL) == (
+        "Presidente do TSE entendeu que o canal, com mais de 3 milhões de seguidores, se converteu 'em vetor de disseminação' "
+        "de conteúdos reconhecidos como 'desprovidos de lastro mínimo'", 1)                     # uma palavra a mais em 29: cabe em 2
+    assert localizar_trecho(CUEVA, DO_GLOBO_COM_LULA) == (
+        'Cueva derrubou ainda no domingo a decisão do presidente da Corte e manteve no ar o canal "Exército do Lula"', 1)   # "em" por "no"
+    # o trecho que vale é o do veículo: é com ele que o parágrafo é achado no recorte
+    assert paragrafos_com(localizar_trecho(NUNES, DO_GLOBO_NO_CANAL)[0], DO_GLOBO_NO_CANAL) == [2]
+    assert paragrafos_com(NUNES, DO_GLOBO_NO_CANAL) == []
+
+
+@pytest.mark.parametrize("trecho, porque", [
+    (CUEVA.replace("Cueva derrubou", "Cueva não derrubou"), "um não a mais"),
+    (CUEVA.replace("manteve em ar", "nunca manteve no ar"), "uma diferença só, mas com negação"),
+    ("Cueva derrubou ainda no domingo a decisão do presidente da Corte, porque considerou a medida desproporcional e ilegal.",
+     "pedaço real com uma oração inventada"),
+    (CUEVA.replace("ainda no domingo, a decisão", "na segunda-feira a liminar"), "três palavras diferentes em 20"),
+])
+def test_trecho_com_negacao_ou_diferente_demais_reprova(trecho, porque):
+    assert localizar_trecho(trecho, DO_GLOBO_COM_LULA) is None, porque
+
+
+def test_trecho_de_menos_de_dez_palavras_tem_de_ter_as_mesmas_palavras():
+    texto = "A Meta respondeu às acusações da campanha e negou favorecimento."
+    assert localizar_trecho("A Meta respondeu às acusações da campanha", texto) == ("A Meta respondeu às acusações da campanha", 0)
+    assert localizar_trecho("A Meta rebateu às acusações da campanha", texto) is None           # 7 palavras: nenhuma diferença
+    # pontuação, maiúsculas e o tipo de aspas não contam: vale o pedaço do texto, sem nenhuma palavra diferente
+    assert localizar_trecho("a meta, respondeu “às acusações” da campanha", texto) == ("A Meta respondeu às acusações da campanha", 0)
+    assert localizar_trecho("", texto) is None and localizar_trecho("...", texto) is None
+
+
+def test_a_comparacao_por_palavras_acha_o_trecho_no_meio_de_um_texto_longo():
+    longo = "\n".join([CONTEXTO] * 40 + [DO_GLOBO_COM_LULA] + [CONTEXTO] * 40)
+    versao, diferencas = localizar_trecho(CUEVA, longo)
+    assert diferencas == 1 and versao.startswith("Cueva derrubou ainda no domingo a decisão") and versao.endswith('"Exército do Lula"')
 
 
 # ── O lide ────────────────────────────────────────────────────────────────────────────────
