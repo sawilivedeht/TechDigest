@@ -183,8 +183,10 @@ INTERVALO_DA_CPU = 10        # segundos entre duas leituras da temperatura duran
 class ProviderMonitorado:
     """Envolve o provider: confere a memória, a temperatura e o Ollama antes de cada chamada e guarda tempo, tokens e resposta."""
 
-    def __init__(self, provider, min_memoria: float, max_cpu: float = 95.0, retomar_cpu: float = 85.0):
+    def __init__(self, provider, min_memoria: float, max_cpu: float = 95.0, retomar_cpu: float = 85.0,
+                 log_ollama: str | None = None):
         self.provider = provider
+        self.log_ollama = log_ollama    # o log do ollama serve, onde a conferência depois da carga lê as camadas na GPU
         self.min_memoria = min_memoria
         self.max_cpu, self.retomar_cpu = max_cpu, retomar_cpu
         self.chamadas: list[dict] = []
@@ -255,7 +257,7 @@ class ProviderMonitorado:
         self.modelo_ja_carregou = True
         if not self.gpu_depois_da_carga and settings.llm_provider == "ollama":
             try:
-                self.gpu_depois_da_carga = gpu.modelo_na_gpu(self.provider.client, self.provider.model)
+                self.gpu_depois_da_carga = gpu.modelo_na_gpu(self.provider.client, self.provider.model, self.log_ollama)
             except gpu.SemGPU as e:
                 raise RodadaInterrompida(f"\nPAREI depois da primeira chamada: {e}.") from None
             print(f"      GPU depois da carga: {self.gpu_depois_da_carga}", flush=True)
@@ -682,7 +684,7 @@ def main() -> None:
         for linha in conferencias_da_gpu:
             print(f"== GPU antes da carga: {linha} ==")
     provider = get_provider(settings)
-    monitor = ProviderMonitorado(provider, args.min_memoria, args.max_cpu, args.retomar_cpu)
+    monitor = ProviderMonitorado(provider, args.min_memoria, args.max_cpu, args.retomar_cpu, args.log_ollama)
     summarizer = Summarizer(provider=monitor)
     candidatos, ids = diag._carregar_amostra(args.amostra)
     if args.repetir or args.pautas:

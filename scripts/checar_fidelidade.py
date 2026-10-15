@@ -31,7 +31,7 @@ from pathlib import Path
 
 from techdigest.ai import qa
 from techdigest.ai.atribuicoes import GRUPOS as _GRUPOS
-from techdigest.ai.atribuicoes import atribuicoes_a_grupos as atribuicoes_vagas
+from techdigest.ai.atribuicoes import atribuicoes_a_grupos, pergunta_aberta, perguntas_abertas_a_grupos
 from techdigest.ai.numeros import _ESCALAS as _escalas
 from techdigest.ai.numeros import _PARCELAS as _parcelas
 from techdigest.ai.numeros import Numero, formatar, numeros
@@ -63,14 +63,20 @@ COMO_LER = """Como ler
   O que a checagem não vê: o sentido (um número certo usado para dizer outra coisa passa), nome
   que só aparece em começo de frase, "um" e "uma" sozinhos, ordinais e frações além de "terço".
   Posição de Helena: lista de expressões de juízo fora de citação; é indício para leitura, não prova.
+  Pergunta aberta a um grupo ("O que os especialistas dizem sobre isso?": frase que termina em "?"
+  com o que, como, qual, quais, por que, quem, onde ou quando antes do grupo) não é atribuição, nem
+  no QA: fica listada à parte, fora da conta, para se ver o que a exceção deixa passar. Só aqui, e não
+  no QA, "Para os <grupo> <qualificador>, ..." no começo da frase também conta como atribuição vaga.
   Atribuição a veículo (só diagnóstico, só com dois veículos ou mais): frase do resumo ou de uma fala
   com "segundo", "de acordo com" ou "conforme" antes do nome do veículo, ou com um verbo de relato
   depois dele ("o G1 relata que..."). Contam as palavras de 4 letras ou mais, comparadas pela raiz
   sem acento (sem plural, gênero e terminação de verbo: "derrubou" = "derrubada"), menos as palavras
   sem conteúdo, os números por extenso, os verbos de posição, os nomes dos veículos, dos atores e dos
   personagens e as palavras que estão em todos os textos da pauta, que não distinguem um veículo do outro. Mostra a fração delas no texto completo do
-  veículo citado e a maior fração num outro veículo. Compara palavras, não sentido: a frase pode usar
-  as palavras do veículo para dizer outra coisa."""
+  veículo citado e a maior fração num outro veículo. "OUTRO VEÍCULO TEM MAIS" marca a frase em que outro
+  veículo tem a fração maior; "REGRA ESTRITA", a que tem pelo menos 5 palavras contadas e outro veículo
+  com 40 pontos ou mais acima do citado. Compara palavras, não sentido: a frase pode usar as palavras do
+  veículo para dizer outra coisa, e o mesmo fato dito com outras palavras não aparece."""
 
 HELENA = "helena"
 PROGRAMAS = {"techdigest", "pulsobr"}
@@ -193,7 +199,21 @@ def nomes_proprios(texto: str, confirmados: frozenset[str] | set[str] = frozense
 
 # ── Atribuição vaga ───────────────────────────────────────────────────────────────────────
 
-# As atribuições vagas vêm de techdigest.ai.atribuicoes (`atribuicoes_vagas`): o QA usa a mesma regra para reprovar.
+# As atribuições vagas vêm de techdigest.ai.atribuicoes, a mesma regra com que o QA reprova, mais uma forma que só
+# este diagnóstico conta: "Para os especialistas em preservação, ...", o grupo com um qualificador antes da vírgula,
+# no começo da frase. O QA só pega "Para os <grupo>," sem qualificador; regra nova que reprova passa antes por aqui.
+_PARA_COM_QUALIFICADOR = re.compile(
+    rf"(?:^|(?<=[.!?…\n]))\s*(para\s+(?:os|as)\s+({'|'.join(sorted(_GRUPOS, key=len, reverse=True))})\b[^,.;:!?\n]{{1,60}}),",
+    re.IGNORECASE)
+
+
+def atribuicoes_vagas(texto: str) -> list[tuple[str, str, int]]:
+    """As atribuições a grupo sem nome do QA (`atribuicoes.atribuicoes_a_grupos`) e as de "Para os <grupo> <qualificador>, ..."."""
+    achadas = {posicao: (grupo, expressao, posicao) for grupo, expressao, posicao in atribuicoes_a_grupos(texto)}
+    for m in _PARA_COM_QUALIFICADOR.finditer(texto):
+        if m.start(1) not in achadas and not pergunta_aberta(texto, m.start(2)):
+            achadas[m.start(1)] = (m.group(2).lower(), m.group(1), m.start(1))
+    return [achadas[posicao] for posicao in sorted(achadas)]
 
 
 # ── A pauta como referência ───────────────────────────────────────────────────────────────
@@ -318,6 +338,7 @@ class Resultado:
     conferidos: dict[str, int] = field(default_factory=dict)    # quantos fatos diferentes de cada tipo foram examinados
     fontes_faltando: list[str] = field(default_factory=list)    # veículos da pauta fora de fontes_citadas
     divergencia: list[Achado] = field(default_factory=list)     # só com houve_divergencia true
+    perguntas_abertas: list[Achado] = field(default_factory=list)   # perguntas abertas a um grupo: isentas, fora da conta
 
 
 def distintos(achados: list[Achado]) -> dict[str, int]:
@@ -419,6 +440,8 @@ def conferir(episodio: dict, fontes: list[Fonte]) -> Resultado:
             if not lida.tem_grupo(grupo):
                 destino = r.so_no_corte if completa.tem_grupo(grupo) else r.sem_fonte
                 destino.append(Achado("atribuição vaga", grupo, expressao, local, _frase(texto, posicao)))
+        for grupo, expressao, posicao in perguntas_abertas_a_grupos(texto):
+            r.perguntas_abertas.append(Achado("pergunta aberta", grupo, expressao, local, _frase(texto, posicao)))
 
     citadas = episodio.get("fontes_citadas") if isinstance(episodio.get("fontes_citadas"), list) else []
     r.fontes_faltando = [v for v in qa.veiculos_distintos(f.veiculo for f in fontes)
@@ -607,6 +630,22 @@ def apresentacoes_dos_lados(episodio: dict, fontes: list[Fonte], lados: list[Lad
     return feitas
 
 
+DIFERENCA_DA_REGRA_ESTRITA = 0.40     # o outro veículo tem de estar ao menos isto acima do citado
+MIN_PALAVRAS_DA_REGRA_ESTRITA = 5      # e a frase tem de ter ao menos estas palavras contadas
+
+
+def outro_tem_mais(m: Medida) -> bool:
+    """Se outro veículo da pauta tem uma fração maior das palavras da frase do que o veículo citado."""
+    return m.no_citado is not None and m.no_outro is not None and m.no_outro > m.no_citado
+
+
+def pela_regra_estrita(m: Medida) -> bool:
+    """A regra estrita, só diagnóstico: MIN_PALAVRAS_DA_REGRA_ESTRITA palavras contadas ou mais e outro veículo
+    DIFERENCA_DA_REGRA_ESTRITA ou mais acima do citado. Nas quatro rodadas de 12 a 14/10/2026 marcou 6 frases, 5 delas
+    atribuições erradas conferidas nos textos; os limites foram escolhidos olhando as três primeiras."""
+    return outro_tem_mais(m) and m.contadas >= MIN_PALAVRAS_DA_REGRA_ESTRITA and m.no_outro - m.no_citado >= DIFERENCA_DA_REGRA_ESTRITA
+
+
 def _medida_em_texto(m: Medida) -> str:
     if m.no_citado is None:
         return "nenhuma palavra que distinga os veículos"
@@ -684,7 +723,7 @@ def montar_relatorio(origem: str, casos: list[Caso], gerado_em: str) -> str:
             for a in caso.atribuicoes:
                 m = a.medida
                 fora = f" · fora do citado: {', '.join(m.fora_do_citado)}" if m.fora_do_citado else ""
-                alerta = "  <- OUTRO VEÍCULO TEM MAIS" if m.no_outro is not None and m.no_citado is not None and m.no_outro > m.no_citado else ""
+                alerta = "  <- REGRA ESTRITA" if pela_regra_estrita(m) else "  <- OUTRO VEÍCULO TEM MAIS" if outro_tem_mais(m) else ""
                 linhas.append(f"    {a.local} -> {a.veiculo}: {_medida_em_texto(m)}{alerta} · \"{a.frase}\"{fora}")
         if caso.apresentacoes:
             linhas.append("  frase que apresenta cada lado (diagnóstico):")
@@ -696,6 +735,9 @@ def montar_relatorio(origem: str, casos: list[Caso], gerado_em: str) -> str:
             linhas += ["", "  -- Arredondados (a pauta traz o número mais preciso) --"] + _listar(r.arredondados, textos)
         if r.so_no_corte:
             linhas += ["", "  -- Com fonte só depois do corte (o LLM não recebeu esse trecho) --"] + _listar(r.so_no_corte, textos)
+        if r.perguntas_abertas:
+            linhas += ["", "  -- Perguntas abertas a grupo sem nome (isentas, fora da conta) --"]
+            linhas += [f"    {a.local}: \"{a.frase}\"" for a in r.perguntas_abertas]
 
     linhas += ["", "== Resumo =="]
     for caso in casos:
@@ -705,8 +747,9 @@ def montar_relatorio(origem: str, casos: list[Caso], gerado_em: str) -> str:
             f"{sum(distintos(r.arredondados).values())} arredondado(s) · "
             f"{sum(distintos(r.so_no_corte).values())} só depois do corte · "
             f"{len(r.fontes_faltando)} veículo(s) fora de fontes_citadas · {len(r.divergencia)} problema(s) de divergência · "
-            f"{sum(a.medida.no_outro is not None and a.medida.no_citado is not None and a.medida.no_outro > a.medida.no_citado for a in caso.atribuicoes)}"
-            f" de {len(caso.atribuicoes)} atribuição(ões) com mais palavras em outro veículo"
+            f"{sum(outro_tem_mais(a.medida) for a in caso.atribuicoes)} de {len(caso.atribuicoes)} atribuição(ões) com mais "
+            f"palavras em outro veículo ({sum(pela_regra_estrita(a.medida) for a in caso.atribuicoes)} pela regra estrita) · "
+            f"{len(r.perguntas_abertas)} pergunta(s) aberta(s) isenta(s)"
         )
     return "\n".join(linhas) + "\n"
 

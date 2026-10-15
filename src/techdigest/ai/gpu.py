@@ -8,7 +8,7 @@ scripts de diagnóstico as usam; o pipeline pode usá-las na Fase 4.
 import os
 import re
 import subprocess
-import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -125,21 +125,100 @@ def descarregar(cliente, modelo: str) -> None:
     cliente.generate(model=modelo, prompt="", keep_alive=0)
 
 
-def modelo_na_gpu(cliente, modelo: str, espera: float = 0.0) -> str:
-    """Quanto do modelo carregado está na GPU, pelo /api/ps (`cliente.ps()`).
+# Linhas do log do `ollama serve` que descrevem a carga dos modelos no llama-server.
+_CARGA = re.compile(r'msg="loading model via llama-server" model=(\S+)')     # o arquivo do modelo principal
+_RASCUNHO = re.compile(r"loading draft model '([^']+)'")                     # daqui em diante, o modelo de rascunho
+_METADADOS = re.compile(r"llama_model_loader: loaded meta data .* from (\S+)")
+_CAMADAS = re.compile(r"load_tensors: offloaded (\d+)/(\d+) layers to GPU")
+_BUFFER = re.compile(r"load_tensors:\s+(\S+) model buffer size =\s+([\d.]+) MiB")
 
-    Sem nada na GPU, descarrega o modelo e levanta SemGPU, com o motivo; o mesmo se o modelo não
-    aparece entre os carregados. `espera` dá ao servidor alguns segundos antes de perguntar.
+
+@dataclass(frozen=True)
+class Carga:
+    """A carga do modelo principal: quantas camadas foram para a GPU e quanto ocupa cada dispositivo."""
+    modelo: str                     # o arquivo do modelo
+    na_gpu: int                     # camadas na GPU
+    camadas: int                    # camadas no total
+    buffers: dict[str, float]       # MiB por dispositivo, como o log os nomeia (CUDA0, CPU_Mapped...)
+
+    @property
+    def mib_na_gpu(self) -> float:
+        return sum(mib for nome, mib in self.buffers.items() if nome.upper().startswith("CUDA"))
+
+    @property
+    def mib_na_ram(self) -> float:
+        return sum(mib for nome, mib in self.buffers.items() if not nome.upper().startswith("CUDA"))
+
+
+def carga_do_modelo_principal(log: str) -> Carga | None:
+    """A última carga do modelo principal no log do `ollama serve`; None se o log não a traz.
+
+    O modelo principal é o arquivo da última linha "loading model via llama-server". As linhas
+    "offloaded N/M layers to GPU" e "model buffer size" que valem são as que vêm depois dos
+    metadados desse arquivo; as do modelo de rascunho, que vêm depois de "loading draft model",
+    não contam, porque ele cabe todo na GPU e faria passar um modelo principal todo na CPU.
     """
-    if espera:
-        time.sleep(espera)
+    linhas = log.splitlines()
+    inicio = max((i for i, linha in enumerate(linhas) if _CARGA.search(linha)), default=None)
+    if inicio is None:
+        return None
+    modelo = _CARGA.search(linhas[inicio]).group(1).strip('"')
+    atual, camadas, buffers = None, None, {}
+    for linha in linhas[inicio + 1:]:
+        if (achado := _METADADOS.search(linha) or _RASCUNHO.search(linha)) is not None:
+            atual = achado.group(1)     # o arquivo cuja carga as linhas seguintes descrevem
+        elif atual == modelo and (achado := _CAMADAS.search(linha)) is not None:
+            camadas = (int(achado.group(1)), int(achado.group(2)))
+        elif atual == modelo and (achado := _BUFFER.search(linha)) is not None:
+            buffers[achado.group(1)] = float(achado.group(2))
+    return None if camadas is None else Carga(modelo, camadas[0], camadas[1], buffers)
+
+
+def vram_do_llama_server() -> int | None:
+    """Quantos MiB de memória de vídeo os processos llama-server ocupam, pelo nvidia-smi; None se não dá para saber."""
+    pids = set()
+    for pid in filter(str.isdigit, os.listdir("/proc")):
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as arquivo:
+                if os.path.basename(arquivo.read().split(b"\0")[0]) == b"llama-server":
+                    pids.add(pid)
+        except OSError:
+            continue
+    try:
+        saida = subprocess.run(["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
+                               capture_output=True, text=True, timeout=TEMPO_DO_NVIDIA_SMI)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    usados = [int(mib) for pid, mib in (linha.split(",") for linha in saida.stdout.splitlines() if linha.count(",") == 1)
+              if pid.strip() in pids and mib.strip().isdigit()]
+    return sum(usados) if usados else None
+
+
+def modelo_na_gpu(cliente, modelo: str, log: str | Path) -> str:
+    """Se o modelo principal carregou com parte na GPU: devolve o que achou, ou levanta SemGPU com o motivo.
+
+    O /api/ps (`cliente.ps()`) só confirma que o modelo está carregado: o tamanho que ele informa
+    não descreve este modelo. Quem diz quanto foi para a GPU é o log do `ollama serve` (ver
+    `carga_do_modelo_principal`). Com o modelo principal todo na CPU, ou sem a carga dele no log,
+    o modelo é descarregado antes de parar. A memória de vídeo do llama-server pelo nvidia-smi vai
+    junto, como informação.
+    """
     carregados = cliente.ps().models
-    dele = next((m for m in carregados if modelo in (getattr(m, "model", None), getattr(m, "name", None))), None)
-    if dele is None:
+    if not any(modelo in (getattr(m, "model", None), getattr(m, "name", None)) for m in carregados):
         nomes = ", ".join(str(getattr(m, "model", "?")) for m in carregados) or "nenhum"
         raise SemGPU(f"o modelo {modelo} não aparece no /api/ps depois da carga (carregados: {nomes})")
-    total, na_gpu = int(getattr(dele, "size", 0) or 0), int(getattr(dele, "size_vram", 0) or 0)
-    if na_gpu <= 0:
+    try:
+        carga = carga_do_modelo_principal(Path(log).read_text(encoding="utf-8", errors="replace"))
+    except OSError as e:
+        carga, motivo = None, f"não deu para ler o log do ollama serve ({log}: {e.strerror})"
+    else:
+        motivo = "o log do ollama serve não traz a carga do modelo principal (a linha \"offloaded N/M layers to GPU\")"
+    if carga is None or carga.na_gpu == 0:
         descarregar(cliente, modelo)
-        raise SemGPU(f"o modelo {modelo} carregou sem nada na GPU (size_vram=0 de {total / 2**30:.1f} GiB): foi descarregado")
-    return f"{na_gpu / total:.0%} do modelo na GPU ({na_gpu / 2**30:.1f} de {total / 2**30:.1f} GiB)" if total else "modelo na GPU"
+        if carga is not None:
+            motivo = (f"o modelo principal carregou todo na CPU (offloaded 0/{carga.camadas} layers to GPU, "
+                      f"{carga.mib_na_ram / 1024:.1f} GiB na RAM)")
+        raise SemGPU(f"{motivo}: o modelo foi descarregado")
+    vram = vram_do_llama_server()
+    return (f"modelo principal com {carga.na_gpu} de {carga.camadas} camadas na GPU ({carga.mib_na_gpu / 1024:.1f} GiB na GPU, "
+            f"{carga.mib_na_ram / 1024:.1f} GiB na RAM)" + (f"; o llama-server ocupa {vram / 1024:.1f} GiB de memória de vídeo" if vram else ""))

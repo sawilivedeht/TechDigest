@@ -4,6 +4,9 @@ A lista é uma só para o prompt, que mostra os infinitivos, e para o QA, que ac
 abaixo: terceira pessoa do presente, do pretérito perfeito e do imperfeito, no singular e no
 plural, mais o gerúndio. As formas vão escritas uma a uma, sem radicais: "nega" não é "negócio",
 "cobra" não é "cobertura".
+
+Verbo que apresenta a afirmação como verdadeira não entra ("constatar", "revelar", "reconhecer",
+"admitir"): numa pauta com disputa, ele toma partido.
 """
 import re
 import unicodedata
@@ -31,6 +34,11 @@ VERBOS_DE_POSICAO = {
     "destacar": ("destaca", "destacam", "destacou", "destacaram", "destacava", "destacavam", "destacando"),
     "determinar": ("determina", "determinam", "determinou", "determinaram", "determinava", "determinavam", "determinando"),
     "decidir": ("decide", "decidem", "decidiu", "decidiram", "decidia", "decidiam", "decidindo"),
+    # os de quem informa ou declara, como um órgão técnico ou um porta-voz
+    "informar": ("informa", "informam", "informou", "informaram", "informava", "informavam", "informando"),
+    "concluir": ("conclui", "concluem", "concluiu", "concluíram", "concluía", "concluíam", "concluindo"),
+    "dizer": ("diz", "dizem", "disse", "disseram", "dizia", "diziam", "dizendo"),
+    "declarar": ("declara", "declaram", "declarou", "declararam", "declarava", "declaravam", "declarando"),
 }
 FORMAS_DE_POSICAO = frozenset(forma for formas in VERBOS_DE_POSICAO.values() for forma in formas)
 INFINITIVOS = ", ".join(VERBOS_DE_POSICAO)   # como a lista aparece nos prompts e nas mensagens do QA

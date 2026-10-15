@@ -183,7 +183,12 @@ def test_titulo_com_ano_ordinal_ou_quantidade_absoluta_passa(titulo):
 # ── Verbos de posição ─────────────────────────────────────────────────────────────────────
 
 def test_verbos_de_posicao_sao_formas_inteiras_e_nao_radicais():
-    assert len(VERBOS_DE_POSICAO) == 21 and len(FORMAS_DE_POSICAO) == 21 * 7
+    assert len(VERBOS_DE_POSICAO) == 25 and len(FORMAS_DE_POSICAO) == 25 * 7
+    # os de quem informa ou declara: a constatação de um órgão técnico ("informou que não identificou...")
+    assert verbos_de_posicao("A assessoria informou e concluiu; o porta-voz disse e declarou.") == ["informou", "concluiu", "disse", "declarou"]
+    assert verbos_de_posicao("Eles diziam, concluíram e vêm informando.") == ["diziam", "concluíram", "informando"]
+    # verbo que apresenta a afirmação como verdadeira fica fora: numa disputa, ele toma partido
+    assert verbos_de_posicao("O órgão constatou, revelou, reconheceu e admitiu.") == []
     assert verbos_de_posicao("O ministro entendeu, decidiu e determinou; a defesa argumenta e destaca.") == [
         "entendeu", "decidiu", "determinou", "argumenta", "destaca"]
     assert verbos_de_posicao("Analistas avaliam o risco, e o ministro ponderou.") == ["avaliam", "ponderou"]
@@ -466,6 +471,32 @@ def test_atribuicao_a_grupo_e_cobrada_no_titulo_no_resumo_e_nos_pontos_chave():
 def test_frase_que_nao_atribui_nada_a_um_grupo_sem_nome_passa(fala):
     assert qa.problemas_das_atribuicoes(_conversa(("Helena", "Olá."), ("Ramos", fala)) | {"titulo_reescrito": "", "resumo_didatico": ""},
                                         TEXTOS_DA_META) == []
+
+
+def _so_falas(*turnos) -> dict:
+    """Um episódio só com falas: título e resumo vazios, para a regra das atribuições ler só o roteiro."""
+    return _conversa(*turnos) | {"titulo_reescrito": "", "resumo_didatico": ""}
+
+
+def test_pergunta_aberta_a_um_grupo_nao_e_atribuicao():
+    # como no episódio do Muse Wonder de 14/10/2026: Helena pergunta, e o analista responde citando o veículo
+    aberta = "O que os especialistas dizem sobre esse equilíbrio técnico?"
+    assert qa.problemas_das_atribuicoes(_so_falas(("Helena", aberta), ("Ramos", "Segundo o G1, a Meta vai investigar.")), TEXTOS_DA_META) == []
+    for pergunta in ("Como os especialistas avaliam o risco?", "E quais críticos questionam a regra?", "Por que os economistas alertam tanto?"):
+        assert qa.problemas_das_atribuicoes(_so_falas(("Helena", pergunta)), TEXTOS_DA_META) == [], pergunta
+    # a pergunta que carrega uma afirmação continua contando, e a afirmação seguida de uma pergunta também
+    for frase in ("Os especialistas dizem que o risco é alto, não é?", "Os especialistas dizem que o risco é alto. Como você vê isso?",
+                  "Segundo os analistas, por que isso acontece?"):
+        [problema] = qa.problemas_das_atribuicoes(_so_falas(("Helena", frase)), TEXTOS_DA_META)
+        assert problema.texto.startswith("atribuição a um grupo que os textos da pauta não citam"), frase
+
+
+def test_a_regra_da_atribuicao_a_grupo_nao_herda_os_verbos_de_posicao_novos():
+    # verbo novo na regra a faria reprovar mais: regra nova que reprova passa antes pelo diagnóstico
+    from techdigest.ai.atribuicoes import VERBOS_DE_ATRIBUICAO
+    assert {"informam", "declaram", "declararam", "informaram"}.isdisjoint(VERBOS_DE_ATRIBUICAO)
+    assert {"dizem", "concluem", "afirmam", "alertam"} <= VERBOS_DE_ATRIBUICAO
+    assert qa.problemas_das_atribuicoes(_so_falas(("Helena", "Especialistas informam que a regra mudou.")), TEXTOS_DA_META) == []
 
 
 def test_cada_problema_tem_o_campo_em_que_esta():

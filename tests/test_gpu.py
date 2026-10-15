@@ -103,14 +103,65 @@ class ClienteFalso:
         self.geracoes.append(opcoes)
 
 
-def test_depois_de_carregar_parte_do_modelo_tem_de_estar_na_gpu():
-    na_gpu = ClienteFalso(SimpleNamespace(model="gemma4:26b", name="gemma4:26b", size=4 * 2**30, size_vram=3 * 2**30))
-    assert modelo_na_gpu(na_gpu, "gemma4:26b") == "75% do modelo na GPU (3.0 de 4.0 GiB)" and na_gpu.geracoes == []
+PRINCIPAL = "/home/sytw/.ollama/models/blobs/sha256-a8bd"
+RASCUNHO = "/home/sytw/.ollama/models/blobs/sha256-491f"
 
-    so_na_ram = ClienteFalso(SimpleNamespace(model="gemma4:26b", name="gemma4:26b", size=17 * 2**30, size_vram=0))
-    with pytest.raises(SemGPU, match=r"carregou sem nada na GPU \(size_vram=0 de 17.0 GiB\): foi descarregado"):
-        modelo_na_gpu(so_na_ram, "gemma4:26b")
-    assert so_na_ram.geracoes == [{"model": "gemma4:26b", "prompt": "", "keep_alive": 0}]   # descarregado antes de parar
 
+def _carga(camadas_do_principal: str) -> str:
+    """O trecho do log do ollama serve com a carga do modelo principal e, depois, a do modelo de rascunho, como em 14/10/2026."""
+    return (
+        f'time=2026-10-14T19:55:26.007-03:00 level=INFO source=llama_server.go:1054 msg="loading model via llama-server" model={PRINCIPAL}\n'
+        f"llama_model_loader: loaded meta data with 56 key-value pairs and 658 tensors from {PRINCIPAL} (version GGUF V3 (latest))\n"
+        "print_info: file size   = 15.89 GiB (5.41 BPW) \n"
+        "load_tensors: loading model tensors, this can take a while... (load_mode = mmap)\n"
+        f"load_tensors: offloaded {camadas_do_principal} layers to GPU\n"
+        "load_tensors:   CPU_Mapped model buffer size = 16262.24 MiB\n"
+        + ("load_tensors:        CUDA0 model buffer size =  2681.16 MiB\n" if not camadas_do_principal.startswith("0/") else "")
+        + f"common_speculative_init_result: loading draft model '{RASCUNHO}'\n"
+        f"llama_model_loader: loaded meta data with 45 key-value pairs and 49 tensors from {RASCUNHO} (version GGUF V3 (latest))\n"
+        "load_tensors: offloaded 5/5 layers to GPU\n"
+        "load_tensors:   CPU_Mapped model buffer size =   272.00 MiB\n"
+        "load_tensors:        CUDA0 model buffer size =   425.34 MiB\n"
+    )
+
+
+def test_a_carga_que_vale_e_a_do_modelo_principal_e_nao_a_do_rascunho():
+    carga = gpu.carga_do_modelo_principal(_carga("27/31"))
+    assert (carga.modelo, carga.na_gpu, carga.camadas) == (PRINCIPAL, 27, 31)
+    assert carga.buffers == {"CPU_Mapped": 16262.24, "CUDA0": 2681.16}                     # os 272 e 425 MiB são do rascunho
+    assert round(carga.mib_na_gpu / 1024, 1) == 2.6 and round(carga.mib_na_ram / 1024, 1) == 15.9
+    # o servidor recarregou o modelo: vale a última carga
+    assert gpu.carga_do_modelo_principal(_carga("27/31") + _carga("20/31")).na_gpu == 20
+    assert gpu.carga_do_modelo_principal(COM_GPU) is None                                 # o log ainda não tem a carga
+
+
+def test_depois_de_carregar_o_modelo_principal_tem_de_ter_camadas_na_gpu(monkeypatch, tmp_path):
+    monkeypatch.setattr(gpu, "vram_do_llama_server", lambda: 3900)
+    log = tmp_path / "ollama_serve.log"
+    carregado = ClienteFalso(SimpleNamespace(model="gemma4:26b", name="gemma4:26b", size=int(1.2 * 2**30), size_vram=int(0.9 * 2**30)))
+    log.write_text(COM_GPU + _carga("27/31"), encoding="utf-8")
+    assert modelo_na_gpu(carregado, "gemma4:26b", log) == (
+        "modelo principal com 27 de 31 camadas na GPU (2.6 GiB na GPU, 15.9 GiB na RAM); o llama-server ocupa 3.8 GiB de memória de vídeo")
+    assert carregado.geracoes == []
+
+
+def test_modelo_principal_todo_na_cpu_e_descarregado_mesmo_com_o_rascunho_todo_na_gpu(tmp_path):
+    # o caso em que ler a linha errada deixaria passar: o principal com 0/31 e, depois, o rascunho com 5/5
+    log = tmp_path / "ollama_serve.log"
+    log.write_text(COM_GPU + _carga("0/31"), encoding="utf-8")
+    carregado = ClienteFalso(SimpleNamespace(model="gemma4:26b", name="gemma4:26b", size=2**30, size_vram=2**29))
+    with pytest.raises(SemGPU, match=r"o modelo principal carregou todo na CPU \(offloaded 0/31 layers to GPU, 15.9 GiB na RAM\): "
+                                     r"o modelo foi descarregado"):
+        modelo_na_gpu(carregado, "gemma4:26b", log)
+    assert carregado.geracoes == [{"model": "gemma4:26b", "prompt": "", "keep_alive": 0}]   # descarregado antes de parar
+
+
+def test_sem_a_carga_no_log_ou_sem_o_modelo_carregado_a_conferencia_para(tmp_path):
+    log = tmp_path / "ollama_serve.log"
+    log.write_text(COM_GPU, encoding="utf-8")
+    carregado = ClienteFalso(SimpleNamespace(model="gemma4:26b", name="gemma4:26b", size=2**30, size_vram=2**29))
+    with pytest.raises(SemGPU, match="o log do ollama serve não traz a carga do modelo principal"):
+        modelo_na_gpu(carregado, "gemma4:26b", log)
+    assert carregado.geracoes == [{"model": "gemma4:26b", "prompt": "", "keep_alive": 0}]
     with pytest.raises(SemGPU, match=r"não aparece no /api/ps depois da carga \(carregados: nenhum\)"):
-        modelo_na_gpu(ClienteFalso(), "gemma4:26b")
+        modelo_na_gpu(ClienteFalso(), "gemma4:26b", log)

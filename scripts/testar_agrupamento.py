@@ -450,7 +450,7 @@ def _rodar_etapa3(provisorias: list[ag.Pauta], ids: dict[ag.Candidato, int], rep
             chamadas.append(chamada)
             if not gpu_conferida and not chamada.erro.startswith("a chamada falhou"):
                 try:
-                    print(f"  GPU depois da carga: {gpu.modelo_na_gpu(provider.client, provider.model)}", flush=True)
+                    print(f"  GPU depois da carga: {gpu.modelo_na_gpu(provider.client, provider.model, log_ollama)}", flush=True)
                 except gpu.SemGPU as e:
                     sys.exit(f"PAREI depois da primeira chamada: {e}.")
                 gpu_conferida = True

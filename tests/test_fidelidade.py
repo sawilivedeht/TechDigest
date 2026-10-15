@@ -275,3 +275,37 @@ def test_a_frase_que_apresenta_cada_lado_vem_com_o_veiculo_citado_e_a_medida():
     assert (bia.lado, bia.personagem, bia.veiculo, bia.medida.no_citado) == (2, "Bia", "Diário do Litoral", 0.5)
     assert bia.medida.fora_do_citado == ("causaram",) and bia.medida.no_outro == 0          # "chuvas" está só no Diário do Litoral
     assert cf.apresentacoes_dos_lados(episodio, [VALE, LITORAL], lados[:1]) == []         # sem disputa, não há lados a apresentar
+
+
+# ── Atribuição a grupo: a forma só do diagnóstico e as perguntas abertas ──────────────────
+
+def test_para_os_grupo_com_qualificador_conta_so_no_diagnostico():
+    # como no episódio da Nintendo de 14/10/2026: os textos não falam em especialistas
+    frase = "Para os especialistas em preservação, isso é um problema."
+    assert [(a.tipo, a.rotulo) for a in cf.conferir(_episodio("Olá.", frase), [G1]).sem_fonte] == [
+        ("atribuição vaga", "Para os especialistas em preservação")]
+    # o QA não pega essa forma (regra nova que reprova passa antes pelo diagnóstico)
+    assert cf.qa.problemas_das_atribuicoes(_episodio("Olá.", frase), [G1.completo]) == []
+    # sem o qualificador, a forma é a do QA, que o diagnóstico também conta
+    assert [a.rotulo for a in cf.conferir(_episodio("Olá.", "Para os especialistas, isso é um problema."), [G1]).sem_fonte] == [
+        "Para os especialistas"]
+
+
+def test_pergunta_aberta_a_grupo_fica_fora_da_conta_e_listada_a_parte():
+    pergunta = "O que os especialistas dizem sobre esse equilíbrio técnico?"
+    r = cf.conferir(_episodio(pergunta, "Segundo o G1, a Meta vai investigar."), [G1])
+    assert r.sem_fonte == [] and [(a.tipo, a.rotulo, a.local, a.frase) for a in r.perguntas_abertas] == [
+        ("pergunta aberta", "especialistas dizem", "fala 1 [Helena]", pergunta)]
+    caso = cf.Caso(1, "controle", "aprovado", _episodio(pergunta), [G1], r)
+    texto = cf.montar_relatorio("relatorio.json", [caso], "14/10/2026 21:00:00")
+    assert "  -- Perguntas abertas a grupo sem nome (isentas, fora da conta) --\n    fala 1 [Helena]: \"" + pergunta in texto
+    assert "1 pergunta(s) aberta(s) isenta(s)" in texto
+
+
+def test_a_regra_estrita_pede_cinco_palavras_e_quarenta_pontos_de_diferenca():
+    medida = cf.Medida(contadas=6, no_citado=0.0, outro="O GLOBO", no_outro=0.67, fora_do_citado=())
+    assert cf.outro_tem_mais(medida) and cf.pela_regra_estrita(medida)
+    assert not cf.pela_regra_estrita(cf.Medida(4, 0.0, "O GLOBO", 1.0, ()))              # poucas palavras
+    assert not cf.pela_regra_estrita(cf.Medida(8, 0.25, "O GLOBO", 0.5, ()))             # diferença pequena
+    assert cf.outro_tem_mais(cf.Medida(8, 0.25, "O GLOBO", 0.5, ()))
+    assert not cf.outro_tem_mais(cf.Medida(0, None, "", None, ()))
