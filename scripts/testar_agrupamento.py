@@ -11,14 +11,15 @@ Uso (da raiz do projeto, com o venv ativo):
     python scripts/testar_agrupamento.py --incluir-vistos --salvar-amostra   # guarda os candidatos extraídos
     python scripts/testar_agrupamento.py --amostra data/agrupamento/amostra_<data-hora>.json   # sem rede
     python scripts/testar_agrupamento.py --amostra <amostra> --rotulos <rotulos.csv>           # confere com os rótulos
-    python scripts/testar_agrupamento.py --amostra <amostra> --rotulos <rotulos.csv> --etapa3 --repeticoes 3 --log-ollama <log>
+    python scripts/testar_agrupamento.py --amostra <amostra> --rotulos <rotulos.csv> --etapa3 --repeticoes 3
 
 Grava data/agrupamento/pares_<data-hora>.csv com os pares de maior score. A coluna mesmo_fato
 fica vazia, para marcar à mão e calibrar os limiares. Cada coleta traz notícias diferentes: para
 repetir a mesma comparação com outros limiares, grave uma amostra e rode de novo com --amostra.
 
 Com --etapa3, o LLM do projeto confirma cada pauta provisória de 2 ou mais artigos (uma chamada por
-pauta) e o resultado vai para data/agrupamento/etapa3_<data-hora>.csv. Com --rotulos, o resultado é
+pauta) e o resultado vai para data/agrupamento/etapa3_<data-hora>.csv. Com o Ollama, ele tem de estar
+no ar pela unit (systemctl --user start techdigest-teste.target): a conferência da GPU lê o log dela. Com --rotulos, o resultado é
 comparado com um CSV de pares rotulados (colunas id_a, id_b e relacao, com os ids da amostra).
 """
 import argparse
@@ -102,9 +103,9 @@ def _argumentos() -> argparse.Namespace:
                          help="usa os candidatos de uma amostra gravada, sem coletar, extrair nem acessar a rede")
     p.add_argument("--etapa3", action="store_true",
                    help="confirma cada pauta provisória com o LLM do projeto (exige --amostra)")
-    p.add_argument("--log-ollama", metavar="ARQUIVO",
+    p.add_argument("--log-ollama", metavar="ARQUIVO", default=settings.ollama_log,
                    help="arquivo em que o ollama serve grava a saída: antes da etapa 3, a conferência da GPU lê nele a "
-                        "linha \"inference compute\" (obrigatório com --etapa3 e LLM_PROVIDER=ollama)")
+                        "linha \"inference compute\" (padrão: o da unit ollama.service, OLLAMA_LOG: %(default)s)")
     p.add_argument("--rotulos", metavar="ARQUIVO",
                    help="compara o resultado com um CSV de pares rotulados (exige --amostra)")
     p.add_argument("--repeticoes", type=int, default=1, metavar="N",
@@ -424,8 +425,8 @@ def _rodar_etapa3(provisorias: list[ag.Pauta], ids: dict[ag.Candidato, int], rep
     """Uma chamada ao LLM por pauta provisória de 2 ou mais artigos, em cada repetição.
 
     Com o Ollama, confere a GPU antes da primeira chamada (o driver da NVIDIA e o log do ollama
-    serve) e, depois dela, pelo /api/ps, que parte do modelo está na GPU (ver `ai/gpu.py`); se uma
-    conferência falha, a etapa para, com o motivo.
+    serve) e, depois dela, no mesmo log, que o modelo principal carregou com camadas na GPU (ver
+    `ai/gpu.py`); se uma conferência falha, a etapa para, com o motivo.
     """
     print(f"\n== Etapa 3: o LLM confirma {len(provisorias)} pauta(s) provisória(s), {repeticoes} vez(es) "
           f"(temperatura {TEMPERATURA_ETAPA3}, saída de até {MAX_SAIDA_ETAPA3} tokens, "

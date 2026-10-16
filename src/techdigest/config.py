@@ -1,7 +1,11 @@
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[2]
+# Fora das pastas do projeto, para a pasta principal e a worktree verem o mesmo arquivo: é o %S/techdigest
+# das units de usuário (deploy/systemd), onde a unit do Ollama grava a saída do servidor.
+PASTA_DE_ESTADO = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "techdigest"
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -24,6 +28,8 @@ class Settings(BaseSettings):
     ollama_temperature: float = 0.5
     ollama_keep_alive: str = "30m"
     ollama_think: str = ""             # "" = padrão do modelo | "true"/"false" liga/desliga o raciocínio (thinking)
+    ollama_log: str = str(PASTA_DE_ESTADO / "ollama_serve.log")   # a saída do `ollama serve` da unit ollama.service, onde
+                                       # as conferências da GPU (ai/gpu.py) leem a placa e a carga do modelo
     openai_model: str = ""
     openai_api_key: str = ""
     openai_base_url: str = ""          #ex.: https://api.groq.com/openai/v1

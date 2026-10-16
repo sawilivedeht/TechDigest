@@ -1,0 +1,35 @@
+# O servidor do Ollama do TechDigest, como unit de usuário. É o mesmo para tudo o que chama o modelo
+# local: o pipeline, o techdigest --simular, scripts/testar_episodio.py e scripts/testar_agrupamento.py
+# --etapa3. Não se sobe à mão: com StopWhenUnneeded ele para assim que nenhuma unit ativa precisa dele,
+# então um "systemctl --user start ollama.service" o derruba logo em seguida. Quem o mantém no ar numa
+# sessão de teste é o techdigest-teste.target.
+#
+# Instalação, uma vez (a pasta de estado tem de existir antes da primeira subida, ver StandardOutput):
+#   mkdir -p ~/.config/systemd/user ~/.local/state/techdigest
+#   cp deploy/systemd/ollama.service deploy/systemd/techdigest-teste.target ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+
+[Unit]
+Description=Ollama do TechDigest (modelo local na GPU)
+StopWhenUnneeded=yes
+
+[Service]
+Type=exec
+# O log começa vazio a cada subida: as conferências da GPU (ai/gpu.py) leem nele a placa que o servidor
+# achou e a carga do modelo. A saída vai em modo de acréscimo, e não com truncate:, porque com truncate:
+# cada comando da unit (o ExecStartPost também) zera o arquivo de novo e apaga o que o servidor escreveu.
+ExecStartPre=/usr/bin/truncate --size=0 %S/techdigest/ollama_serve.log
+# Sem o driver da NVIDIA (num kernel sem o módulo dela, como o não LTS desta máquina), o Ollama carregaria
+# o modelo inteiro na RAM e a memória acabaria durante a carga: a unit nem sobe.
+ExecStartPre=/usr/bin/nvidia-smi -L
+ExecStart=/usr/local/bin/ollama serve
+# A unit só fica ativa depois que o servidor diz que placa achou (a linha "inference compute", uns 4 s depois
+# de subir), e só se for a GPU (library=CUDA); senão ela falha e o servidor é encerrado antes de carregar o
+# modelo. Assim, quando o "systemctl --user start" volta, o servidor já responde e o log já tem a placa.
+ExecStartPost=/usr/bin/timeout 60 /usr/bin/sh -c "until grep -q 'inference compute' $$0; do sleep 0.5; done; grep 'inference compute' $$0 | grep -qi 'library=cuda'" %S/techdigest/ollama_serve.log
+# Desliga o cache de prompt do llama-server: com ele, a memória anônima crescia durante a rodada (ver CLAUDE.md).
+Environment=LLAMA_ARG_CACHE_RAM=0
+# O padrão de OLLAMA_LOG. O systemd abre este arquivo antes de criar um StateDirectory=, então a pasta vem
+# da instalação, e não de StateDirectory=.
+StandardOutput=append:%S/techdigest/ollama_serve.log
+StandardError=inherit

@@ -1,0 +1,12 @@
+# Uma sessão de teste do TechDigest: enquanto este target está ativo, o Ollama da unit ollama.service
+# fica no ar, e é ele que as rodadas usam, sem ninguém rodar "ollama serve" à mão.
+#   systemctl --user start techdigest-teste.target   # sobe o Ollama e só volta depois que ele achou a GPU
+#   (rodadas de testar_episodio.py, testar_agrupamento.py --etapa3, techdigest --simular)
+#   systemctl --user stop techdigest-teste.target    # encerra a sessão, e o Ollama para junto
+# Se o Ollama não achar a GPU ao subir, ou cair no meio, o target cai junto (BindsTo). Os scripts conferem
+# a GPU pelo log desta unit (OLLAMA_LOG): um "ollama serve" subido à mão não grava nele e é recusado.
+
+[Unit]
+Description=Sessão de teste do TechDigest (mantém o Ollama no ar)
+BindsTo=ollama.service
+After=ollama.service

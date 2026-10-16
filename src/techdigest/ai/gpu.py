@@ -96,7 +96,8 @@ def gpu_do_ollama(log: str, inicio_do_servidor: float | None = None) -> str:
     if inicio_do_servidor is not None and (subiu is None or subiu.timestamp() < inicio_do_servidor - FOLGA_DO_LOG):
         quando = f"de {subiu:%d/%m %H:%M}" if subiu else "sem data"
         raise SemGPU(f"o log do ollama serve é de outra subida do servidor ({quando}, e o servidor de agora subiu em "
-                     f"{datetime.fromtimestamp(inicio_do_servidor):%d/%m %H:%M}): suba o servidor com a saída gravada nesse log")
+                     f"{datetime.fromtimestamp(inicio_do_servidor):%d/%m %H:%M}), então o servidor de agora não grava nele: "
+                     f"suba o Ollama pela unit, com systemctl --user start techdigest-teste.target")
     cuda = [p for p in placas if p.get("library", "").upper() == "CUDA"]
     if not cuda:
         achadas = "; ".join(f"library={p.get('library', '?')} ({p.get('description') or p.get('name') or '?'})" for p in placas)
@@ -107,16 +108,18 @@ def gpu_do_ollama(log: str, inicio_do_servidor: float | None = None) -> str:
 def conferir_antes_de_carregar(log: str | Path) -> list[str]:
     """As duas conferências de antes de carregar o modelo: o driver da NVIDIA e o que o Ollama achou ao subir.
 
-    `log` é o arquivo em que o `ollama serve` grava a saída. Devolve o que cada conferência achou;
+    `log` é o arquivo em que o `ollama serve` grava a saída (o da unit ollama.service é o OLLAMA_LOG).
+    Devolve o que cada conferência achou;
     levanta SemGPU, com o motivo, se alguma falha.
     """
+    inicio = inicio_do_servidor_local()
+    if inicio is None:
+        raise SemGPU("o ollama serve não está rodando nesta máquina (as conferências da GPU valem para um servidor local): "
+                     "suba-o pela unit, com systemctl --user start techdigest-teste.target")
     try:
         texto = Path(log).read_text(encoding="utf-8", errors="replace")
     except OSError as e:
         raise SemGPU(f"não deu para ler o log do ollama serve ({log}: {e.strerror})") from None
-    inicio = inicio_do_servidor_local()
-    if inicio is None:
-        raise SemGPU("o ollama serve não está rodando nesta máquina: as conferências da GPU valem para um servidor local")
     return [f"driver da NVIDIA: {driver_da_nvidia()}", f"Ollama: {gpu_do_ollama(texto, inicio)}"]
 
 

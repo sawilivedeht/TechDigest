@@ -3,8 +3,9 @@
 Com uma amostra fixa, gera com Summarizer.process os episódios de algumas pautas. Não gera áudio,
 não envia nada ao Telegram, não chama mark_seen e não abre o digest.db.
 
-Uso (da raiz do projeto, com o venv ativo, o LLM no ar e nenhum pipeline rodando):
-    python scripts/testar_episodio.py --amostra data/agrupamento/amostra_<data-hora>.json --log-ollama <log do ollama serve>
+Uso (da raiz do projeto, com o venv ativo, o Ollama no ar pela unit, com systemctl --user start
+techdigest-teste.target, e nenhum pipeline rodando):
+    python scripts/testar_episodio.py --amostra data/agrupamento/amostra_<data-hora>.json
     python scripts/testar_episodio.py --repetir data/agrupamento/episodios/relatorio_<data-hora>.json --pasta episodios_v2
     python scripts/testar_episodio.py --repetir <relatório> --pautas "86+71" --so-lados
 
@@ -20,9 +21,9 @@ disputa mostra também, para cada trecho de evidência, a fala de analista que m
 repete (é uma medida de palavras em comum, não uma regra).
 
 Antes de tudo confere a GPU (ver `ai/gpu.py`): o driver da NVIDIA tem de responder e o log do
-ollama serve (--log-ollama) tem de mostrar que o servidor achou a GPU ao subir; senão para antes de
-carregar o modelo. Depois da primeira chamada, confere pelo /api/ps que parte do modelo está na GPU;
-senão descarrega o modelo e para.
+ollama serve (o da unit ollama.service, OLLAMA_LOG, ou o de --log-ollama) tem de mostrar que o
+servidor achou a GPU ao subir; senão para antes de carregar o modelo. Depois da primeira chamada,
+confere no mesmo log que o modelo principal carregou com camadas na GPU; senão descarrega o modelo e para.
 
 Antes de cada chamada ao LLM mostra memória disponível, swap e temperaturas. Para se a memória
 disponível estiver abaixo de --min-memoria (GiB) ou se o Ollama sair do ar ou descarregar o modelo
@@ -80,9 +81,9 @@ def _argumentos() -> argparse.Namespace:
                    help="com a CPU acima disto antes de uma chamada, a rodada espera esfriar (padrão: %(default)s)")
     p.add_argument("--retomar-cpu", type=float, default=85.0, metavar="°C",
                    help="a rodada continua quando a CPU baixa disto (padrão: %(default)s)")
-    p.add_argument("--log-ollama", metavar="ARQUIVO",
+    p.add_argument("--log-ollama", metavar="ARQUIVO", default=settings.ollama_log,
                    help="arquivo em que o ollama serve grava a saída: a conferência da GPU lê nele a linha "
-                        "\"inference compute\" (obrigatório com LLM_PROVIDER=ollama)")
+                        "\"inference compute\" (padrão: o da unit ollama.service, OLLAMA_LOG: %(default)s)")
     args = p.parse_args()
     if not args.amostra and not args.repetir:
         p.error("informe --amostra ou --repetir")
