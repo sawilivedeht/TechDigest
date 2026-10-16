@@ -77,12 +77,13 @@ class Settings(BaseSettings):
     agrup_max_artigos: int = 3         # artigos por pauta (principal + 2 relacionados, o limite do _montar_entrada)
     agrup_chars_etapa3: int = 900      # caracteres iniciais de cada texto que o LLM recebe para confirmar a pauta
 
-    # QA editorial (regras 2, 3 e 6). Os defaults são as regras originais; ajuste no .env (QA_*)
+    # QA editorial (regras 2, 3 e 6). Os padrões são os valores em vigor; ajuste no .env (QA_*)
     qa_min_por_personagem: int = 240
     qa_min_helena_com_debate: int = 180   # o mínimo de Helena em episódio com dois analistas ou mais
     qa_min_lado_fino: int = 120        # o mínimo do analista de um lado fino (atores em no máximo uma frase dos textos)
     qa_max_lado_fino: int = 200        # o teto que o prompt pede a ele: só diagnóstico, o QA não cobra
-    qa_max_por_personagem: int = 480
+    qa_max_por_personagem: int = 650   # o teto do QA; os prompts pedem até 480, como margem (como as 8 a 9 frases
+                                       # do resumo contra as 7 a 10 que o QA cobra). Era o valor do .env até a fase 4
     qa_min_total: int = 600
     qa_max_total: int = 1300
     qa_min_frases: int = 7
