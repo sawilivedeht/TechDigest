@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     telegram_tentativas_audio: int = 3     # tentativas de upload do áudio em falha de rede (o texto não é reenviado)
     telegram_pausa_s: int = 10             # pausa entre as tentativas
     telegram_forcar_ipv4: bool = True      # a rota IPv6 até o Telegram trava neste host (3 MB: ~2 s via IPv4, 15-120 s via IPv6)
+    arquivo_dir: str = str(BASE_DIR / "data" / "entregas")   # DELIVERY_CHANNEL=arquivo, o canal da simulação: onde
+                                       # ficam as entregas (techdigest --simular aponta para <pasta>/entregas)
 
     # SMTP / e-mail
     smtp_host: str = "smtp.gmail.com"

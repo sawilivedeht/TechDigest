@@ -36,7 +36,8 @@ from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
 
-from techdigest.ai import gpu
+from techdigest import trava
+from techdigest.ai import maquina
 from techdigest.ai.llm import get_provider
 from techdigest.ai.prompt import PROMPT_AGRUPADOR
 from techdigest.collectors import rss
@@ -424,9 +425,10 @@ def _rodar_etapa3(provisorias: list[ag.Pauta], ids: dict[ag.Candidato, int], rep
                   log_ollama: str | None = None) -> list[Chamada]:
     """Uma chamada ao LLM por pauta provisória de 2 ou mais artigos, em cada repetição.
 
-    Com o Ollama, confere a GPU antes da primeira chamada (o driver da NVIDIA e o log do ollama
-    serve) e, depois dela, no mesmo log, que o modelo principal carregou com camadas na GPU (ver
-    `ai/gpu.py`); se uma conferência falha, a etapa para, com o motivo.
+    Pega a trava do modelo (ver `trava.py`) e chama o LLM com as travas da máquina do pipeline
+    (`ai/maquina.py`): com o Ollama, a GPU antes da primeira chamada (o driver da NVIDIA e o log do
+    ollama serve) e depois da carga (no mesmo log, as camadas do modelo principal na GPU); a cada
+    chamada, memória, temperatura e o Ollama no ar. Se uma trava dispara, a etapa para, com o motivo.
     """
     print(f"\n== Etapa 3: o LLM confirma {len(provisorias)} pauta(s) provisória(s), {repeticoes} vez(es) "
           f"(temperatura {TEMPERATURA_ETAPA3}, saída de até {MAX_SAIDA_ETAPA3} tokens, "
@@ -434,34 +436,23 @@ def _rodar_etapa3(provisorias: list[ag.Pauta], ids: dict[ag.Candidato, int], rep
     if not provisorias:
         print("  nenhuma pauta provisória com 2 ou mais artigos: nada a confirmar")
         return []
-    com_ollama = settings.llm_provider == "ollama"
-    if com_ollama:
-        try:
-            for linha in gpu.conferir_antes_de_carregar(log_ollama):
-                print(f"  GPU antes da carga: {linha}", flush=True)
-        except gpu.SemGPU as e:
-            sys.exit(f"PAREI antes de carregar o modelo: {e}.")
-    provider = get_provider(settings)
-    modelo = settings.ollama_model if com_ollama else settings.openai_model
-    print(f"  modelo: {modelo} ({settings.llm_provider})", flush=True)
-    chamadas, gpu_conferida = [], not com_ollama
-    for repeticao in range(1, repeticoes + 1):
-        for n, pauta in enumerate(provisorias, 1):
-            chamada = _consultar_llm(provider, pauta, repeticao)
-            chamadas.append(chamada)
-            if not gpu_conferida and not chamada.erro.startswith("a chamada falhou"):
-                try:
-                    print(f"  GPU depois da carga: {gpu.modelo_na_gpu(provider.client, provider.model, log_ollama)}", flush=True)
-                except gpu.SemGPU as e:
-                    sys.exit(f"PAREI depois da primeira chamada: {e}.")
-                gpu_conferida = True
-            tokens = (f"{chamada.tokens.get('prompt', 0)} + {chamada.tokens.get('saida', 0)} tokens"
-                      if chamada.tokens else "sem contagem de tokens")
-            print(f"  [repetição {repeticao}] pauta {n}/{len(provisorias)} · {len(pauta.artigos)} artigos "
-                  f"(ids {', '.join(str(ids[c]) for c in pauta.artigos)}) · {chamada.segundos:.1f} s · {tokens}")
-            print(f"      {chamada.erro or _resumo_do_veredito(chamada, ids)}")
-            if chamada.motivo:
-                print(f"      motivo: {chamada.motivo}", flush=True)
+    with trava.trava_do_modelo():
+        provider = maquina.ProviderVigiado(get_provider(settings), log_ollama=log_ollama)
+        provider.conferir_antes_de_carregar()    # o que acha sai no log: "GPU antes da carga: ..."
+        modelo = settings.ollama_model if settings.llm_provider == "ollama" else settings.openai_model
+        print(f"  modelo: {modelo} ({settings.llm_provider})", flush=True)
+        chamadas = []
+        for repeticao in range(1, repeticoes + 1):
+            for n, pauta in enumerate(provisorias, 1):
+                chamada = _consultar_llm(provider, pauta, repeticao)   # a carga na GPU é conferida na primeira
+                chamadas.append(chamada)
+                tokens = (f"{chamada.tokens.get('prompt', 0)} + {chamada.tokens.get('saida', 0)} tokens"
+                          if chamada.tokens else "sem contagem de tokens")
+                print(f"  [repetição {repeticao}] pauta {n}/{len(provisorias)} · {len(pauta.artigos)} artigos "
+                      f"(ids {', '.join(str(ids[c]) for c in pauta.artigos)}) · {chamada.segundos:.1f} s · {tokens}")
+                print(f"      {chamada.erro or _resumo_do_veredito(chamada, ids)}")
+                if chamada.motivo:
+                    print(f"      motivo: {chamada.motivo}", flush=True)
 
     tempos = [c.segundos for c in chamadas]
     com_tokens = [c.tokens for c in chamadas if c.tokens] or [{}]
@@ -700,4 +691,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except trava.TravaOcupada as e:
+        sys.exit(f"PAREI antes da etapa 3: {e}.")
+    except maquina.ExecucaoInterrompida as e:
+        sys.exit(f"\nPAREI: {e}.")

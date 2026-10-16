@@ -28,7 +28,8 @@ confere no mesmo log que o modelo principal carregou com camadas na GPU; senão 
 Antes de cada chamada ao LLM mostra memória disponível, swap e temperaturas. Para se a memória
 disponível estiver abaixo de --min-memoria (GiB) ou se o Ollama sair do ar ou descarregar o modelo
 no meio da rodada. Se a CPU passar de --max-cpu (°C) antes de uma chamada, espera até ela baixar de
---retomar-cpu e continua. Grava em data/agrupamento/<pasta>/ o JSON de cada episódio e um
+--retomar-cpu e continua. Essas travas e as da GPU são as do pipeline (`ai/maquina.py`). A rodada
+pega a trava do modelo (`trava.py`): com outra execução usando o modelo, para antes de começar. Grava em data/agrupamento/<pasta>/ o JSON de cada episódio e um
 relatorio_<data-hora>.json (ou lados_<data-hora>.json) com tudo o que foi medido.
 """
 import argparse
@@ -41,8 +42,9 @@ import time
 from pathlib import Path
 
 import testar_agrupamento as diag
-from techdigest.ai import gpu, qa
-from techdigest.ai.llm import _amostra_sistema, _temperatura_cpu, get_provider
+from techdigest import trava
+from techdigest.ai import maquina, qa
+from techdigest.ai.llm import get_provider
 from techdigest.ai.lados import lados_finos
 from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
 from techdigest.ai.summarizer import CORRECOES, TETO_PRINCIPAL, TETO_RELACIONADO, QAReprovado, Summarizer
@@ -54,10 +56,6 @@ settings = Settings()
 ALERTA_DA_JANELA = 0.9   # avisa quando entrada + saída passam desta fração de num_ctx
 FALAS_NO_RELATORIO = 3
 MIN_LETRAS_DA_PALAVRA = 4   # na medida dos trechos nas falas, só contam as palavras com pelo menos isto
-
-
-class RodadaInterrompida(SystemExit):
-    """Memória abaixo do mínimo ou Ollama fora do ar: interrompe o diagnóstico (não é pega por `except Exception`)."""
 
 
 def _argumentos() -> argparse.Namespace:
@@ -170,98 +168,42 @@ _NAO_E_NOS = {"mesmos", "termos", "extremos", "supremos", "ramos", "remos", "pr�
               "ótimos", "íntimos", "legítimos", "empréstimos", "primos", "péssimos", "altíssimos", "muitíssimos"}
 
 
-def _estado_da_maquina() -> tuple[float, str]:
-    """Memória disponível em GiB e um resumo com swap e temperaturas, lidos agora."""
-    with open("/proc/meminfo") as arquivo:
-        mem = {linha.split(":")[0]: int(linha.split()[1]) for linha in arquivo}
-    return mem["MemAvailable"] / 1048576, _amostra_sistema()
+class ProviderMonitorado(maquina.ProviderVigiado):
+    """O provider com as travas da máquina do pipeline (`ai/maquina.py`) e o registro de cada chamada.
 
+    Antes de cada chamada mostra a memória, a swap, as temperaturas e a memória por processo; guarda
+    o tempo, os tokens e a resposta. As travas são as mesmas do pipeline, com os limites da linha de
+    comando.
+    """
 
-ESPERA_MAXIMA_DA_CPU = 900   # segundos: se a CPU não esfria nesse tempo, a rodada para
-INTERVALO_DA_CPU = 10        # segundos entre duas leituras da temperatura durante a espera
-
-
-class ProviderMonitorado:
-    """Envolve o provider: confere a memória, a temperatura e o Ollama antes de cada chamada e guarda tempo, tokens e resposta."""
-
-    def __init__(self, provider, min_memoria: float, max_cpu: float = 95.0, retomar_cpu: float = 85.0,
-                 log_ollama: str | None = None):
-        self.provider = provider
-        self.log_ollama = log_ollama    # o log do ollama serve, onde a conferência depois da carga lê as camadas na GPU
-        self.min_memoria = min_memoria
-        self.max_cpu, self.retomar_cpu = max_cpu, retomar_cpu
+    def __init__(self, provider, min_memoria: float, max_cpu: float, retomar_cpu: float, log_ollama: str | None):
+        super().__init__(provider, log_ollama=log_ollama, min_memoria=min_memoria, max_cpu=max_cpu,
+                         retomar_cpu=retomar_cpu)
         self.chamadas: list[dict] = []
-        self.modelo_ja_carregou = False
-        self.gpu_depois_da_carga = ""   # o que a conferência do /api/ps achou depois da primeira chamada
-
-    @property
-    def ultimo_uso(self) -> dict:
-        return self.provider.ultimo_uso
-
-    def _conferir_ollama(self) -> None:
-        """Para a rodada se o Ollama não responde ou se o modelo, que já tinha sido carregado, saiu da memória."""
-        cliente = getattr(self.provider, "client", None)
-        if settings.llm_provider != "ollama" or cliente is None:
-            return
-        try:
-            carregados = [m.model for m in cliente.ps().models]
-        except Exception as e:
-            raise RodadaInterrompida(f"\nPAREI: o Ollama não responde ({type(e).__name__}: {str(e)[:120]}).") from None
-        if self.modelo_ja_carregou and self.provider.model not in carregados:
-            raise RodadaInterrompida(
-                f"\nPAREI: o Ollama descarregou o modelo {self.provider.model} no meio da rodada "
-                f"(carregados agora: {', '.join(carregados) or 'nenhum'})."
-            )
-
-    def _esperar_a_cpu(self) -> float:
-        """Com a CPU acima de `max_cpu`, espera até ela baixar de `retomar_cpu`. Devolve os segundos esperados."""
-        temperatura = _temperatura_cpu()
-        if temperatura is None or temperatura <= self.max_cpu:
-            return 0.0
-        print(f"      CPU a {temperatura:.0f} °C, acima de {self.max_cpu:.0f} °C: esperando baixar de {self.retomar_cpu:.0f} °C",
-              flush=True)
-        inicio = time.perf_counter()
-        while temperatura is not None and temperatura >= self.retomar_cpu:
-            if time.perf_counter() - inicio > ESPERA_MAXIMA_DA_CPU:
-                raise RodadaInterrompida(
-                    f"\nPAREI: a CPU continua a {temperatura:.0f} °C depois de {ESPERA_MAXIMA_DA_CPU // 60} minutos de espera."
-                )
-            time.sleep(INTERVALO_DA_CPU)
-            temperatura = _temperatura_cpu()
-        esperou = time.perf_counter() - inicio
-        print(f"      CPU a {temperatura or 0:.0f} °C depois de {esperou:.0f} s: a rodada continua", flush=True)
-        return esperou
 
     def chat_json(self, system: str, user: str, **opcoes) -> dict:
-        esperou = self._esperar_a_cpu()
-        disponivel, resumo = _estado_da_maquina()
+        esperou = self.esperar_a_cpu()
+        disponivel, resumo = maquina.estado_da_maquina()
         chamada = {
             "prompt": ROTULOS.get(system, "outro"), "espera_pela_cpu": round(esperou, 1),
             "chars_sistema": len(system), "chars_entrada": len(user), "maquina_antes": resumo,
-            "memoria_disponivel": round(disponivel, 2), "memoria_por_processo": (memoria := _memoria_por_processo()),
+            "memoria_disponivel": None if disponivel is None else round(disponivel, 2),
+            "memoria_por_processo": (memoria := _memoria_por_processo()),
         }
         print(f"      {chamada['prompt']}: {len(system) + len(user)} caracteres · antes: {resumo}", flush=True)
         print(f"        memória por processo: {_resumo_da_memoria(memoria)}", flush=True)
-        if disponivel < self.min_memoria:
-            raise RodadaInterrompida(
-                f"\nPAREI: memória disponível em {disponivel:.1f} GiB, abaixo do mínimo de {self.min_memoria:.1f} GiB."
-            )
-        self._conferir_ollama()
+        self.conferir_memoria(disponivel)
+        self.conferir_antes_de_carregar()
+        self.conferir_ollama()
         self.chamadas.append(chamada)
         inicio = time.perf_counter()
         try:
             resposta = self.provider.chat_json(system, user, **opcoes)
         except Exception as e:
             chamada.update(segundos=time.perf_counter() - inicio, erro=f"{type(e).__name__}: {str(e)[:300]}")
-            self._conferir_ollama()   # se foi o servidor que caiu, a rodada para aqui em vez de seguir falhando
+            self.depois_da_falha()   # se foi o servidor que caiu, a rodada para aqui em vez de seguir falhando
             raise
-        self.modelo_ja_carregou = True
-        if not self.gpu_depois_da_carga and settings.llm_provider == "ollama":
-            try:
-                self.gpu_depois_da_carga = gpu.modelo_na_gpu(self.provider.client, self.provider.model, self.log_ollama)
-            except gpu.SemGPU as e:
-                raise RodadaInterrompida(f"\nPAREI depois da primeira chamada: {e}.") from None
-            print(f"      GPU depois da carga: {self.gpu_depois_da_carga}", flush=True)
+        self.conferir_depois_da_carga()
         tokens = dict(self.provider.ultimo_uso)
         chamada.update(segundos=time.perf_counter() - inicio, tokens_entrada=tokens.get("prompt", 0),
                        tokens_saida=tokens.get("saida", 0), resposta=resposta)
@@ -670,28 +612,25 @@ def main() -> None:
     if not args.amostra:
         args.amostra = json.loads(Path(args.repetir).read_text(encoding="utf-8"))["amostra"]
 
-    disponivel, resumo = _estado_da_maquina()
+    with trava.trava_do_modelo():
+        _rodar(args, pasta, carimbo)
+
+
+def _rodar(args: argparse.Namespace, pasta: Path, carimbo: str) -> None:
+    """A rodada, com a trava do modelo já presa."""
+    disponivel, resumo = maquina.estado_da_maquina()
     print(f"== Máquina: {resumo} · num_ctx {settings.ollama_num_ctx} (reserva de saída "
           f"{min(settings.ollama_num_predict, settings.llm_reserva_saida)} tokens) ==")
-    if disponivel < args.min_memoria:
-        sys.exit(f"PAREI antes de começar: memória disponível em {disponivel:.1f} GiB, abaixo de {args.min_memoria:.1f} GiB.")
-
-    conferencias_da_gpu = []
-    if settings.llm_provider == "ollama":
-        try:
-            conferencias_da_gpu = gpu.conferir_antes_de_carregar(args.log_ollama)
-        except gpu.SemGPU as e:
-            sys.exit(f"PAREI antes de carregar o modelo: {e}.")
-        for linha in conferencias_da_gpu:
-            print(f"== GPU antes da carga: {linha} ==")
-    provider = get_provider(settings)
-    monitor = ProviderMonitorado(provider, args.min_memoria, args.max_cpu, args.retomar_cpu, args.log_ollama)
+    monitor = ProviderMonitorado(get_provider(settings), args.min_memoria, args.max_cpu, args.retomar_cpu,
+                                 args.log_ollama)
+    monitor.conferir_memoria(disponivel)        # antes de começar
+    monitor.conferir_antes_de_carregar()        # a GPU, antes de carregar o modelo (só com o Ollama)
     summarizer = Summarizer(provider=monitor)
     candidatos, ids = diag._carregar_amostra(args.amostra)
     if args.repetir or args.pautas:
         escolhidas = _pautas_dadas(args, ids)
     else:
-        finais = _pautas_finais(args, provider, candidatos, ids)
+        finais = _pautas_finais(args, monitor, candidatos, ids)   # a etapa 3 também passa pelas travas
         escolhidas = _escolher(finais, ids, args.max_pautas)
         print(f"\n{sum(1 for p in finais if p.relacionados)} pauta(s) final(is) com várias fontes")
     print(f"\n{len(escolhidas)} pauta(s) para {'analisar os lados' if args.so_lados else 'gerar'}: "
@@ -704,7 +643,7 @@ def main() -> None:
         caminho.write_text(json.dumps(
             {"amostra": args.amostra, "limiar": None if args.repetir or args.pautas else args.limiar,   # sem etapa 3, não há limiar
              "num_ctx": settings.ollama_num_ctx,
-             "gpu": {"antes_da_carga": conferencias_da_gpu, "depois_da_carga": monitor.gpu_depois_da_carga},
+             "gpu": {"antes_da_carga": monitor.gpu_antes_da_carga or [], "depois_da_carga": monitor.gpu_depois_da_carga},
              "episodios": relatorios},
             ensure_ascii=False, indent=1, default=str,
         ), encoding="utf-8")
@@ -722,4 +661,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except trava.TravaOcupada as e:
+        sys.exit(f"PAREI antes de começar: {e}.")
+    except maquina.ExecucaoInterrompida as e:
+        sys.exit(f"\nPAREI: {e}.")

@@ -3,8 +3,11 @@
 Uso (da raiz do projeto, com o venv ativo):
     python scripts/resumo_lotes.py          # lotes de hoje
     python scripts/resumo_lotes.py 07/10    # lotes de um dia (DD/MM)
+    python scripts/resumo_lotes.py 07/10 --log <pasta da simulação>/logs/techdigest.log
 
-Lê data/logs/techdigest.log e os arquivos rotacionados (.1 a .7), do mais antigo ao mais novo.
+Lê data/logs/techdigest.log (ou o log de --log) e os arquivos rotacionados (.1 a .7), do mais
+antigo ao mais novo. Uma execução interrompida por uma trava da máquina aparece com o motivo, e
+as que nem começaram porque a trava do modelo estava ocupada vêm listadas depois da tabela.
 """
 import datetime
 import re
@@ -24,23 +27,23 @@ RE_GPU = re.compile(r"GPU=(\d+)°C/(\d+) MHz")
 RE_FIM = re.compile(r"Execução concluída: (\d+) notícia")
 
 
-def _arquivos_de_log() -> list[Path]:
-    base = Path(settings.log_dir) / "techdigest.log"
+def _arquivos_de_log(log: str | None = None) -> list[Path]:
+    base = Path(log) if log else Path(settings.log_dir) / "techdigest.log"
     rotacionados = [Path(f"{base}.{i}") for i in range(7, 0, -1)]
     return [p for p in rotacionados + [base] if p.exists()]
 
 
 def _novo_lote(hora: str) -> dict:
     return {"inicio": hora, "fim": None, "entregues": None, "qa": 0, "descartados": 0,
-            "erros": 0, "falhas_entrega": 0, "orcamento": False, "fatal": False,
+            "erros": 0, "falhas_entrega": 0, "orcamento": False, "fatal": False, "interrompida": "",
             "toks": [], "ram": [], "swap": [], "cpu": [], "gpu": [], "gpu_mhz": []}
 
 
-def ler_lotes(dia: str) -> list[dict]:
+def ler_lotes(dia: str, log: str | None = None, nao_comecaram: list | None = None) -> list[dict]:
     lotes: list[dict] = []
     atual = None
     ultimo_evento = None
-    for arquivo in _arquivos_de_log():
+    for arquivo in _arquivos_de_log(log):
         for linha in arquivo.read_text(encoding="utf-8", errors="replace").splitlines():
             m = RE_LINHA.match(linha)
             if not m:
@@ -54,6 +57,10 @@ def ler_lotes(dia: str) -> list[dict]:
             if data != dia:
                 continue
             ultimo_evento = None
+            if msg.startswith("Execução não começou:"):
+                if nao_comecaram is not None:
+                    nao_comecaram.append((hora, msg.removeprefix("Execução não começou:").strip()))
+                continue
             if "=== TechDigest iniciando ===" in msg:
                 atual = _novo_lote(hora)
                 lotes.append(atual)
@@ -68,6 +75,9 @@ def ler_lotes(dia: str) -> list[dict]:
                 atual["orcamento"] = True
             elif "Falha fatal" in msg:
                 atual["fim"], atual["fatal"] = hora, True
+            elif msg.startswith("Execução interrompida:"):
+                atual["fim"] = hora
+                atual["interrompida"] = msg.removeprefix("Execução interrompida:").split(" (")[0].strip()
             elif "Item pulado pelo QA" in msg:
                 atual["qa"] += 1
             elif msg.startswith("Item pulado:"):
@@ -105,10 +115,20 @@ def _duracao(inicio: str, fim: str | None) -> str:
 
 
 def main() -> None:
-    dia = sys.argv[1] if len(sys.argv) > 1 else datetime.date.today().strftime("%d/%m")
-    lotes = ler_lotes(dia)
+    argumentos = sys.argv[1:]
+    log = None
+    if "--log" in argumentos:
+        i = argumentos.index("--log")
+        if i + 1 >= len(argumentos):
+            sys.exit("--log precisa do caminho do arquivo de log")
+        log = argumentos[i + 1]
+        del argumentos[i:i + 2]
+    dia = argumentos[0] if argumentos else datetime.date.today().strftime("%d/%m")
+    nao_comecaram: list[tuple[str, str]] = []
+    lotes = ler_lotes(dia, log, nao_comecaram)
     if not lotes:
-        print(f"Nenhum lote encontrado em {dia} (arquivos lidos: {[str(p) for p in _arquivos_de_log()]})")
+        print(f"Nenhum lote encontrado em {dia} (arquivos lidos: {[str(p) for p in _arquivos_de_log(log)]})")
+        _listar_nao_comecaram(nao_comecaram)
         return
     cab = ("Início", "Duração", "Entreg.", "QA", "Desc.", "Erros", "F.entr.",
            "tok/s méd", "tok/s mín", "RAM mín GB", "swap máx GB", "CPU máx °C", "GPU máx °C", "GPU mín MHz", "Obs.")
@@ -119,6 +139,8 @@ def main() -> None:
             obs.append("orçamento esgotado")
         if l["fatal"]:
             obs.append("falha fatal")
+        if l["interrompida"]:
+            obs.append(f"interrompida: {l['interrompida']}")
         toks = l["toks"]
         linhas.append((
             l["inicio"], _duracao(l["inicio"], l["fim"]),
@@ -135,6 +157,15 @@ def main() -> None:
     print("-+-".join("-" * w for w in larguras))
     for x in linhas:
         print(" | ".join(v.ljust(w) for v, w in zip(x, larguras)))
+    _listar_nao_comecaram(nao_comecaram)
+
+
+def _listar_nao_comecaram(nao_comecaram: list[tuple[str, str]]) -> None:
+    """As execuções que nem começaram, porque a trava do modelo estava ocupada."""
+    if nao_comecaram:
+        print("\nNão começaram (a trava do modelo estava ocupada):")
+        for hora, motivo in nao_comecaram:
+            print(f"  {hora}: {motivo}")
 
 
 if __name__ == "__main__":

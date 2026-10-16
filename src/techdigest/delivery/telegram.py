@@ -8,6 +8,7 @@ import requests
 import urllib3.util.connection as _u3conn
 from html import escape
 from techdigest.config import Settings
+from techdigest.simulacao import em_simulacao
 
 settings = Settings()
 
@@ -45,6 +46,9 @@ def _somente_ipv4():
 
 
 def _post(endpoint: str, data: dict, files: dict | None = None) -> dict:
+    # A última barreira da simulação (techdigest --simular, e os testes): nenhuma chamada chega ao Telegram.
+    if em_simulacao():
+        raise RuntimeError(f"Telegram/{endpoint}: recusado numa simulação, que não fala com o Telegram")
     url = f"https://api.telegram.org/bot{settings.telegram_token}/{endpoint}"
     # Erros do requests citam a URL, e a URL contém o token: re-levanta SEM ela
     # para o token não vazar para o arquivo de log nem para o journal.

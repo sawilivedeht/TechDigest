@@ -6,6 +6,8 @@ src/techdigest/logging_setup.py
 src/techdigest/main.py
 src/techdigest/models.py
 src/techdigest/pipeline.py
+src/techdigest/simulacao.py
+src/techdigest/trava.py
 src/techdigest.egg-info/PKG-INFO
 src/techdigest.egg-info/SOURCES.txt
 src/techdigest.egg-info/dependency_links.txt
@@ -17,6 +19,7 @@ src/techdigest/ai/atribuicoes.py
 src/techdigest/ai/gpu.py
 src/techdigest/ai/lados.py
 src/techdigest/ai/llm.py
+src/techdigest/ai/maquina.py
 src/techdigest/ai/numeros.py
 src/techdigest/ai/prompt.py
 src/techdigest/ai/qa.py
@@ -28,6 +31,7 @@ src/techdigest/audio/tts.py
 src/techdigest/collectors/__init__.py
 src/techdigest/collectors/rss.py
 src/techdigest/delivery/__init__.py
+src/techdigest/delivery/arquivo.py
 src/techdigest/delivery/email_smtp.py
 src/techdigest/delivery/telegram.py
 src/techdigest/processing/__init__.py
@@ -40,7 +44,14 @@ tests/test_fidelidade.py
 tests/test_gpu.py
 tests/test_lados.py
 tests/test_llm.py
+tests/test_maquina.py
+tests/test_pipeline.py
 tests/test_qa.py
 tests/test_recorte.py
 tests/test_refazer_qa.py
+tests/test_resumo_lotes.py
+tests/test_simulacao.py
 tests/test_summarizer.py
+tests/test_trava.py
+tests/test_trava_nos_scripts.py
+tests/test_units.py

@@ -21,8 +21,8 @@ ele está; este arquivo guarda o que foi decidido e o que falta, e é atualizado
 ## Ordem do trabalho
 
 1. **Worktree e ambiente.** Feita (a1093d7).
-2. **Roteiro e CLAUDE.md.** Feita.
-3. **Trava do modelo, travas da máquina e simulação.**
+2. **Roteiro e CLAUDE.md.** Feita (28159f7).
+3. **Trava do modelo, travas da máquina e simulação.** Feita.
 4. **Validação da fonte única.** Chama o modelo; o dono revisa o gabarito dos 20 itens antes da
    rodada.
 5. **Integração do agrupamento** atrás de `AGRUPAMENTO_ATIVO`, com os filtros, o limite de
@@ -68,6 +68,9 @@ Depois do merge: a terceira amostra e a decisão de ligar o agrupamento (ver as 
 - **Até o merge, a `master` não conhece a trava do modelo** (etapa 3) nem a unit do Ollama. Quem
   rodar a `master` à mão confere antes que nenhuma rodada da fase 4 está em curso
   (`systemctl --user is-active techdigest-teste.target`), porque as duas disputariam o mesmo modelo.
+- **Depois do merge, o pipeline só roda com o Ollama da unit.** Ele confere a GPU pelo log dela
+  (`OLLAMA_LOG`) e para se o servidor no ar for outro. Enquanto a unit do techdigest não existir, uma
+  execução de produção à mão sobe o Ollama pela sessão de teste, como as rodadas.
 
 ## Decisões do dono
 
@@ -164,25 +167,38 @@ Os números são os da lista que o dono mandou registrar em 13 e 14/10/2026.
 11. **Worktree:** feita, e usada mesmo com o timer desligado.
 12. **Excedentes:** decidido (vistos com a pauta e listados no texto). Etapa 5.
 
-## Etapa 3: trava do modelo, travas da máquina e simulação
+## Etapa 3: trava do modelo, travas da máquina e simulação (feita)
 
-- **Trava do modelo:** um arquivo fixo fora das duas pastas, `~/.local/state/techdigest/modelo.lock`
-  (a mesma pasta do log do Ollama), com `flock` sem espera. Quem a pega grava nela quem é, o PID e
-  desde quando, e quem a encontra ocupada mostra isso e sai com status 1. Substitui a trava antiga
-  do pipeline, `data/techdigest.lock`, que valia só para a pasta dele.
-- **Travas da máquina**, no pacote, as mesmas para o pipeline e para os scripts: memória disponível
-  abaixo de 4 GiB antes de cada chamada; a CPU acima de 95 °C (espera baixar de 85 °C por até 15
-  minutos); a GPU antes da primeira chamada e depois da carga; o Ollama fora do ar ou sem o modelo
-  carregado no meio da execução. Cada uma interrompe a execução inteira com status 1 e uma linha de
-  log de texto fixo. Ficam para avaliar na simulação: um vigia de memória durante a carga do modelo
+- **Trava do modelo** (`trava.py`): um arquivo fixo fora das duas pastas,
+  `~/.local/state/techdigest/modelo.lock` (a mesma pasta do log do Ollama), com `flock` sem espera.
+  Quem a pega grava nela o comando, o PID, desde quando e a pasta; quem a encontra ocupada mostra
+  isso e sai com status 1 (o pipeline registra "Execução não começou: ..."). Substitui a trava
+  antiga do pipeline, `data/techdigest.lock`, que valia só para a pasta dele.
+- **Travas da máquina** (`ai/maquina.py`), as mesmas para o pipeline e para os scripts: memória
+  disponível abaixo de 4 GiB antes de cada chamada; a CPU acima de 95 °C (espera baixar de 85 °C por
+  até 15 minutos); a GPU antes da primeira chamada (no pipeline, antes até da coleta) e depois da
+  carga; o Ollama fora do ar ou sem o modelo carregado no meio da execução. Cada uma interrompe a
+  execução inteira com status 1 e a linha "Execução interrompida: <motivo> (N notícia(s) entregue(s)
+  antes; ...)", que o `resumo_lotes.py` mostra na tabela. A etapa 3 do `testar_episodio.py`, que
+  antes chamava o modelo sem as conferências de memória e temperatura, passou a usá-las. Ficam para avaliar na simulação: um vigia de memória durante a carga do modelo
   e um `MemoryMax` na unit (o modelo mapeado conta como cache de arquivo).
-- **Simulação:** `techdigest --simular <pasta>`, que lê os argumentos antes de qualquer import do
-  pacote. Coleta, extração, LLM e TTS são reais; a entrega vai para arquivos na pasta (o texto como
-  o Telegram o receberia e o mp3), por um canal de entrega novo, `arquivo`; o banco é uma cópia
-  feita com o de origem aberto só para leitura, e o modo recusa uma pasta que não seja dele; o log
-  e o áudio ficam na pasta. Nenhum caminho do `--simular` chama a API do Telegram: o canal é
-  forçado para `arquivo`, o token sai do ambiente e o envio ao Telegram recusa rodar numa
-  simulação. O áudio pode ser desligado (`--sem-audio`) nas simulações de trabalho.
+- **Simulação** (`simulacao.py`, `delivery/arquivo.py`):
+
+  ```bash
+  .venv/bin/techdigest --simular data/simulacoes/<nome> --banco-origem /home/sytw/Projetos/techdigest/data/digest.db
+  .venv/bin/techdigest --simular data/simulacoes/<nome>          # a segunda execução, com o banco da primeira
+  .venv/bin/python scripts/resumo_lotes.py DD/MM --log data/simulacoes/<nome>/logs/techdigest.log
+  ```
+
+  Coleta, extração, LLM e TTS são reais; a entrega vai para `<pasta>/entregas` (o texto como o
+  Telegram o receberia, o episódio em JSON e o mp3, e `entregas.txt` com a ordem); o banco é uma
+  cópia, feita com o de origem aberto só para leitura; o log e o áudio ficam na pasta. Uma pasta nova
+  pede `--banco-origem`; a de uma simulação anterior continua com o banco dela; qualquer outra é
+  recusada. Nenhum caminho do `--simular` chama a API do Telegram: o canal é `arquivo`, o token e o
+  chat ficam vazios no ambiente e o `_post` do Telegram recusa rodar numa simulação; um teste roda
+  uma simulação inteira num processo novo, com coleta, extração e geração falsas e um
+  `requests.post` que reprova o teste se for chamado. O canal `arquivo`, por sua vez, recusa rodar
+  fora de uma simulação. O áudio pode ser desligado (`--sem-audio`) nas simulações de trabalho.
 
 ## Aviso de parada (ajuste 8): proposta, à espera do dono
 
@@ -196,10 +212,9 @@ Os números são os da lista que o dono mandou registrar em 13 e 14/10/2026.
   `resumo_lotes.py` mostrar a parada. Se o próprio aviso falhar, fica o log e o status 1.
 - **Quando houver a unit do techdigest:** um `OnFailure=` que manda o mesmo aviso cobre o que o
   processo não consegue avisar sozinho (morto pelo OOM killer ou pelo limite de 4 horas).
-- **No `--simular`:** o aviso vai para `<pasta>/AVISO.txt` e para a saída de erro. Três camadas
-  mantêm o Telegram de fora: o canal forçado para `arquivo` antes dos imports, o token tirado do
-  ambiente e a recusa do `_post` numa simulação; um teste roda os caminhos do `--simular` com o
-  `requests` trocado por uma função que reprova o teste se for chamada.
+- **No `--simular`:** o aviso vai para `<pasta>/AVISO.txt` e para a saída de erro, e nunca para o
+  Telegram: as três camadas da etapa 3 (o canal `arquivo`, o token vazio e a recusa do `_post` numa
+  simulação) valem também para ele, e o teste de ponta a ponta passa a cobrir o aviso.
 - **Nos scripts de teste:** a mensagem na tela e o status 1, como hoje. Eles nunca falam com o
   Telegram.
 

@@ -2,8 +2,8 @@
 
 Sem GPU, o Ollama carrega o modelo inteiro na RAM, e nesta máquina a memória acaba durante a
 carga: em 13/10/2026 a máquina caiu assim, num kernel sem o driver da NVIDIA. As conferências de
-antes param sem chegar a carregar o modelo; a de depois descarrega o modelo e para. Hoje só os
-scripts de diagnóstico as usam; o pipeline pode usá-las na Fase 4.
+antes param sem chegar a carregar o modelo; a de depois descarrega o modelo e para. O pipeline e os
+scripts que chamam o modelo as usam pelas travas da máquina (`ai/maquina.py`).
 """
 import os
 import re
