@@ -136,12 +136,20 @@ Os números são os da lista que o dono mandou registrar em 13 e 14/10/2026.
 1. **Filtro de esporte e de ofertas** antes do agrupamento. Decidido (seção da URL e categoria do
    feed). Na amostra nova são 7 candidatos de esporte (ids 2, 9, 30, 37, 45, 52, 98) e 11 de ofertas
    (8 com "link de afiliado": 4, 18, 19, 33, 34, 40, 48, 56; mais 3 do Canaltech sem a frase: 47,
-   87, 99), 18 de 101. As amostras não guardam a categoria do feed, então a medida nelas usa só a
-   URL. A medida nas duas amostras sai na preparação da fonte única. Implementação na etapa 5.
+   87, 99), 18 de 101. Medida em 16/10, sem o modelo e só pela URL final, porque as amostras não
+   guardam a categoria do feed (`data/agrupamento/filtros_20261016.txt`; as regras estão em
+   `medir_filtros_20261016.py`, na mesma pasta). Regras propostas, à espera do dono: esporte pela
+   seção `/esportes/` ou `/esporte/` e pelos sites inteiros de esporte (ge.globo.com, lance.com.br,
+   goal.com, cbf.com.br); ofertas pelas seções `/achados/` (Tecnoblog), `/hardware-indica/`
+   (Hardware.com.br) e `/ofertas/`. Resultado nas duas amostras: esporte 12 de 12, ofertas 16 de 21,
+   nenhum falso positivo. Ficam de fora quatro notícias de preço do Canaltech (seções `/carros/`,
+   `/produtos/` e `/smartphone/`) e um texto de afiliado do Hardware.com.br na seção `/games/`: a
+   categoria do feed pode pegá-los, e a terceira amostra vai dizer. Implementação na etapa 5.
 2. **Site de partido como fonte** (junto com o 9). O pt.org.br entrou como veículo "Partido dos
    Trabalhadores" na pauta do Alckmin (ids 29 + 20 da amostra nova), e o episódio atribuiu ao PT,
    como veículo, um relatório que o site não menciona; no áudio, isso soa como posição do partido.
-   Decidido: lista de domínios na URL final. Etapa 5.
+   Decidido: lista de domínios na URL final. Nas duas amostras o pt.org.br é o único site de
+   partido, e a regra o pega. A lista completa de domínios fica para o dono revisar na etapa 5.
 3. **GPU no pipeline** (junto com o 7, de onde ler o log do Ollama): `gpu.conferir_antes_de_carregar`
    antes da primeira chamada e `gpu.modelo_na_gpu` depois dela. O log é o da unit, `OLLAMA_LOG`
    (etapa 1). As conferências entram no pipeline na etapa 3.
@@ -283,7 +291,11 @@ Três condições, todas cumpridas:
   recorte. Esporte e ofertas ficam de fora, porque o filtro foi adotado.
 - **Gabarito:** o resultado esperado de cada item, lido nos textos (um lado só, ou a disputa com os
   atores de cada lado), para medir disputa inventada e disputa perdida. O dono revisa antes da
-  rodada.
+  rodada. Está em `data/agrupamento/gabarito_fonte_unica_20261016.md`: 11 itens de política e 9 de
+  tecnologia; 5 com dois lados, 3 com um lado e ressalva, 12 com um lado; 4 dúvidas para o dono
+  (A46, N13, N27 e, já decidido por ele em 14/10, o contraste da N69). Nenhum texto de tecnologia
+  das amostras traz disputa entre atores nomeados, então a disputa perdida só se mede na política.
+  Os comandos da rodada estão no fim do arquivo.
 - **Rodada:** `scripts/testar_episodio.py --amostra <amostra> --pautas "<id>;<id>;..."` na worktree,
   uma vez por amostra; sem `--repetir`, o `--pautas` roda só as pautas pedidas, sem a etapa 3
   (conferido no código).
