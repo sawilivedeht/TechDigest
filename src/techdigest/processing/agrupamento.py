@@ -294,6 +294,8 @@ class Candidato:
     url_veiculo: str   # URL da matéria no site do veículo (igual a `url` nos feeds diretos)
     texto: str         # texto extraído completo
     data: datetime | None = None   # publicação segundo o feed, com fuso
+    feed: str = ""                       # URL do feed de onde veio (nas amostras gravadas a partir da fase 4)
+    categorias: tuple[str, ...] = ()     # categorias da entrada no feed (idem)
 
 
 @dataclass(frozen=True)

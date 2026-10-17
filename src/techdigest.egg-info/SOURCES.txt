@@ -40,6 +40,7 @@ src/techdigest/processing/extractor.py
 src/techdigest/storage/__init__.py
 src/techdigest/storage/dedup.py
 tests/test_agrupamento.py
+tests/test_coleta.py
 tests/test_fidelidade.py
 tests/test_gpu.py
 tests/test_lados.py

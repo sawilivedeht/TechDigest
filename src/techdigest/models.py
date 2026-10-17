@@ -10,3 +10,5 @@ class Article:
     summary: str = ""
     source: str = ""
     published: datetime | None = None
+    feed: str = ""                       # a URL do feed de onde o artigo veio (o da primeira aparição no intercalado)
+    categorias: tuple[str, ...] = ()     # as categorias da entrada no feed (<category>), como o feed as escreve

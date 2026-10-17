@@ -261,22 +261,28 @@ def _coletar_candidatos(args: argparse.Namespace) -> tuple[list[ag.Candidato], d
         candidatos.append(ag.Candidato(
             titulo=titulo, veiculo=veiculo, url=artigo.url,
             url_veiculo=extracao.url_resolvida or artigo.url, texto=extracao.texto,
-            data=publicacao.get(artigo.url),
+            data=publicacao.get(artigo.url), feed=artigo.feed, categorias=artigo.categorias,
         ))
+    _linha("com categoria no feed", sum(1 for c in candidatos if c.categorias),
+           f"de {len(candidatos)}; a categoria e o feed de cada um vão para a amostra")
     return candidatos, feeds
 
 
 def _gravar_amostra(candidatos: list[ag.Candidato], incluir_vistos: bool, carimbo: str) -> Path:
     """Guarda os candidatos já extraídos, para repetir a comparação sem coletar de novo.
 
-    O id é a posição do candidato na execução, a partir de 1; `url` é o link do feed.
+    O id é a posição do candidato na execução, a partir de 1; `url` é o link do feed. `feed` é a URL do
+    feed de onde o candidato veio e `categorias`, as categorias da entrada nele: servem para medir o
+    filtro de esporte e ofertas pela categoria e o efeito do agrupamento nas vagas de cada boletim. As
+    amostras gravadas antes da fase 4 não as têm.
     """
     conteudo = {
         "criada_em": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
         "incluir_vistos": incluir_vistos,
         "candidatos": [
             {"id": n, "veiculo": c.veiculo, "titulo": c.titulo, "url": c.url, "url_resolvida": c.url_veiculo,
-             "data": c.data.isoformat() if c.data else None, "texto": c.texto}
+             "data": c.data.isoformat() if c.data else None, "feed": c.feed, "categorias": list(c.categorias),
+             "texto": c.texto}
             for n, c in enumerate(candidatos, 1)
         ],
     }
@@ -291,7 +297,8 @@ def _carregar_amostra(caminho: str) -> tuple[list[ag.Candidato], dict[ag.Candida
         conteudo = json.loads(Path(caminho).read_text(encoding="utf-8"))
         ids = {
             ag.Candidato(titulo=c["titulo"], veiculo=c["veiculo"], url=c["url"], url_veiculo=c["url_resolvida"],
-                         texto=c["texto"], data=datetime.datetime.fromisoformat(c["data"]) if c["data"] else None): c["id"]
+                         texto=c["texto"], data=datetime.datetime.fromisoformat(c["data"]) if c["data"] else None,
+                         feed=c.get("feed", ""), categorias=tuple(c.get("categorias") or ())): c["id"]
             for c in conteudo["candidatos"]
         }
     except (OSError, ValueError, KeyError, TypeError) as e:

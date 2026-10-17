@@ -32,6 +32,16 @@ def _titulo_e_veiculo(entry, titulo: str, nome_do_feed: str) -> tuple[str, str]:
     return (titulo[: -len(sufixo)] if titulo.endswith(sufixo) else titulo), veiculo
 
 
+def _categorias(entry) -> tuple[str, ...]:
+    """As categorias da entrada (<category> no RSS, term no Atom), sem repetir, na ordem do feed."""
+    termos: list[str] = []
+    for tag in entry.get("tags") or []:
+        termo = (tag.get("term") or tag.get("label") or "").strip()
+        if termo and termo not in termos:
+            termos.append(termo)
+    return tuple(termos)
+
+
 def _idade_dias(entry) -> float | None:
     """Idade da notícia em dias pela data do feed (published, senão updated); None se não houver data.
 
@@ -84,6 +94,8 @@ def collect_rss(feeds: list[str] | None = None) -> list[Article]:
                 url=entry.get("link", ""),
                 summary=_texto_puro(entry.get("summary", "")),
                 source=veiculo,
+                feed=feed_url,
+                categorias=_categorias(entry),
             ))
         fora = ""
         if antigas or sem_data:
