@@ -22,9 +22,10 @@ ele está; este arquivo guarda o que foi decidido e o que falta, e é atualizado
 
 1. **Worktree e ambiente.** Feita (a1093d7).
 2. **Roteiro e CLAUDE.md.** Feita (28159f7).
-3. **Trava do modelo, travas da máquina e simulação.** Feita.
-4. **Validação da fonte única.** Chama o modelo; o dono revisa o gabarito dos 20 itens antes da
-   rodada.
+3. **Trava do modelo, travas da máquina e simulação.** Feita (4f33eb5).
+4. **Validação da fonte única.** Rodada em 17/10/2026, como teste de regressão: 18 de 20
+   aprovados, mas o aceite não foi atingido (três disputas inventadas, uma delas aprovada, e um
+   fato distorcido num aprovado). Resultado com o dono; prompt e QA não mudaram.
 5. **Integração do agrupamento** atrás de `AGRUPAMENTO_ATIVO`, com os filtros, o limite de
    tentativas, os excedentes e o registro de cada execução.
 6. **Simulação de ponta a ponta.** A que libera o merge roda com `AGRUPAMENTO_ATIVO=false`, que é o
@@ -68,6 +69,13 @@ Depois do merge: a terceira amostra e a decisão de ligar o agrupamento (ver as 
 - **Até o merge, a `master` não conhece a trava do modelo** (etapa 3) nem a unit do Ollama. Quem
   rodar a `master` à mão confere antes que nenhuma rodada da fase 4 está em curso
   (`systemctl --user is-active techdigest-teste.target`), porque as duas disputariam o mesmo modelo.
+- **Uma rodada nunca atravessa uma suspensão da máquina** (decisão de 17/10). Até o inibidor entrar
+  nas units, as rodadas rodam sob `systemd-inhibit --what=sleep:idle`. Depois ele entra na sessão de
+  teste e na unit do techdigest. Proposta para a sessão de teste: uma unit pequena,
+  `techdigest-inibir.service`, com `ExecStart=/usr/bin/systemd-inhibit --what=sleep:idle
+  --who=TechDigest --why="sessão de teste" --mode=block sleep infinity`, que o target puxa e que cai
+  com ele; na unit do techdigest, o `ExecStart` dentro do `systemd-inhibit`. Em 17/10, o
+  `systemd-inhibit` funcionou de dentro de uma unit de usuário temporária, sem pedir permissão.
 - **Depois do merge, o pipeline só roda com o Ollama da unit.** Ele confere a GPU pelo log dela
   (`OLLAMA_LOG`) e para se o servidor no ar for outro. Enquanto a unit do techdigest não existir, uma
   execução de produção à mão sobe o Ollama pela sessão de teste, como as rodadas.
@@ -109,6 +117,28 @@ Em 16/10/2026, ao aprovar o plano:
   agrupamento ligado, `MAX_NEWS` conta episódios por execução e o agrupamento olha todos os
   candidatos coletados; os exemplos do CLAUDE.md tirados das amostras foram trocados por inventados.
 
+Em 17/10/2026, ao ver o fim das etapas 1 a 3:
+
+- **Confirmadas as quatro decisões da etapa 3:** a trava do modelo ocupada sai com status 1; uma
+  pasta nova de simulação exige `--banco-origem`; o canal `arquivo` recusa rodar fora da simulação;
+  a etapa 3 do `testar_episodio.py` passa pelas travas da máquina.
+- **Aprovados:** o aviso de parada (ajuste 8), a ordem das vagas de `MAX_NEWS`, o protocolo da
+  terceira amostra e o gabarito dos 20 itens da fonte única.
+- **O que faz um lado:** o critério não é de quem é a frase, e sim se o texto traz a resposta do
+  ator à questão. No A79, o texto relata o que o comandante dos bombeiros afirmou, e isso responde
+  à questão; no A46, nada responde se a Meta tentou interferir ("admitido falhas técnicas"
+  descreve a conduta dela), então um lado da Meta é disputa inventada.
+- **Três tipos de erro na análise de lados:** disputa inventada (dois lados ou mais onde o
+  gabarito tem um), disputa perdida (um lado onde ele tem dois) e questão errada (dois lados, mas
+  sobre outra questão: no N13, a da área técnica, que o gabarito de 13/10 põe noutra pauta, a 71 +
+  85). Ator secundário ou ressalva ausente contam como detalhe. Planos de governo diferentes sem
+  respostas opostas a uma pergunta são informação complementar (N27).
+- **A validação da fonte única é um teste de regressão:** as duas amostras já não são cegas, e dos
+  cinco itens com disputa só o N92 não está nos gabaritos da fase 3. A medida cega da fonte única
+  fica para a terceira amostra, que inclui itens de fonte única com disputa, com o gabarito do dono
+  antes da rodada. Prompt e QA não mudam por causa do resultado: ele vem primeiro para o dono.
+- **O filtro de esporte, ofertas e sites de partido** vale com o agrupamento ligado ou desligado.
+
 Das fases 1 a 3, continuam valendo (o detalhe está no CLAUDE.md e no histórico do git):
 
 - Mesma história é o mesmo acontecimento ou um desdobramento direto dele na janela da coleta; só o
@@ -144,12 +174,18 @@ Os números são os da lista que o dono mandou registrar em 13 e 14/10/2026.
    (Hardware.com.br) e `/ofertas/`. Resultado nas duas amostras: esporte 12 de 12, ofertas 16 de 21,
    nenhum falso positivo. Ficam de fora quatro notícias de preço do Canaltech (seções `/carros/`,
    `/produtos/` e `/smartphone/`) e um texto de afiliado do Hardware.com.br na seção `/games/`: a
-   categoria do feed pode pegá-los, e a terceira amostra vai dizer. Implementação na etapa 5.
+   categoria do feed pode pegá-los, e a terceira amostra vai dizer. Na primeira coleta dela (17/10),
+   45 de 108 candidatos têm categoria: o Canaltech e o Google Notícias não mandam nenhuma, o
+   Tecnoblog manda só etiquetas de assunto (marcas, produtos, serviços) e o Hardware.com.br manda
+   "Hardware Indica", a mesma seção que a URL já mostra. A categoria, portanto, não pega as
+   notícias de preço do Canaltech, que eram a maior parte do que a URL perdeu. O filtro vale com o
+   agrupamento ligado ou desligado. Implementação na etapa 5.
 2. **Site de partido como fonte** (junto com o 9). O pt.org.br entrou como veículo "Partido dos
    Trabalhadores" na pauta do Alckmin (ids 29 + 20 da amostra nova), e o episódio atribuiu ao PT,
    como veículo, um relatório que o site não menciona; no áudio, isso soa como posição do partido.
    Decidido: lista de domínios na URL final. Nas duas amostras o pt.org.br é o único site de
-   partido, e a regra o pega. A lista completa de domínios fica para o dono revisar na etapa 5.
+   partido, e a regra o pega. A lista completa de domínios fica para o dono revisar na etapa 5. Vale
+   com o agrupamento ligado ou desligado.
 3. **GPU no pipeline** (junto com o 7, de onde ler o log do Ollama): `gpu.conferir_antes_de_carregar`
    antes da primeira chamada e `gpu.modelo_na_gpu` depois dela. O log é o da unit, `OLLAMA_LOG`
    (etapa 1). As conferências entram no pipeline na etapa 3.
@@ -168,10 +204,13 @@ Os números são os da lista que o dono mandou registrar em 13 e 14/10/2026.
    chamada): acima de 95 °C antes de uma chamada, espera baixar de 85 °C, por até 15 minutos; depois
    disso, para. Etapa 3.
 9. Ver o 2.
-10. **Limitação conhecida:** nenhuma checagem pega argumento atribuído a um ator sem estar nos
-    textos (no episódio Lula/TSE de `episodios_amostra2_v2`, a analista diz que a campanha de Flávio
-    "continuará monitorando se as regras... serão aplicadas de forma uniforme"). Continua sem regra;
-    os episódios lidos nas rodadas são a única defesa.
+10. **Limitações conhecidas,** sem regra; os episódios lidos nas rodadas são a única defesa:
+    - nenhuma checagem pega argumento atribuído a um ator sem estar nos textos (no episódio
+      Lula/TSE de `episodios_amostra2_v2`, a analista diz que a campanha de Flávio "continuará
+      monitorando se as regras... serão aplicadas de forma uniforme");
+    - a conferência dos trechos confirma que o trecho está no texto, não que ele traz a resposta do
+      ator à questão (o caso do A46: "admitido falhas técnicas" está no texto, mas descreve a
+      conduta da Meta, não responde se ela tentou interferir). Registrada em 17/10.
 11. **Worktree:** feita, e usada mesmo com o timer desligado.
 12. **Excedentes:** decidido (vistos com a pauta e listados no texto). Etapa 5.
 
@@ -188,7 +227,9 @@ Os números são os da lista que o dono mandou registrar em 13 e 14/10/2026.
   carga; o Ollama fora do ar ou sem o modelo carregado no meio da execução. Cada uma interrompe a
   execução inteira com status 1 e a linha "Execução interrompida: <motivo> (N notícia(s) entregue(s)
   antes; ...)", que o `resumo_lotes.py` mostra na tabela. A etapa 3 do `testar_episodio.py`, que
-  antes chamava o modelo sem as conferências de memória e temperatura, passou a usá-las. Ficam para avaliar na simulação: um vigia de memória durante a carga do modelo
+  antes chamava o modelo sem as conferências de memória e temperatura, passou a usá-las. Ficam
+  para avaliar na simulação: um vigia de memória durante a carga do modelo (nas rodadas, por
+  enquanto, é um laço em segundo plano que para a sessão de teste com menos de 3 GiB disponíveis)
   e um `MemoryMax` na unit (o modelo mapeado conta como cache de arquivo).
 - **Simulação** (`simulacao.py`, `delivery/arquivo.py`):
 
@@ -208,7 +249,7 @@ Os números são os da lista que o dono mandou registrar em 13 e 14/10/2026.
   `requests.post` que reprova o teste se for chamado. O canal `arquivo`, por sua vez, recusa rodar
   fora de uma simulação. O áudio pode ser desligado (`--sem-audio`) nas simulações de trabalho.
 
-## Aviso de parada (ajuste 8): proposta, à espera do dono
+## Aviso de parada (ajuste 8): aprovado em 17/10, a implementar na etapa 5
 
 - **Quando:** a execução parou numa trava da máquina; não começou porque a trava do modelo estava
   ocupada; e, se o dono quiser, terminou com erro inesperado.
@@ -219,7 +260,10 @@ Os números são os da lista que o dono mandou registrar em 13 e 14/10/2026.
   uso por testar_episodio.py (PID 1234, desde 07:15)." O log ganha uma linha de texto fixo para o
   `resumo_lotes.py` mostrar a parada. Se o próprio aviso falhar, fica o log e o status 1.
 - **Quando houver a unit do techdigest:** um `OnFailure=` que manda o mesmo aviso cobre o que o
-  processo não consegue avisar sozinho (morto pelo OOM killer ou pelo limite de 4 horas).
+  processo não consegue avisar sozinho (morto pelo OOM killer ou pelo limite de 4 horas). O
+  `OnFailure=` dispara em qualquer falha, inclusive nas saídas com status 1 que o processo já
+  avisou: por isso o aviso dele lê `MONITOR_SERVICE_RESULT` e `MONITOR_EXIT_STATUS` e só fala quando
+  o resultado não for `exit-code` com status 1 (OOM killer, tempo esgotado, sinal).
 - **No `--simular`:** o aviso vai para `<pasta>/AVISO.txt` e para a saída de erro, e nunca para o
   Telegram: as três camadas da etapa 3 (o canal `arquivo`, o token vazio e a recusa do `_post` numa
   simulação) valem também para ele, e o teste de ponta a ponta passa a cobrir o aviso.
@@ -228,7 +272,7 @@ Os números são os da lista que o dono mandou registrar em 13 e 14/10/2026.
 
 ## Integração: a ordem das vagas de MAX_NEWS (ajuste 7)
 
-Proposta:
+Aprovada em 17/10:
 
 - Com o agrupamento ligado, a execução coleta como hoje (os feeds intercalados, o filtro de idade e
   `MAX_POR_FEED`), tira os vistos, aplica os filtros, extrai todos os candidatos em lote, descarta
@@ -247,7 +291,7 @@ Proposta:
 - O que não couber em `MAX_NEWS` não é marcado como visto e volta na execução seguinte, onde pode
   ganhar artigos novos.
 
-## Terceira amostra (ponto 7): proposta
+## Terceira amostra (ponto 7): protocolo aprovado em 17/10
 
 Ela não pode depender dos primeiros dias de uso e precisa estar pronta quando se for decidir se o
 agrupamento liga.
@@ -257,18 +301,25 @@ agrupamento liga.
   semana no meio. A coleta não chama o modelo, não usa a trava e abre o banco só para leitura: dá
   para fazer com outra rodada em curso. Pode começar já, porque cada coleta leva um ou dois
   minutos e as três ficam prontas antes do merge.
-- **Antes da primeira coleta:** o `--salvar-amostra` passa a gravar também a categoria e o feed de
-  cada candidato, para medir o filtro pela categoria e o efeito do agrupamento nas vagas de cada
-  boletim.
+- **Antes da primeira coleta:** o `--salvar-amostra` passou a gravar também a categoria e o feed de
+  cada candidato (7aa467c), para medir o filtro pela categoria e o efeito do agrupamento nas vagas
+  de cada boletim.
+- **Primeira coleta, em 17/10/2026 às 10:56:** `amostra_20261017-105620.json`, 108 candidatos (45
+  com categoria), com a saída da coleta em `coleta_20261017-105619.txt`, os pares de maior score em
+  `pares_20261017-105620.csv` (11 com score de 0,15 para cima) e a lista para rotular em
+  `candidatos_20261017-105620.csv` (id, veículo, título, URL, feed, categorias e tamanho, com
+  colunas vazias para o filtro e as notas). As outras duas, quando o dono pedir, com pelo menos três
+  dias entre elas.
 - **Cada coleta é uma amostra** (`amostra_<data-hora>.json`), como um retrato de uma execução real;
   um artigo que apareça em duas coletas leva o mesmo rótulo nas duas. As três juntas formam a
   terceira amostra, com um gabarito só.
 - **Gabarito do dono, antes de qualquer rodada:** para cada coleta, os pares da mesma história
   (com a relação, mesmo acontecimento ou desdobramento) e os textos de vários fatos, num CSV no
   formato de `rotulos_*.csv`, para o `--rotulos` conferir; para cada pauta, a questão em disputa e
-  os atores de cada lado, ou "sem disputa", e as ressalvas; e os candidatos de esporte, ofertas e
-  site de partido. Para ajudar, entrego por coleta a lista dos candidatos (id, veículo, título, URL)
-  e o CSV dos pares de maior score, como nas amostras anteriores, sem nenhuma saída do modelo.
+  os atores de cada lado, ou "sem disputa", e as ressalvas, inclusive em itens de fonte única com
+  disputa, para a medida cega da fonte única; e os candidatos de esporte, ofertas e site de partido.
+  Para ajudar, entrego por coleta a lista dos candidatos (id, veículo, título, URL) e o CSV dos pares
+  de maior score, como nas amostras anteriores, sem nenhuma saída do modelo.
 - **Tamanho:** a meta é chegar a pelo menos 15 pautas de 2 ou mais artigos e 6 pautas com disputa
   pelo gabarito, somando as três; se faltar, uma quarta coleta.
 - **Depois do gabarito:** a etapa 3 com `--repeticoes 3`, a análise de lados, a geração e o
@@ -302,7 +353,32 @@ Três condições, todas cumpridas:
 - **Medidas:** aprovação, correções, tempo, disputa inventada, disputa perdida e o
   `checar_fidelidade.py`; leio todos os episódios que saírem com dois lados. Para comparar, no log
   de produção a `master` pulou de 0 a 4 itens por QA a cada 20 entregues.
-- **Aceite:** ver "Decisões do dono".
+- **Aceite:** ver "Decisões do dono". Se a disputa inventada no N27 for o único erro, o episódio vai
+  para o dono antes de fechar o aceite.
+- **Como rodou (17/10):** as duas amostras em pastas separadas, `fonte_unica_v1_antiga` e
+  `fonte_unica_v1_nova` (o `refazer_qa.py` conta só o relatório mais recente de cada pasta, e as
+  duas amostras têm um item 92), sob `systemd-inhibit --what=sleep:idle`, com o vigia de memória.
+  O script, o vigia, o andamento e o comparador com o gabarito estão em
+  `data/agrupamento/rodada_20261017/`. Na leitura, além dos episódios com dois lados e do N27: no
+  N13, se o analista da campanha de Flávio (uma frase de material, que a contagem do código não marca
+  como fina) inventa argumento para chegar ao mínimo de palavras; nos itens de uma voz só (A46, N84,
+  N86), se o episódio apresenta a acusação, a crítica ou a opinião como fato.
+- **Resultado (17/10), teste de regressão:** o detalhe por item e a leitura dos episódios estão em
+  `data/agrupamento/rodada_20261017/resultado.md`.
+  - Aprovação: 18 de 20, em 48 minutos (145 s por item, sem áudio). A máquina não chegou perto de
+    nenhuma trava (CPU até 93 °C, memória disponível nunca abaixo de 17,4 GiB). O `refazer_qa.py`
+    confirma a situação gravada dos 20.
+  - Análise de lados: 3 disputas inventadas, cada uma de uma forma (A46: a Meta, cuja "resposta"
+    só descreve a conduta; N69: a estratégia diferente da Sony; N55: "comunidade de programação",
+    coletivo sem nome que a lista de termos genéricos não pega). Nenhuma disputa perdida, nenhuma
+    questão errada: os cinco itens com disputa saíram com os atores principais nos lados certos.
+    O QA reprovou A46 e N55, porque os analistas não apresentam os lados um a um; o N69 passou.
+  - Fidelidade: nenhum número inventado sobreviveu, porque o QA pegou quatro e a correção os tirou.
+    Há um fato distorcido num aprovado, no N92: "o recolhimento de cerca de 30 mil exemplares",
+    quando o texto diz que 30 mil foram impressos e só os não distribuídos são recolhidos. Também
+    há argumentos que o texto não traz nos lados com pouco material (A63, A79, A92, N13) e nas
+    disputas inventadas.
+  - Aceite: o primeiro critério foi cumprido; o segundo e o terceiro, não.
 
 ## Números medidos
 
