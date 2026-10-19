@@ -566,6 +566,30 @@ def test_numero_sem_fonte_e_cobrado_em_cada_campo_e_diz_o_mais_proximo():
     assert '("105"; a pauta traz 102)' in problemas[2].texto
 
 
+# Uma pauta inventada com números grandes, escritos com e sem a palavra da escala.
+TEXTOS_DO_ORCAMENTO = ["O fundo estadual recebeu R$ 312,4 milhões em 2025, e o porto movimentou 3,6 bilhões de reais. A obra custou "
+                       "R$ 47.800.000, e a fábrica emprega 18.700 pessoas."]
+
+
+@pytest.mark.parametrize("fala, passa", [
+    ("O fundo recebeu trezentos e doze milhões de reais.", True),     # 312,4 truncado, na escala em que o episódio fala
+    ("O fundo recebeu 312 milhões.", True),
+    ("O fundo recebeu R$ 313 milhões.", False),                       # 312,4 só vira 312
+    ("A obra custou quarenta e sete milhões.", True),                 # a fonte escreve 47.800.000: vale o valor
+    ("A obra custou 48 milhões.", True),                              # 47,8 arredondado
+    ("A obra custou 46 milhões.", False),
+    ("A obra custou 47.000.000 de reais.", False),                    # em unidades, o episódio afirma o número exato
+    ("A obra custou quarenta e sete mil reais.", False),              # na escala de mil, a fonte traz 47.800
+    ("A fábrica emprega dezoito mil pessoas.", True),                 # 18,7 mil
+    ("A fábrica emprega 19 mil pessoas.", True),
+    ("O porto movimentou três bilhões.", False),                      # 3,6 na escala: abaixo de 10, a diferença seria de 17%
+    ("O porto movimentou quatro bilhões.", False),
+    ("O porto movimentou 3,6 bilhões.", True),
+])
+def test_numero_dito_em_milhoes_arredonda_o_da_fonte_nessa_escala(fala, passa):
+    assert (qa.problemas_dos_numeros(_com_fala(fala), TEXTOS_DO_ORCAMENTO) == []) is passa
+
+
 # ── Papel dos analistas e lado fino ───────────────────────────────────────────────────────
 
 def test_papel_de_analista_com_nome_de_ator_dos_lados_reprova():

@@ -46,6 +46,14 @@ def test_numero_por_extenso_vale_pelo_algarismo():
     assert (numero.valor, numero.trecho) == (48, "quarenta e oito")
 
 
+def test_numero_guarda_a_escala_em_que_e_dito():
+    texto = ("245 milhões, duzentos e quarenta e cinco milhões, um milhão e duzentos mil, mil e quinhentos, 3,2 bilhões, "
+             "36 mil e 47.800.000")
+    assert [(n.valor, n.escala) for n in cf.numeros(texto)] == [
+        (245_000_000, 10**6), (245_000_000, 10**6), (1_200_000, 10**3), (1500, 1), (3_200_000_000, 10**9), (36_000, 10**3),
+        (47_800_000, 1)]
+
+
 def test_artigo_e_enumeracao_nao_viram_numero():
     assert _valores("de um lado e de outro, uma empresa") == []          # "um" e "uma" sozinhos são artigos
     assert _valores("vinte e um casos e um milhão de votos") == [(21, False), (1_000_000, False)]

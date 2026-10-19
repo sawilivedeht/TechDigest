@@ -25,7 +25,8 @@ ele está; este arquivo guarda o que foi decidido e o que falta, e é atualizado
 3. **Trava do modelo, travas da máquina e simulação.** Feita (4f33eb5).
 4. **Validação da fonte única.** Rodada em 17/10/2026, como teste de regressão: 18 de 20
    aprovados, mas o aceite não foi atingido (três disputas inventadas, uma delas aprovada, e um
-   fato distorcido num aprovado). Resultado com o dono; prompt e QA não mudaram.
+   fato distorcido num aprovado). Em 19/10, o plano das correções (ver "Depois da validação: o
+   plano de 19/10").
 5. **Integração do agrupamento** atrás de `AGRUPAMENTO_ATIVO`, com os filtros, o limite de
    tentativas, os excedentes e o registro de cada execução.
 6. **Simulação de ponta a ponta.** A que libera o merge roda com `AGRUPAMENTO_ATIVO=false`, que é o
@@ -138,6 +139,31 @@ Em 17/10/2026, ao ver o fim das etapas 1 a 3:
   fica para a terceira amostra, que inclui itens de fonte única com disputa, com o gabarito do dono
   antes da rodada. Prompt e QA não mudam por causa do resultado: ele vem primeiro para o dono.
 - **O filtro de esporte, ofertas e sites de partido** vale com o agrupamento ligado ou desligado.
+
+Em 19/10/2026, ao ver o resultado da validação da fonte única:
+
+- **O plano tem oito itens** (ver "Depois da validação: o plano de 19/10"). Só o item 5 muda
+  código neste ciclo; a linha de base da `master` entra logo depois dele; os outros voltam como
+  medida e proposta.
+- **Arredondamento na escala:** o QA aceita "245 milhões" para R$ 245,5 milhões. A comparação é
+  pelo valor, qualquer que seja a forma como a fonte o escreve (R$ 245.500.000 também), na escala
+  em que o episódio fala, e só com 10 ou mais nessa escala: 3,6 bilhões não vira "três bilhões".
+- **Linha de base:** antes de importar a `master`, o script zera `TELEGRAM_TOKEN` e
+  `TELEGRAM_CHAT_ID` no ambiente; a trava e as travas da máquina não podem vir do pacote da
+  `master`; é uma rodada de cada lado, então diferença de um ou dois episódios é ruído.
+- **Medida das conferências da disputa inventada:** conta também o ator principal perdido, nos
+  itens com disputa e nos de um lado só, porque as variantes trocam disputa inventada por ator
+  perdido, e é essa troca que se decide; uma variante a mais, o verbo de decisão (determinar,
+  decidir, suspender, mandar) para quem decidiu, pela regra de que quem toma a decisão responde a
+  favor dela. A medida sem o modelo não vê a nova tentativa do item 6: os lados certos derrubados
+  são o pior caso.
+- **Verbos:** um verbo novo que passa no critério (não apresenta a afirmação como verdade) vai para
+  a lista única de `verbos.py`, e afrouxar a regra dos analistas é relaxamento. Listas separadas só
+  se aparecer um verbo que sirva a uma regra e não à outra.
+- **Orçamento:** os 20 episódios da `master` entram no teste da hipótese; se a `master` também
+  inventa nos textos curtos, a hipótese ganha força.
+- **Turnos:** os roteiros com menos de 10 turnos (12 de 20 em 17/10) ficam como diagnóstico por
+  enquanto. O registro da limitação no item 10 está bom.
 
 Das fases 1 a 3, continuam valendo (o detalhe está no CLAUDE.md e no histórico do git):
 
@@ -379,6 +405,28 @@ Três condições, todas cumpridas:
     há argumentos que o texto não traz nos lados com pouco material (A63, A79, A92, N13) e nas
     disputas inventadas.
   - Aceite: o primeiro critério foi cumprido; o segundo e o terceiro, não.
+
+## Depois da validação: o plano de 19/10
+
+1. **Linha de base:** os mesmos 20 itens com o código da `master`, por um script fora do
+   repositório, com a trava do modelo e as travas da máquina; o `checar_fidelidade.py` e a mesma
+   leitura. Separa o que é regressão do caminho novo do que já sai hoje.
+2. **Disputa inventada:** uma conferência em `lados.py` para cada forma (o trecho do ator com verbo
+   de posição; o coletivo de pessoas como grupo mesmo com qualificador e a instituição só sem ele;
+   o N69, em código e no prompt), medida nas análises gravadas da fase 3 e de 17/10.
+3. **Orçamento de palavras:** conferir se a invenção se concentra nos textos curtos e nos lados com
+   pouco material; propor um orçamento proporcional ao material (relaxamento); medir pelo
+   `refazer_qa.py` o teto de 200 palavras do lado fino como regra do QA.
+4. **Prompt:** a acusação, a crítica e a opinião de uma voz só ficam sempre atribuídas e a ressalva
+   do próprio veículo se mantém (N84); a Helena não monta escolhas que o texto não faz (N27).
+   Exemplos inventados.
+5. **Arredondamento na escala.** Feito em 19/10 (ver as decisões dessa data).
+6. **Nova tentativa para o ator cujo trecho não passou** (o Lula do A92, trecho parafraseado), como a
+   que já existe para o ator sem entrada.
+7. **Alternativa,** se as correções não bastarem: a fonte única sem análise de lados, como na
+   `master`, e o que isso custa nos cinco itens com disputa.
+8. **Até o merge:** a regressão nos mesmos 20 itens depois das correções e a validação cega na
+   terceira amostra, com itens de fonte única com e sem disputa.
 
 ## Números medidos
 

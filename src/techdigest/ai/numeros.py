@@ -32,6 +32,9 @@ _DEPOIS_DE_UM = {"milhao", "bilhao", "trilhao"} | _TERCOS   # "um" só é númer
 
 MENOR_NUMERO_COM_FONTE = 10   # abaixo disto, só o percentual precisa de fonte ("dois lados" é contagem de quem fala)
 TOLERANCIA = 0.05             # o quanto o número dito pode se afastar do da fonte quando vem com um qualificador
+# Dito em mil, milhões ou bilhões, o número da fonte nessa escala pode ser arredondado a partir daqui:
+# 245,5 milhões vira "245 milhões", mas 3,6 bilhões não vira "três bilhões" (ver `tem_fonte`).
+MENOR_NUMERO_NA_ESCALA = 10
 # O qualificador que vem logo antes do número e o que ele admite (ver `tem_fonte`).
 _QUALIFICADOR = re.compile(r"\b(cerca de|aproximadamente|quase|mais de)\s+$")
 
@@ -78,6 +81,7 @@ class Numero:
     trecho: str     # como está escrito
     inicio: int
     fim: int
+    escala: int = 1   # a escala em que é dito: 10**6 em "245 milhões" e "duzentos milhões"; 1 em "mil e quinhentos"
 
 
 def _pode_somar(atual: float, parcela: int) -> bool:
@@ -89,9 +93,11 @@ def _pode_somar(atual: float, parcela: int) -> bool:
     return atual % 10 == 0 and atual % 100 >= 20 and parcela < 10
 
 
-def _ler_por_extenso(lidos: list[Token], i: int, texto: str) -> tuple[int, float | None]:
-    """Lê um número por extenso a partir do token `i`: o índice depois dele e o valor (None se ali não há número)."""
+def _ler_por_extenso(lidos: list[Token], i: int, texto: str) -> tuple[int, float | None, int]:
+    """Lê um número por extenso a partir do token `i`: o índice depois dele, o valor (None se ali não há número) e a
+    escala em que ele termina ("um milhão e duzentos mil" termina em mil; "mil e quinhentos", em unidades)."""
     total = atual = 0
+    escala = 1
     j = i
     while j < len(lidos):
         t = lidos[j]
@@ -106,7 +112,7 @@ def _ler_por_extenso(lidos: list[Token], i: int, texto: str) -> tuple[int, float
             j += 2
         elif t.norm in _ESCALAS and (j > i or t.norm == "mil"):
             total += (atual or 1) * _ESCALAS[t.norm]
-            atual = 0
+            atual, escala = 0, _ESCALAS[t.norm]
             j += 1
         elif t.norm in _PARCELAS and (j == i or (atual == 0 and total)):   # sem "e", só depois de mil ou milhão
             if j == i and t.norm in ("um", "uma") and not (
@@ -118,7 +124,7 @@ def _ler_por_extenso(lidos: list[Token], i: int, texto: str) -> tuple[int, float
             j += 1
         else:
             break
-    return (j, total + atual) if j > i else (i, None)
+    return (j, total + atual, 1 if atual else escala) if j > i else (i, None, 1)
 
 
 def _decimal_falado(lidos: list[Token], j: int, texto: str) -> tuple[int, float | None]:
@@ -135,7 +141,7 @@ def _decimal_falado(lidos: list[Token], j: int, texto: str) -> tuple[int, float 
         if proximo.norm in ("um", "uma"):                # depois de "vírgula", "um" é algarismo, não artigo
             fim, parte = j + 2, 1
         else:
-            fim, parte = _ler_por_extenso(lidos, j + 1, texto)
+            fim, parte, _ = _ler_por_extenso(lidos, j + 1, texto)
         if parte is None or parte != int(parte) or parte >= 1000:
             return j, None
         casas = str(int(parte))
@@ -154,18 +160,20 @@ def numeros(texto: str) -> list[Numero]:
     while i < len(lidos):
         t = lidos[i]
         if t.numerico:
-            j, valor = i + 1, float(t.texto.replace(".", "").replace(",", "."))
+            j, valor, escala = i + 1, float(t.texto.replace(".", "").replace(",", ".")), 1
             if j < len(lidos) and lidos[j].norm in _ESCALAS and junto(texto, t, lidos[j]):
-                valor *= _ESCALAS[lidos[j].norm]
+                escala = _ESCALAS[lidos[j].norm]
+                valor *= escala
                 j += 1
         else:
-            j, valor = _ler_por_extenso(lidos, i, texto)
+            j, valor, escala = _ler_por_extenso(lidos, i, texto)
             if valor is None:
                 i += 1
                 continue
         if valor == int(valor):
             j, decimal = _decimal_falado(lidos, j, texto)
-            valor += decimal or 0
+            if decimal:
+                valor, escala = valor + decimal, 1
         if j < len(lidos) and lidos[j].norm in _TERCOS and 1 <= valor <= 2 and junto(texto, lidos[j - 1], lidos[j]):
             valor /= 3
             j += 1
@@ -176,7 +184,7 @@ def numeros(texto: str) -> list[Numero]:
         elif (j + 1 < len(lidos) and lidos[j].norm == "por" and lidos[j + 1].norm == "cento"
               and junto(texto, lidos[j - 1], lidos[j]) and junto(texto, lidos[j], lidos[j + 1])):
             fim, percentual, j = lidos[j + 1].fim, True, j + 2
-        achados.append(Numero(round(valor, 6), percentual, texto[t.inicio:fim], t.inicio, fim))
+        achados.append(Numero(round(valor, 6), percentual, texto[t.inicio:fim], t.inicio, fim, escala))
         i = j
     return achados
 
@@ -219,13 +227,32 @@ def _perto(dito: float, da_fonte: float) -> bool:
     return da_fonte != 0 and abs(da_fonte - dito) / abs(da_fonte) <= TOLERANCIA
 
 
+def _arredonda(dito: float, da_fonte: float) -> bool:
+    """Se `dito` é o inteiro que trunca ou arredonda o decimal `da_fonte`."""
+    return dito == int(dito) and da_fonte != int(da_fonte) and dito in (math.floor(da_fonte), math.floor(da_fonte + 0.5))
+
+
+def _arredonda_na_escala(n: Numero, da_fonte: float) -> bool:
+    """Se `n`, dito em mil, milhões ou bilhões, arredonda ou trunca o número da fonte nessa escala.
+
+    Compara o valor, escrito na fonte de qualquer forma: R$ 245,5 milhões e R$ 245.500.000 são 245,5 na
+    escala de "245 milhões". Só vale com o número da fonte na escala a partir de MENOR_NUMERO_NA_ESCALA.
+    """
+    if n.escala == 1 or n.percentual:
+        return False
+    na_escala = round(da_fonte / n.escala, 6)
+    return na_escala >= MENOR_NUMERO_NA_ESCALA and _arredonda(round(n.valor / n.escala, 6), na_escala)
+
+
 def tem_fonte(n: Numero, qualificado_por: str, valores: Valores) -> bool:
     """Se os textos sustentam o número dito.
 
     Vale o número igual ao de um texto. Com "cerca de" ou "aproximadamente", vale o que fica a
     até 5% de um número da fonte; com "quase", o da fonte tem de estar abaixo do dito e, com "mais
     de", acima, sempre a até 5%. Sem qualificador, vale o inteiro que arredonda ou trunca um
-    decimal da fonte (30,7 pode ser dito 30 ou 31).
+    decimal da fonte (30,7 pode ser dito 30 ou 31), e o mesmo vale na escala em que o número é dito
+    (R$ 245,5 milhões ou R$ 245.500.000 podem ser ditos "245 milhões" ou "246 milhões"), desde que
+    o número da fonte nessa escala seja 10 ou mais: 3,6 bilhões não vira "três bilhões".
     """
     da_fonte = valores.de(n)
     if n.valor in da_fonte:
@@ -236,9 +263,7 @@ def tem_fonte(n: Numero, qualificado_por: str, valores: Valores) -> bool:
         return any(v < n.valor and _perto(n.valor, v) for v in da_fonte)
     if qualificado_por == "mais de":
         return any(v > n.valor and _perto(n.valor, v) for v in da_fonte)
-    return n.valor == int(n.valor) and any(
-        v != int(v) and n.valor in (math.floor(v), math.floor(v + 0.5)) for v in da_fonte
-    )
+    return any(_arredonda(n.valor, v) or _arredonda_na_escala(n, v) for v in da_fonte)
 
 
 def mais_proximo(n: Numero, valores: Valores, ate: float = 0.10) -> float | None:

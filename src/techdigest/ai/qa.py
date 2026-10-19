@@ -448,7 +448,8 @@ def problemas_dos_numeros(result: dict, textos) -> list[Problema]:
     `textos` são os textos da pauta (título e texto completo de cada artigo). O número vale em
     algarismos ou por extenso, e o arredondamento segue `numeros.tem_fonte`: com "cerca de" ou
     "aproximadamente", até 5% do número da fonte; com "quase", a fonte abaixo do dito; com "mais
-    de", acima; sem qualificador, só o inteiro que arredonda ou trunca um decimal da fonte.
+    de", acima; sem qualificador, só o inteiro que arredonda ou trunca um decimal da fonte, também
+    na escala em que o número é dito ("245 milhões" para R$ 245,5 milhões, com 10 ou mais na escala).
     Número menor que 10 que não é percentual fica só no diagnóstico (`scripts/checar_fidelidade.py`).
     """
     da_pauta = valores_dos_textos(textos)
