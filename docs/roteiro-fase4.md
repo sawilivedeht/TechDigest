@@ -428,6 +428,40 @@ Três condições, todas cumpridas:
 8. **Até o merge:** a regressão nos mesmos 20 itens depois das correções e a validação cega na
    terceira amostra, com itens de fonte única com e sem disputa.
 
+**Estado em 20/10** (o detalhe, as medidas e as propostas estão em
+`data/agrupamento/medidas_20261020/relatorio.md`):
+
+- **Item 5:** feito (8c99dac).
+- **Item 1:** os scripts estão em `data/agrupamento/linha_de_base_master/`, com processos separados.
+  - A trava fica com um processo da worktree e as travas da máquina num script da `.venv` dela,
+    porque o `trava.py` e o `maquina.py` importam do pacote `techdigest` e pegariam o da `master`.
+  - Só a resposta "segue", exata, deixa a chamada seguir, e a conferência também verifica que a
+    trava continua presa.
+  - O teste sem o modelo confirmou que a parada atravessa o `Summarizer.process` da `master`, que
+    só captura `Exception`.
+  - **Não rodou:** em 20/10 a máquina estava no kernel `7.2.11-arch1-1`, sem o driver da NVIDIA.
+- **Item 2:** medido nas 85 análises com questão e `respostas_por_ator` (127 válidas para a regra
+  do coletivo), sem a nova tentativa do item 6, então os lados certos derrubados são o pior caso.
+  - **O verbo dentro do trecho, como proposto:** pega as 3 disputas inventadas, mas desfaz 31
+    disputas certas.
+  - **A combinação proposta:** verbo no trecho ou na frase, citação direta, verbo de decisão de
+    quem decidiu, os verbos novos (classificar, ressaltar, o infinitivo e o pretérito composto),
+    os marcadores ("segundo ele") e o coletivo.
+  - **Efeito da combinação:** pega as 3 inventadas com o ator certo e, nos 20 de 17/10, não perde
+    nada. Nas 85, perde 3 disputas certas, todas da pauta 71+85.
+- **Item 3:** a leitura frase a frase dos 20 de 17/10 marcou 21% das frases.
+  - **A hipótese do orçamento se confirma só em parte:** nos itens de um lado, a taxa é a mesma
+    nos textos curtos e nos longos (16% e 15%).
+  - **O que mais pesa é a estrutura:** 15% com um lado, 27% nas disputas reais e 35% nas
+    inventadas.
+  - **Nas disputas reais,** o lado com uma ou duas frases inventa mais (54% contra 43%).
+  - **O teto de 200 do lado fino como regra** reprovaria 5 dos 60 episódios gravados.
+  - Falta a parte da `master`.
+- **Item 4:** proposta de seção "Quem diz o quê" no prompt, com exemplos inventados.
+- **Item 6:** dispararia em 1 das 85 análises gravadas com a conferência de hoje e em 11 com a do
+  item 2.
+- **Itens 7 e 8:** no relatório; o 7 depende da linha de base.
+
 ## Números medidos
 
 - **Produção, 07/10/2026** (`master`, execução das 08:09): geração de 208 a 291 s a 11-16 tok/s,
