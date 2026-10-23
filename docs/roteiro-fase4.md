@@ -165,6 +165,44 @@ Em 19/10/2026, ao ver o resultado da validação da fonte única:
 - **Turnos:** os roteiros com menos de 10 turnos (12 de 20 em 17/10) ficam como diagnóstico por
   enquanto. O registro da limitação no item 10 está bom.
 
+Em 23/10/2026, ao ler o relatório das medidas (`data/agrupamento/medidas_20261020/relatorio.md`):
+
+- **Item 2, aprovado:** a última linha da tabela (verbo no trecho ou na frase, citação direta, verbo
+  de decisão de quem decidiu, marcadores e o coletivo), os verbos novos (classificar, ressaltar, o
+  infinitivo e o pretérito composto como par de auxiliar e particípio) e a frase do N69 no
+  `PROMPT_LADOS`. O "considerar" fica fora. As quatro limitações da conferência vão para o CLAUDE.md.
+- **Item 6, aprovado:** a nova tentativa para o ator cujo trecho não vale, na mesma vaga da que já
+  existe.
+- **Item 4, aprovado, com três ajustes:**
+  - nenhum veículo dos exemplos pode existir: o "Diário do Litoral" é um jornal real de Santos, e um
+    veículo real é o nome que o modelo pode pôr num episódio em que ele não é fonte;
+  - a regra de não acrescentar avaliação, motivo, consequência, previsão ou argumento vale também
+    para o "por que importa";
+  - a seção soma uns 1.500 caracteres ao `PROMPT_SISTEMA`, que saem do espaço do texto: a regressão
+    mostra os caracteres que cada texto recebe, ao lado dos de 17/10.
+- **Item 3, aprovado, com o fator de 1,75 e três ajustes:**
+  - o número de turnos e as palavras por turno seguem o alvo (10 a 20 turnos de 50 a 90 palavras
+    são 500 palavras no mínimo, que não cabem num alvo de 350);
+  - os mínimos do QA ficam sempre abaixo do alvo de cada personagem, inclusive com os pisos de 120 e
+    180 (no N92, o alvo da Helena seria de uns 150 a 190, e o piso de 180 passaria dele);
+  - os máximos não mudam nesta rodada. Quanto cada personagem passa do alvo, e o teto de 200 do lado
+    fino, entram na regressão como diagnóstico; a decisão de pôr um teto no QA vem depois.
+- **Item 5:** "dois milhões e meio" lido como 2,5 milhões entra já, porque é relaxamento. Ler "três
+  vírgula seis bilhões" com a escala passa antes pelo diagnóstico.
+- **A regressão:** os mesmos 20 itens, com as duas amostras em pastas separadas, a sessão de teste no
+  ar e o `systemd-inhibit`; a leitura frase a frase com o mesmo critério do `leitura_fase4.py`; a
+  tabela da linha de base com as três versões lado a lado (17/10, a regressão e a `master`). Prompt e
+  QA não mudam por causa do resultado: ele vem primeiro para o dono.
+- **O critério de aceite da regressão** (substitui o de 16/10 para esta rodada):
+  - pelo menos 17 de 20 aprovados;
+  - nenhuma disputa inventada;
+  - frases marcadas até 21% no total;
+  - argumentos atribuídos até o nível da `master`: 34 no total e 9 nas cinco disputas.
+
+  As subdivisões por tamanho de texto e por tipo vão para o relatório, sem barrar: com uma rodada de
+  cada lado, são ruído.
+- **Terceira amostra:** a coleta 2 em 23/10; a 3 quando o dono pedir, a partir de 26/10.
+
 Das fases 1 a 3, continuam valendo (o detalhe está no CLAUDE.md e no histórico do git):
 
 - Mesma história é o mesmo acontecimento ou um desdobramento direto dele na janela da coleta; só o
@@ -336,6 +374,11 @@ agrupamento liga.
   `candidatos_20261017-105620.csv` (id, veículo, título, URL, feed, categorias e tamanho, com
   colunas vazias para o filtro e as notas). As outras duas, quando o dono pedir, com pelo menos três
   dias entre elas.
+- **Segunda coleta, em 23/10/2026 (sexta) às 16:20:** `amostra_20261023-162009.json`, 106 candidatos
+  (45 com categoria), nenhum em comum com a primeira, com a saída em `coleta_20261023-162009.txt`, os
+  pares em `pares_20261023-162009.csv` (8 com score de 0,15 para cima; 4 pautas provisórias de 2
+  artigos) e a lista para rotular em `candidatos_20261023-162009.csv`, no formato da primeira. A
+  terceira fica para quando o dono pedir, a partir de 26/10.
 - **Cada coleta é uma amostra** (`amostra_<data-hora>.json`), como um retrato de uma execução real;
   um artigo que apareça em duas coletas leva o mesmo rótulo nas duas. As três juntas formam a
   terceira amostra, com um gabarito só.
@@ -480,6 +523,31 @@ Três condições, todas cumpridas:
   - **Outros erros:** pende para um lado (A79) e troca as posições (N13). Também cria um debate
     sem disputa (A72).
 - **Item 7:** a recomendação é manter a análise de lados na fonte única, com as correções.
+
+**Em 23/10, as correções aprovadas** (ver as decisões dessa data):
+
+- **Commits:** itens 2 e 6 (0f448ff), item 5 (d5affcd), item 4 (b8b74b2) e item 3 (e4a63af), com 430
+  testes passando.
+- **Item 2 conferido no código:** nas 127 análises gravadas, o código pega as 3 disputas inventadas de
+  17/10 e perde as 3 análises da pauta 71+85, sem a nova tentativa, como na medida de 20/10
+  (`data/agrupamento/correcoes_20261023/conferir_item2.py`). "Segundo <ator>" como marcador não
+  mudaria nada nessas análises e ficou fora, como na regra medida.
+- **Efeito no QA dos episódios gravados** (`refazer_qa.py` nos 60, contra o código de antes): os verbos
+  novos e o "e meio" não mudam nada; o orçamento só tira o problema de palavras da Beatriz no N55, que
+  continua reprovado pela regra dos analistas.
+- **Leituras minhas no orçamento, para o dono corrigir:**
+  - a parte da Helena é a de antes dentro de 35% a 45%: 45% com um analista, 35% com dois ou três;
+  - nenhum personagem passa de 430 palavras de alvo, para a faixa ficar abaixo dos 480 que o prompt
+    pedia; com um lado fino, o total fica abaixo do teto;
+  - a faixa do bloco é o alvo com 10% para cada lado, e o mínimo do QA, 75% do alvo, nunca acima do
+    mínimo de antes: os pisos de 120 e 180 viraram o limite de cima do mínimo, que fica sempre
+    abaixo da faixa;
+  - as falas têm 50 a 90 palavras a partir de 600 no total e encolhem na proporção até 30 a 54; os
+    turnos são os que cabem no total, nunca menos que a estrutura (5, 7 ou 9) nem mais que 20.
+- **Item 4:** o "Jornal do Vale" (jornaldovale.com, Goiás), que também existe e estava no mesmo
+  exemplo do `PROMPT_SISTEMA`, saiu junto com o "Diário do Litoral", pelo mesmo critério.
+- **Terceira amostra, coleta 2:** feita (ver a seção da terceira amostra).
+- **Regressão:** em `data/agrupamento/rodada_20261023/`.
 
 ## Números medidos
 
