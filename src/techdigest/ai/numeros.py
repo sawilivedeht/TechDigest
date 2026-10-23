@@ -148,12 +148,21 @@ def _decimal_falado(lidos: list[Token], j: int, texto: str) -> tuple[int, float 
     return fim, int(casas) / 10 ** len(casas)
 
 
+def _e_meio(lidos: list[Token], j: int, texto: str) -> int:
+    """O índice depois de "e meio", se ele vem a partir de `j` ("dois milhões e meio"); 0 se não vem."""
+    if (j + 1 < len(lidos) and lidos[j].norm == "e" and lidos[j + 1].norm == "meio"
+            and junto(texto, lidos[j - 1], lidos[j]) and junto(texto, lidos[j], lidos[j + 1])):
+        return j + 2
+    return 0
+
+
 def numeros(texto: str) -> list[Numero]:
     """Os números de `texto`, em algarismos ou por extenso, com o valor e se é percentual.
 
-    "1.200" vale 1200, "67,50" vale 67,5, "3,2 milhões" vale 3.200.000, "duzentos e setenta e um por
-    cento" vale 271 (percentual), "cinquenta e oito vírgula oito por cento" vale 58,8 (percentual) e
-    "um terço" vale 1/3. Ordinais por extenso e "um"/"uma" sozinhos não contam.
+    "1.200" vale 1200, "67,50" vale 67,5, "3,2 milhões" vale 3.200.000, "dois milhões e meio" vale
+    2.500.000, "duzentos e setenta e um por cento" vale 271 (percentual), "cinquenta e oito vírgula
+    oito por cento" vale 58,8 (percentual) e "um terço" vale 1/3. Ordinais por extenso e "um"/"uma"
+    sozinhos não contam. O "e meio" só conta depois de milhão, bilhão ou trilhão: "dez e meia" é hora.
     """
     lidos = tokens(texto)
     achados, i = [], 0
@@ -170,6 +179,8 @@ def numeros(texto: str) -> list[Numero]:
             if valor is None:
                 i += 1
                 continue
+        if escala >= 10**6 and (depois := _e_meio(lidos, j, texto)):
+            valor, j = valor + escala / 2, depois
         if valor == int(valor):
             j, decimal = _decimal_falado(lidos, j, texto)
             if decimal:

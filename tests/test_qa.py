@@ -610,9 +610,16 @@ TEXTOS_DO_ORCAMENTO = ["O fundo estadual recebeu R$ 312,4 milhões em 2025, e o 
     ("O porto movimentou três bilhões.", False),                      # 3,6 na escala: abaixo de 10, a diferença seria de 17%
     ("O porto movimentou quatro bilhões.", False),
     ("O porto movimentou 3,6 bilhões.", True),
+    ("O porto movimentou três bilhões e meio.", False),               # 3,5 bilhões não é 3,6
 ])
 def test_numero_dito_em_milhoes_arredonda_o_da_fonte_nessa_escala(fala, passa):
     assert (qa.problemas_dos_numeros(_com_fala(fala), TEXTOS_DO_ORCAMENTO) == []) is passa
+
+
+def test_dois_milhoes_e_meio_vale_pelo_valor_inteiro():
+    textos = ["A cooperativa vendeu 2,5 milhões de mudas em 2025."]
+    assert qa.problemas_dos_numeros(_com_fala("A cooperativa vendeu dois milhões e meio de mudas."), textos) == []
+    assert qa.problemas_dos_numeros(_com_fala("A cooperativa vendeu 2 milhões e meio de mudas."), textos) == []
 
 
 # ── Papel dos analistas e lado fino ───────────────────────────────────────────────────────

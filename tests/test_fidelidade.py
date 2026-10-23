@@ -59,6 +59,14 @@ def test_artigo_e_enumeracao_nao_viram_numero():
     assert _valores("vinte e um casos e um milhão de votos") == [(21, False), (1_000_000, False)]
     assert _valores("entre dois e três dias") == [(2, False), (3, False)]   # não é 5
     assert _valores("três milhões e uma promessa") == [(3_000_000, False)]
+
+
+def test_e_meio_depois_de_milhao_soma_metade_da_escala():
+    assert [(n.valor, n.escala, n.trecho) for n in cf.numeros("dois milhões e meio de votos e 3 bilhões e meio")] == [
+        (2_500_000, 10**6, "dois milhões e meio"), (3_500_000_000, 10**9, "3 bilhões e meio")]
+    assert _valores("um milhão e meio") == [(1_500_000, False)]
+    assert _valores("às dez e meia, e dois mil e meio") == [(10, False), (2000, False)]   # só depois de milhão em diante
+    assert _valores("dois milhões e meios-fios") == [(2_000_000, False)]
     assert _valores("alguns por cento a mais") == []                     # "cento" de "por cento" não é 100
 
 
