@@ -26,7 +26,9 @@ ele está; este arquivo guarda o que foi decidido e o que falta, e é atualizado
 4. **Validação da fonte única.** Rodada em 17/10/2026, como teste de regressão: 18 de 20
    aprovados, mas o aceite não foi atingido (três disputas inventadas, uma delas aprovada, e um
    fato distorcido num aprovado). Em 19/10, o plano das correções (ver "Depois da validação: o
-   plano de 19/10").
+   plano de 19/10"). Em 23/10, a regressão depois das correções também não atingiu o aceite: 4 de
+   20 aprovados, todos os outros por palavras abaixo do mínimo, e uma disputa inventada nova (N27).
+   O resultado espera a decisão do dono.
 5. **Integração do agrupamento** atrás de `AGRUPAMENTO_ATIVO`, com os filtros, o limite de
    tentativas, os excedentes e o registro de cada execução.
 6. **Simulação de ponta a ponta.** A que libera o merge roda com `AGRUPAMENTO_ATIVO=false`, que é o
@@ -547,7 +549,52 @@ Três condições, todas cumpridas:
 - **Item 4:** o "Jornal do Vale" (jornaldovale.com, Goiás), que também existe e estava no mesmo
   exemplo do `PROMPT_SISTEMA`, saiu junto com o "Diário do Litoral", pelo mesmo critério.
 - **Terceira amostra, coleta 2:** feita (ver a seção da terceira amostra).
-- **Regressão:** em `data/agrupamento/rodada_20261023/`.
+- **Regressão:** em `data/agrupamento/rodada_20261023/` (o detalhe em `resultado.md`; a leitura e
+  as medidas em `data/agrupamento/correcoes_20261023/`).
+
+**Em 23/10, a regressão** (16:45 a 17:33, 62 chamadas, memória disponível sempre acima de 17,2 GiB):
+
+- **O aceite de 23/10 não foi atingido:**
+
+  | Critério | Meta | Resultado |
+  |---|---|---|
+  | Aprovados | 17 de 20 ou mais | 4 |
+  | Disputa inventada | nenhuma | 1 (N27) |
+  | Frases marcadas | até 21% | 10% |
+  | Argumentos atribuídos | até 34, e 9 nas disputas | 16, e 7 nas disputas |
+
+- **Os 16 reprovados caíram só por palavras.** O roteiro saiu com 508 palavras em média, contra 862
+  em 17/10 e 968 na `master`.
+  - Os turnos quase não mudaram (8 contra 9).
+  - As falas encolheram de 96 para 64 palavras: em 17/10 elas já passavam das 90 que o prompt
+    pedia, e era isso que fazia os roteiros passarem dos 600.
+  - A primeira versão fica abaixo do mínimo em 16 itens, contra 2 em 17/10, e a revisão acrescenta
+    26 palavras pela mediana.
+  - Hipótese: saiu do `PROMPT_SISTEMA` o "expanda as falas até cumprir o mínimo", o item 4 diz "com
+    pouco material, fale menos", e o modelo mira o piso de qualquer faixa.
+- **Análise de lados:**
+  - as três disputas inventadas de 17/10 sumiram;
+  - as cinco disputas certas ficaram;
+  - o N27 inventou uma disputa nova (planos de governo, "Qual deve ser a prioridade...?"), pelo
+    verbo do outro ator na mesma frase do título, que é a limitação 1;
+  - o A14 perdeu a OpenAI: a conferência recusou "admitiu" numa resposta de um lado só, e a nova
+    tentativa voltou sem ator.
+- **A leitura** (`leitura_regressao.py`, mesma régua): 10% das frases marcadas, contra 21% em 17/10
+  e 30% na `master`. São 6,9 marcas por mil palavras de roteiro, contra 12,6 e 18,1: a queda não vem
+  só do roteiro mais curto.
+- **O item 4 na prática:** o N84 manteve a ressalva do próprio veículo. A análise do Diolinux ainda
+  vai para a boca da comunidade no A72, por causa da posição da ressalva na análise de lados.
+- **Caracteres recebidos:** iguais aos de 17/10, a não ser no A92, que mudou por outra causa. Na
+  fonte única, o teto de 5.000 limita antes da janela. O `PROMPT_SISTEMA` passou de 7.843 para
+  9.280 caracteres, e a conta vai pesar nas pautas com vários veículos.
+- **Diagnósticos:** só a Helena do N92 passou da faixa; nenhum analista de lado fino passou de 200;
+  o `checar_fidelidade.py` só acha ruído.
+- **À espera do dono** (propostas em `resultado.md`; nada foi mudado):
+  - a falta de palavras: a instrução de expandir de volta, e o bloco com o mínimo de cada
+    personagem e um número de turnos só, validados antes numa rodada de uns 8 itens;
+  - o N27: recusar a questão que não é de sim ou não, ou separar a frase no ";". Cada uma pega só o
+    N27 nas 147 análises gravadas;
+  - o A14: a conferência do trecho só com dois lados nomeados ou mais, que é relaxamento.
 
 ## Números medidos
 
