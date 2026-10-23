@@ -685,6 +685,58 @@ def test_analista_de_lado_fino_fala_pelo_menos_120_palavras_e_o_total_nao_muda()
     assert problemas[1].startswith("total de ")                                           # os limites totais não mudam
 
 
+def test_com_o_orcamento_da_pauta_o_minimo_vem_do_alvo_de_cada_personagem():
+    from techdigest.ai.orcamento import Orcamento, orcamento
+    grosso = Lado("A campanha acusa.", ("campanha de Lula",), ("CartaCapital",), "Sim", mencoes=5)
+    fino = Lado("A Meta nega.", ("Meta",), ("Agência Brasil",), "Não", mencoes=1)
+
+    def falas(n: int) -> str:
+        return " ".join(["palavra"] * n)
+
+    def debate(helena: int, bia: int, ramos: int) -> dict:
+        return {**_episodio(["G1"]), "houve_divergencia": True, "personagens": [{"nome": "Helena"}, {"nome": "Bia"}, {"nome": "Ramos"}],
+                "roteiro_podcast": [
+                    {"personagem": "Helena", "fala": falas(helena)},
+                    {"personagem": "Bia", "fala": falas(bia) + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
+                    {"personagem": "Ramos", "fala": falas(ramos) + ". Já a Agência Brasil registra que a Meta nega."},
+                ]}
+
+    # um texto curto (239 palavras, como o N92): Helena 150, o lado grosso 150, o fino 120
+    orc = orcamento([grosso, fino], 239)
+    assert (orc.helena, orc.analistas, orc.total) == (150, (150, 120), 420)
+    curto = debate(130, 140, 100)
+    assert qa.limites_de_cada_personagem(curto, [grosso, fino], orc) == {
+        "Helena": (112, qa.MAX_POR_PERSONAGEM), "Bia": (112, qa.MAX_POR_PERSONAGEM), "Ramos": (90, qa.MAX_POR_PERSONAGEM)}
+    assert qa.limites_do_total(orc) == (315, qa.MAX_TOTAL)
+    assert qa.problemas(curto, ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc) == []
+    # sem o orçamento, o mesmo roteiro reprova pelos mínimos de antes
+    assert len(qa.problemas(curto, ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS)) == 4
+    # abaixo do mínimo, a mensagem diz o que é aceito e o alvo do bloco, para a revisão mirar no alvo
+    assert qa.problemas(debate(130, 100, 100), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc) == [
+        f"Bia com 110 palavras (aceito de 112 a {qa.MAX_POR_PERSONAGEM}; o alvo do bloco é 140 a 170)"]
+    assert qa.problemas(debate(90, 100, 100), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc)[-1] == (
+        f"total de 309 palavras (aceito de 315 a {qa.MAX_TOTAL}; o alvo do bloco é 380 a 460)")
+    # os máximos não mudam: com o orçamento, 650 continua passando
+    assert qa.problemas(debate(130, qa.MAX_POR_PERSONAGEM - 11, 100), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc) == []
+    # o mínimo nunca passa do de antes, mesmo com o alvo cheio
+    cheio = Orcamento(430, (430, 430), None)
+    assert set(qa.limites_de_cada_personagem(curto, [grosso, fino], cheio).values()) == {
+        (qa.MIN_HELENA_COM_DEBATE, qa.MAX_POR_PERSONAGEM), (qa.MIN_POR_PERSONAGEM, qa.MAX_POR_PERSONAGEM),
+        (qa.MIN_LADO_FINO, qa.MAX_POR_PERSONAGEM)}
+    assert qa.limites_do_total(cheio) == (qa.MIN_TOTAL, qa.MAX_TOTAL)
+
+
+def test_analista_sem_lado_leva_o_menor_alvo_e_com_um_lado_leva_o_do_lado():
+    from techdigest.ai.orcamento import Orcamento
+    orc = Orcamento(200, (300, 150), None)
+    lados = [Lado("A campanha acusa.", ("campanha de Lula",), ("CartaCapital",), "Sim"), Lado("A Meta nega.", ("Meta",), ("Agência Brasil",), "Não")]
+    sem_lado = {**_episodio(["G1"]), "roteiro_podcast": [{"personagem": "Helena", "fala": "a"}, {"personagem": "Bia", "fala": "b"},
+                                                          {"personagem": "Ramos", "fala": "c"}]}
+    assert qa.alvo_de_cada_personagem(sem_lado, lados, orc) == {"Helena": 200, "Bia": 150, "Ramos": 150}
+    um = Orcamento(200, (380,), None)
+    assert qa.alvo_de_cada_personagem(_episodio(["G1"]), UM_LADO, um) == {"Helena": 200, "Ramos": 380}
+
+
 def test_com_dois_analistas_helena_pode_falar_menos():
     lados = [Lado("A campanha acusa.", ("campanha de Lula",), ("CartaCapital",), "Sim", mencoes=5),
              Lado("A Meta nega.", ("Meta",), ("Agência Brasil",), "Não", mencoes=5)]

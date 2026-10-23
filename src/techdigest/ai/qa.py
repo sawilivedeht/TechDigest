@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from techdigest.ai.atribuicoes import atribuicoes_a_grupos, grupo_na_pauta, plano
 from techdigest.ai.numeros import dobrar as _dobrar
 from techdigest.ai.numeros import formatar, mais_proximo, numeros, pede_fonte, qualificador, tem_fonte, valores_dos_textos
+from techdigest.ai.orcamento import Orcamento, faixa, minimo_do_qa
 from techdigest.ai.verbos import FORMAS_DE_POSICAO, INFINITIVOS, verbos_de_posicao
 from techdigest.config import Settings
 
@@ -249,26 +250,57 @@ def analistas_de_lado_fino(result: dict, lados) -> set[str]:
     return {nome for nome, lado in (lado_de_cada_analista(result, lados) if finos else {}).items() if lado in finos}
 
 
-def limites_de_cada_personagem(result: dict, lados) -> dict[str, tuple[int, int]]:
+def alvo_de_cada_personagem(result: dict, lados, orc: Orcamento) -> dict[str, int]:
+    """O alvo de palavras de cada personagem que fala, pelo orçamento da pauta (ver `ai/orcamento.py`).
+
+    O da Helena é o dela. O analista leva o alvo do lado que apresenta: com um lado só e um
+    analista, o do lado; com dois lados ou mais, pela correspondência um a um entre analistas e
+    lados (ver `lado_de_cada_analista`). O analista que não se liga a um lado leva o menor alvo de
+    analista da pauta.
+    """
+    por_pers = palavras_por_personagem(result["roteiro_podcast"])
+    analistas = [nome for nome in por_pers if _palavras_do_nome(nome) != [HELENA]]
+    do_lado = {analistas[0]: 0} if len(lados) <= 1 and len(analistas) == 1 else lado_de_cada_analista(result, lados)
+
+    def alvo(nome: str) -> int:
+        if _palavras_do_nome(nome) == [HELENA]:
+            return orc.helena
+        lado = do_lado.get(nome)
+        return orc.analistas[lado] if lado is not None and lado < len(orc.analistas) else min(orc.analistas)
+
+    return {nome: alvo(nome) for nome in por_pers}
+
+
+def limites_de_cada_personagem(result: dict, lados, orc: Orcamento | None = None) -> dict[str, tuple[int, int]]:
     """O mínimo e o máximo de palavras de cada personagem que fala.
 
-    O máximo é sempre MAX_POR_PERSONAGEM. O mínimo é MIN_POR_PERSONAGEM, a não ser para o analista
-    de um lado fino (ver `analistas_de_lado_fino`), que é MIN_LADO_FINO, e para Helena em episódio
-    com dois analistas ou mais, que é MIN_HELENA_COM_DEBATE. O teto que o prompt pede ao analista
-    de lado fino (MAX_LADO_FINO) não entra aqui: é só diagnóstico.
+    O máximo é sempre MAX_POR_PERSONAGEM. O mínimo de antes é MIN_POR_PERSONAGEM, a não ser para o
+    analista de um lado fino (ver `analistas_de_lado_fino`), que é MIN_LADO_FINO, e para Helena em
+    episódio com dois analistas ou mais, que é MIN_HELENA_COM_DEBATE. Com o orçamento da pauta
+    (`orc`), o mínimo é uma fração do alvo de cada personagem, nunca acima do mínimo de antes (ver
+    `orcamento.minimo_do_qa`): fica sempre abaixo da faixa que o bloco pede. O teto que o prompt
+    pedia ao analista de lado fino (MAX_LADO_FINO) não entra aqui: é só diagnóstico.
     """
     por_pers = palavras_por_personagem(result["roteiro_podcast"])
     analistas = [nome for nome in por_pers if _palavras_do_nome(nome) != [HELENA]]
     finos = analistas_de_lado_fino(result, lados)
+    alvos = alvo_de_cada_personagem(result, lados, orc) if orc else {}
 
     def minimo(nome: str) -> int:
         if nome in finos:
-            return MIN_LADO_FINO
-        if _palavras_do_nome(nome) == [HELENA] and len(analistas) >= 2:
-            return MIN_HELENA_COM_DEBATE
-        return MIN_POR_PERSONAGEM
+            de_antes = MIN_LADO_FINO
+        elif _palavras_do_nome(nome) == [HELENA] and len(analistas) >= 2:
+            de_antes = MIN_HELENA_COM_DEBATE
+        else:
+            de_antes = MIN_POR_PERSONAGEM
+        return minimo_do_qa(alvos[nome], de_antes) if orc else de_antes
 
     return {nome: (minimo(nome), MAX_POR_PERSONAGEM) for nome in por_pers}
+
+
+def limites_do_total(orc: Orcamento | None = None) -> tuple[int, int]:
+    """O mínimo e o máximo de palavras do roteiro inteiro: com o orçamento, o mínimo é uma fração do alvo total."""
+    return (minimo_do_qa(orc.total, MIN_TOTAL) if orc else MIN_TOTAL), MAX_TOTAL
 
 
 def problemas_dos_papeis(result: dict, lados) -> list[str]:
@@ -469,7 +501,7 @@ def problemas_dos_numeros(result: dict, textos) -> list[Problema]:
     return probs
 
 
-def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos) -> list[Problema]:
+def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos, orc: Orcamento | None = None) -> list[Problema]:
     """As violações do episódio, cada uma com o campo em que está; lista vazia = aprovado.
 
     `veiculos` são os veículos dos textos que entraram no episódio: com dois ou mais distintos,
@@ -478,7 +510,9 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos) -> lis
     cada ressalva pede uma pergunta atribuída da Helena (ver `problemas_das_ressalvas`). `textos`
     são os textos da pauta, para as regras das atribuições e dos números (ver
     `problemas_das_atribuicoes` e `problemas_dos_numeros`). Todos são obrigatórios: quem monta as
-    listas é o Summarizer, para toda pauta.
+    listas é o Summarizer, para toda pauta. `orc` é o orçamento de palavras da pauta (ver
+    `ai/orcamento.py`): com ele, os mínimos de palavras vêm do alvo de cada personagem e do total, e
+    a mensagem diz o alvo; sem ele, valem os mínimos de antes.
     """
     probs = []
 
@@ -496,14 +530,20 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos) -> lis
 
     por_pers = palavras_por_personagem(result["roteiro_podcast"])
     finos = analistas_de_lado_fino(result, lados)
-    for nome, (minimo, maximo) in limites_de_cada_personagem(result, lados).items():
+    alvos = alvo_de_cada_personagem(result, lados, orc) if orc else {}
+    for nome, (minimo, maximo) in limites_de_cada_personagem(result, lados, orc).items():
         if not (minimo <= por_pers[nome] <= maximo):
             fino = ": é o analista de um lado fino, que não amplia além do que as fontes trazem" if nome in finos else ""
-            probs.append(Problema(ROTEIRO, f"{nome} com {por_pers[nome]} palavras (alvo {minimo}-{maximo}{fino})"))
+            limites = (f"aceito de {minimo} a {maximo}; o alvo do bloco é " + "{} a {}".format(*faixa(alvos[nome]))) if orc else (
+                f"alvo {minimo}-{maximo}")
+            probs.append(Problema(ROTEIRO, f"{nome} com {por_pers[nome]} palavras ({limites}{fino})"))
 
     total = sum(por_pers.values())
-    if not (MIN_TOTAL <= total <= MAX_TOTAL):
-        probs.append(Problema(ROTEIRO, f"total de {total} palavras (alvo {MIN_TOTAL}-{MAX_TOTAL})"))
+    minimo_total, maximo_total = limites_do_total(orc)
+    if not (minimo_total <= total <= maximo_total):
+        limites = (f"aceito de {minimo_total} a {maximo_total}; o alvo do bloco é " + "{} a {}".format(*faixa(orc.total))) if orc else (
+            f"alvo {MIN_TOTAL}-{MAX_TOTAL}")
+        probs.append(Problema(ROTEIRO, f"total de {total} palavras ({limites})"))
 
     declarados = {p["nome"] for p in result["personagens"]}
     falantes = set(por_pers)
@@ -528,6 +568,6 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos) -> lis
     return probs
 
 
-def problemas(result: dict, veiculos, lados, ressalvas, textos) -> list[str]:
+def problemas(result: dict, veiculos, lados, ressalvas, textos, orc: Orcamento | None = None) -> list[str]:
     """Retorna lista de violações; lista vazia = aprovado (ver `problemas_com_campo`)."""
-    return [p.texto for p in problemas_com_campo(result, veiculos, lados, ressalvas, textos)]
+    return [p.texto for p in problemas_com_campo(result, veiculos, lados, ressalvas, textos, orc)]

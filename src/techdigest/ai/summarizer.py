@@ -9,6 +9,7 @@ from techdigest.ai.lados import (
     MAX_SAIDA_LADOS, Analise, analisar_lados, bloco_dos_lados, com_mencoes, reserva_do_bloco, trechos_de_evidencia,
 )
 from techdigest.ai.llm import get_provider
+from techdigest.ai.orcamento import Orcamento, orcamento, palavras
 from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
 from techdigest.ai.qa import ELENCO, ESTRUTURA, PAPEL, RESUMO, ROTEIRO, TITULO, Problema, problemas_com_campo, veiculos_distintos
 from techdigest.ai.recorte import recortar
@@ -27,12 +28,12 @@ CHARS_POR_TOKEN_INICIAL = 3.0   # antes da primeira medida: conservador (o medid
 FOLGA_DA_MEDIDA = 0.9           # vale 90% da menor proporção medida
 
 LEMBRETE = (
-    "\nLEMBRETE: só o JSON das 8 chaves. Roteiro com 600-1300 palavras "
-    "no total, 240-480 por personagem, 10-20 turnos."
+    "\nLEMBRETE: só o JSON das 8 chaves. Roteiro no alvo de palavras de cada personagem e do total, "
+    "nos turnos e no tamanho das falas que o bloco LADOS DA PAUTA indica."
 )
 LEMBRETE_DO_ROTEIRO = (
-    "\nLEMBRETE: só o JSON com a chave roteiro_podcast. Roteiro com 600-1300 palavras "
-    "no total, 240-480 por personagem, 10-20 turnos."
+    "\nLEMBRETE: só o JSON com a chave roteiro_podcast. Roteiro no alvo de palavras de cada personagem e do "
+    "total, nos turnos e no tamanho das falas que o bloco LADOS DA PAUTA indica."
 )
 FONTE_ANTES = "ARTIGO-FONTE (use somente fatos deste texto; não invente informações):\n"
 MAX_SAIDA_RESUMO = 700          # tokens: a correção do resumo devolve só o resumo
@@ -60,6 +61,7 @@ class Entrada:
     # Por artigo que a análise de lados leu: fonte, quantos parágrafos o texto tem, os que entraram (paragrafo, motivo,
     # caracteres) e os que têm trecho de evidência e ficaram de fora.
     recortes: list[dict] = field(default_factory=list)
+    orcamento: Orcamento | None = None                  # o alvo de palavras que o bloco de lados pede (ver `ai/orcamento.py`)
 
 
 def _limpar(texto: str) -> str:
@@ -70,10 +72,11 @@ def _limpar(texto: str) -> str:
     return texto.strip()
 
 
-def _qa(result: dict, veiculos: list[str], lados: list, ressalvas: list, textos: list[str]) -> list[Problema]:
+def _qa(result: dict, veiculos: list[str], lados: list, ressalvas: list, textos: list[str],
+        orc: Orcamento | None = None) -> list[Problema]:
     """Roda o QA sem deixar um JSON malformado derrubar o fluxo (vira problema, não exceção)."""
     try:
-        return problemas_com_campo(result, veiculos, lados, ressalvas, textos)
+        return problemas_com_campo(result, veiculos, lados, ressalvas, textos, orc)
     except (KeyError, TypeError, AttributeError) as e:
         return [Problema(ESTRUTURA, f"estrutura inválida para o QA ({type(e).__name__}: {e})")]
 
@@ -167,7 +170,7 @@ def textos_da_pauta(principal: dict, relacionados: list[dict] | None = None) -> 
 
 def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limite: int | None = None,
                    lados: list | None = None, questao: str = "", ressalvas=(), lembrete: str = LEMBRETE,
-                   reserva: int | None = None) -> Entrada:
+                   reserva: int | None = None, orc: Orcamento | None = None) -> Entrada:
     """Monta a mensagem do episódio dentro de `limite` caracteres (None = sem limite).
 
     Cada artigo é um dict com "source", "title" e "text"; os relacionados podem trazer também
@@ -186,15 +189,16 @@ def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limi
     `lados`, `questao` e `ressalvas` são o resultado da análise de lados: com eles, o bloco LADOS
     DA PAUTA entra antes do lembrete, e o orçamento guarda para ele o tamanho que ele tem.
     `reserva` troca esse tamanho por outro: é o que `Summarizer.preparar` usa antes de saber quais
-    lados são finos. `lembrete` fecha a mensagem: o do episódio pede as 8 chaves, e a revisão do
-    roteiro passa o dela.
+    lados são finos. `orc` é o orçamento de palavras que o bloco pede (ver `ai/orcamento.py`); sem
+    ele, o bloco pede o alvo de antes. `lembrete` fecha a mensagem: o do episódio pede as 8 chaves,
+    e a revisão do roteiro passa o dela.
     """
     recebidos = [principal, *(relacionados or [])]
     lidos = recebidos[:1 + MAX_RELACIONADOS]
     artigos = list(lidos)
     completos = {id(a): _limpar(a["text"]) for a in lidos}
     titulos = {id(a): _limpar(a["title"]) for a in lidos}
-    bloco = bloco_dos_lados(lados, questao, ressalvas) if lados else ""
+    bloco = bloco_dos_lados(lados, questao, ressalvas, orc) if lados else ""
     evidencias = trechos_de_evidencia(lados or [], ressalvas)
 
     while True:
@@ -244,6 +248,7 @@ def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limi
         textos=[{"fonte": a["source"], "titulo": titulos[id(a)], "texto": t} for a, t in zip(artigos, trechos)],
         recortes=[{"fonte": a["source"], "paragrafos": feitos[id(a)].total, "entraram": feitos[id(a)].entraram, "fora": feitos[id(a)].fora}
                   for a in lidos],
+        orcamento=orc,
     )
 
 
@@ -290,8 +295,9 @@ class Summarizer:
 
         A análise lê os textos inteiros, no espaço da chamada dela. A entrada do episódio leva de
         cada texto o recorte por relevância, com os parágrafos dos trechos de evidência. O lado
-        fino é contado nesse recorte: antes de contar, o bloco é reservado no tamanho que teria
-        com todos os lados finos, e a mesma reserva vale para a entrada final.
+        fino e o orçamento de palavras (ver `ai/orcamento.py`) saem desse recorte: antes de contar,
+        o bloco é reservado no tamanho maior que poderia ter, e a mesma reserva vale para a entrada
+        final, que por isso leva o mesmo recorte. O orçamento fica em `Entrada.orcamento`.
         """
         completos = textos_da_pauta(principal, relacionados)
         logger.info(
@@ -304,7 +310,10 @@ class Summarizer:
         reserva = reserva_do_bloco(analise.lados, analise.questao, analise.ressalvas)
         previa = montar_entrada(principal, relacionados, limite, analise.lados, analise.questao, analise.ressalvas, reserva=reserva)
         analise.lados = com_mencoes(analise.lados, previa.textos)
-        return montar_entrada(principal, relacionados, limite, analise.lados, analise.questao, analise.ressalvas, reserva=reserva), analise
+        orc = orcamento(analise.lados, palavras(previa.textos))
+        entrada = montar_entrada(principal, relacionados, limite, analise.lados, analise.questao, analise.ressalvas,
+                                 reserva=reserva, orc=orc)
+        return entrada, analise
 
     def _corrigir_titulo(self, analise: Analise, result: dict, reprovados: list[dict]) -> dict:
         """Reescreve só o título, a partir do resumo: a chamada leva os atores dos lados e não leva os textos.
@@ -333,7 +342,7 @@ class Summarizer:
         return {**result, RESUMO: resposta[RESUMO]}, entrada
 
     def _revisar_roteiro(self, principal: dict, relacionados: list[dict] | None, analise: Analise, result: dict,
-                         probs: list[str]) -> tuple[dict, Entrada]:
+                         probs: list[str], orc: Orcamento | None = None) -> tuple[dict, Entrada]:
         """Reescreve o roteiro: a chamada leva os textos, os lados, os personagens e o roteiro original.
 
         Os textos vão no recorte por relevância, refeito para o espaço desta chamada. Devolve o
@@ -346,14 +355,14 @@ class Summarizer:
         )
         fonte = montar_entrada(
             principal, relacionados, self._limite_da_entrada(PROMPT_ROTEIRO, extra=len(FONTE_ANTES) + len(depois)),
-            analise.lados, analise.questao, analise.ressalvas, lembrete=LEMBRETE_DO_ROTEIRO,
+            analise.lados, analise.questao, analise.ressalvas, lembrete=LEMBRETE_DO_ROTEIRO, orc=orc,
         )
         resposta = self._chamar(PROMPT_ROTEIRO, FONTE_ANTES + fonte.texto + depois, chaves=(ROTEIRO,))
         personagens = _com_os_papeis(result[ELENCO], resposta.get(ELENCO))
         return {**result, ELENCO: personagens, ROTEIRO: resposta[ROTEIRO]}, fonte
 
     def _revisar(self, principal: dict, relacionados: list[dict] | None, analise: Analise, result: dict,
-                 probs: list[str]) -> tuple[dict, Entrada]:
+                 probs: list[str], orc: Orcamento | None = None) -> tuple[dict, Entrada]:
         """A revisão completa: leva o artigo-fonte e o episódio original, e devolve o episódio inteiro.
 
         Sem o artigo-fonte, "expandir" o roteiro vira invenção de fatos. Como o episódio original
@@ -365,7 +374,7 @@ class Summarizer:
         )
         fonte = montar_entrada(
             principal, relacionados, self._limite_da_entrada(PROMPT_REVISOR, extra=len(FONTE_ANTES) + len(depois)),
-            analise.lados, analise.questao, analise.ressalvas,
+            analise.lados, analise.questao, analise.ressalvas, orc=orc,
         )
         return self._chamar(PROMPT_REVISOR, FONTE_ANTES + fonte.texto + depois), fonte
 
@@ -379,13 +388,13 @@ class Summarizer:
         entrada, analise = self.preparar(principal, relacionados)
         pauta = [f"{artigo['title']}\n{artigo['text']}" for artigo in (principal, *(relacionados or []))]
         diagnostico = self.ultimo_diagnostico = {
-            "entrada": entrada, "lados": analise, "episodio": None, "primeira_versao": None,
+            "entrada": entrada, "lados": analise, "orcamento": entrada.orcamento, "episodio": None, "primeira_versao": None,
             "problemas": None, "correcao": None, "revisao": None, "problemas_da_revisao": None, "titulos_reprovados": [],
         }
         logger.debug("Início da entrada enviada ao LLM: %r", entrada.texto[:600])
 
         def qa(episodio: dict) -> list[Problema]:
-            return _qa(episodio, entrada.fontes, analise.lados, analise.ressalvas, pauta)
+            return _qa(episodio, entrada.fontes, analise.lados, analise.ressalvas, pauta, entrada.orcamento)
 
         result = self._chamar(PROMPT_SISTEMA, entrada.texto)
         diagnostico["primeira_versao"] = diagnostico["episodio"] = result
@@ -404,9 +413,9 @@ class Summarizer:
             elif tipo == "resumo":
                 corrigido, fonte = self._corrigir_resumo(entrada, analise, result, probs)
             elif tipo == "roteiro":
-                corrigido, fonte = self._revisar_roteiro(principal, relacionados, analise, result, probs)
+                corrigido, fonte = self._revisar_roteiro(principal, relacionados, analise, result, probs, entrada.orcamento)
             else:
-                corrigido, fonte = self._revisar(principal, relacionados, analise, result, probs)
+                corrigido, fonte = self._revisar(principal, relacionados, analise, result, probs, entrada.orcamento)
         except Exception as e:
             raise QAReprovado(
                 f"{CORRECOES[tipo]} falhou ({type(e).__name__}: {str(e)[:200]}); "

@@ -90,8 +90,7 @@ de posição (ex.: "segundo <veículo>, <ator> acusa..."). Ele sustenta a posiç
 com os argumentos das fontes: não critica a própria posição, não endossa a do outro lado e \
 não emite juízo próprio. Ele fala na terceira pessoa ("o sindicato sustenta...") e nunca como \
 porta-voz ("nós", "não podemos aceitar"). O analista de um lado que o bloco marca como fino \
-fala só de 120 a 200 palavras e não amplia além do que as fontes trazem. Verbos de \
-posição: """ + INFINITIVOS + """.
+não amplia além do que as fontes trazem. Verbos de posição: """ + INFINITIVOS + """.
 
 ### roteiro_podcast
 Diálogo pronto para narração, como lista de turnos:
@@ -105,15 +104,12 @@ mais, é ali que ela apresenta a questão em disputa.
 DISCUSSÃO respeitosa e factual, cada analista sustentando a posição do seu lado, com \
 Helena mediando com perguntas abertas ("e você, como responde a isso?").
 - FECHAMENTO: Helena resume o que ficou claro e o que segue em aberto, e se despede.
-- ESTRUTURA: o diálogo deve ter entre 10 e 20 turnos, e cada fala entre 50 e 90 \
-palavras (30-60 segundos de fala contínua). Falas de uma ou duas frases são \
-inaceitáveis neste formato.
-- ORÇAMENTO DE PALAVRAS (obrigatório): 240 a 480 palavras POR personagem ao longo \
-do episódio; total entre 600 e 1300 palavras. Antes de responder, conte mentalmente \
-as palavras de cada personagem e expanda as falas até cumprir o mínimo. Mire no alvo \
-por personagem que o bloco LADOS DA PAUTA indica, nunca perto do teto de 480: passar \
-de 480 em um personagem ou de 1300 no total reprova o episódio. O analista de lado fino \
-é a exceção: fala de 120 a 200 palavras, nem menos nem mais.
+- ESTRUTURA: o número de turnos e o tamanho de cada fala estão no bloco LADOS DA PAUTA. \
+Falas de uma frase só são inaceitáveis neste formato.
+- ORÇAMENTO DE PALAVRAS (obrigatório): o alvo de palavras de cada personagem e do total está \
+no bloco LADOS DA PAUTA e acompanha o material das fontes: com pouco material, o alvo é \
+menor. Antes de responder, conte mentalmente as palavras de cada personagem e mire no alvo \
+de cada um. Não preencha o tempo com argumento que os textos não trazem.
 - Escreva para ser FALADO: sem markdown, sem URLs (diga "o site do veículo" se \
 precisar), sem listas; siglas pronunciáveis (IA, CPI); números por extenso quando \
 ficar mais natural à locução.
@@ -143,9 +139,9 @@ omitir um lado ou uma ressalva do bloco é tão grave quanto.
 - Com artigos relacionados, cite cada veículo pelo nome no roteiro e inclua todos em \
 "fontes_citadas", haja ou não divergência."""
 
-_REGRAS_DO_ROTEIRO = """Regras do roteiro: diálogo de 600-1300 palavras no total, 240-480 por personagem, \
-10-20 turnos, falas de 50-90 palavras, tom de conversa. O analista de um lado que o bloco marca \
-como fino é a exceção: fala de 120 a 200 palavras, nem menos nem mais, sem ampliar além das fontes.
+_REGRAS_DO_ROTEIRO = """Regras do roteiro: o alvo de palavras de cada personagem e do total, o número de \
+turnos e o tamanho das falas estão no bloco LADOS DA PAUTA do artigo-fonte; tom de conversa. O analista de \
+um lado que o bloco marca como fino não amplia além das fontes.
 Elenco: Helena e um analista por lado, até 3 analistas, conforme o bloco LADOS DA PAUTA do \
 artigo-fonte. Helena só media, sem tomar posição. A questão do bloco é um guia interno: Helena a \
 apresenta uma vez, na abertura, com palavras naturais, sem repeti-la ao pé da letra e sem transformar \
@@ -171,8 +167,8 @@ Corrija o episódio para eliminar TODOS os problemas listados, mantendo o tema, 
 e as fontes. Use SOMENTE fatos do artigo-fonte e do episódio original: não invente informações.
 Ajuste o tamanho conforme cada problema: se um personagem ou o total estiver ACIMA do \
 máximo, ENXUGUE as falas (corte repetições e detalhes secundários); se estiver ABAIXO do \
-mínimo, EXPANDA. Não altere o que já está dentro dos limites e mire no meio da faixa \
-permitida, nunca no limite exato.
+mínimo, EXPANDA com o que os textos trazem. Não altere o que já está dentro dos limites e \
+mire no alvo que o bloco LADOS DA PAUTA indica, nunca no limite exato.
 Responda EXCLUSIVAMENTE com o JSON corrigido, com as mesmas 8 chaves do original.
 O resumo_didatico tem de 7 a 10 frases, todas com fatos; a frase que avisa do debate só aparece, \
 como frase final, quando houve_divergencia é true.
@@ -193,8 +189,8 @@ como vieram; só mude o "papel" quando um problema apontar o papel: ele diz a es
 ("analista de regulação"), nunca um vínculo com um ator dos lados ("analista da Construtora Alfa").
 Ajuste o tamanho conforme cada problema: se um personagem ou o total estiver ACIMA do \
 máximo, ENXUGUE as falas (corte repetições e detalhes secundários); se estiver ABAIXO do \
-mínimo, EXPANDA. Não altere o que já está dentro dos limites e mire no meio da faixa \
-permitida, nunca no limite exato.
+mínimo, EXPANDA com o que os textos trazem. Não altere o que já está dentro dos limites e \
+mire no alvo que o bloco LADOS DA PAUTA indica, nunca no limite exato.
 """ + _REGRAS_DO_ROTEIRO + """
 Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
 {"personagens": [{"nome": "<nome exato>", "papel": "<papel>"}], \

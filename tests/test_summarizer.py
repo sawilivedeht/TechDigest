@@ -39,10 +39,7 @@ def _entrada_antiga(principal: dict) -> str:
         f"Título: {summarizer._limpar(principal['title'])}\n"
         f"Texto:\n{cortar_em_paragrafo(summarizer._limpar(principal['text']), 5000)}"
     ]
-    partes.append(
-        "\nLEMBRETE: só o JSON das 8 chaves. Roteiro com 600-1300 palavras "
-        "no total, 240-480 por personagem, 10-20 turnos."
-    )
+    partes.append(LEMBRETE)
     return "\n".join(partes)
 
 
@@ -504,6 +501,45 @@ def test_as_revisoes_levam_o_recorte_por_relevancia_no_espaco_de_cada_uma(tipo, 
     assert bloco in geracao and bloco in revisao
 
 
+# ── O orçamento proporcional (item 3 de 19/10) ────────────────────────────────────────────
+
+def test_texto_curto_pede_menos_palavras_e_o_qa_cobra_o_minimo_da_pauta(ollama_8192):
+    from techdigest.ai.orcamento import orcamento, palavras
+    principal = _artigo("G1", 1300)                                  # perto dos 1.200 caracteres: umas 200 palavras
+    curto = _episodio(["G1"])
+    curto["roteiro_podcast"] = [{"personagem": "Helena", "fala": " ".join(["palavra"] * 200)},
+                                {"personagem": "Ramos", "fala": " ".join(["palavra"] * 230)}]   # 430 palavras
+    provider = ProviderFalso(curto)
+    s = Summarizer(provider=provider)
+
+    assert s.process(principal) is curto                                # aprovado: antes, 430 palavras reprovariam (mínimo de 600)
+    entrada = s.ultimo_diagnostico["entrada"]
+    orc = s.ultimo_diagnostico["orcamento"]
+    assert orc is entrada.orcamento and orc == orcamento(s.ultimo_diagnostico["lados"].lados, palavras(entrada.textos))
+    assert orc.reduzido and orc.total < 600 and orc.palavras_do_texto == palavras(entrada.textos) < 300
+    [(_, mensagem)] = [args for args, _ in provider.chamadas]
+    assert bloco_dos_lados(s.ultimo_diagnostico["lados"].lados, "", (), orc) in mensagem
+    assert "Os textos trazem pouco material, e o alvo é menor" in mensagem and mensagem.endswith(LEMBRETE)
+    assert len(qa.problemas(curto, ["G1"], s.ultimo_diagnostico["lados"].lados, [], [principal["text"]])) == 3   # sem o orçamento
+    assert orc.palavras_do_texto == 256 and (orc.helena, orc.analistas, orc.total) == (200, (250,), 450)   # 1,75 × 256
+
+
+def test_a_revisao_leva_o_mesmo_orcamento_da_geracao(ollama_8192):
+    principal = _artigo("G1", 1300)
+    curto = _episodio(["G1"])
+    sem_resumo = {**curto, "roteiro_podcast": [{"personagem": "Helena", "fala": "pouco"}, {"personagem": "Ramos", "fala": "pouco"}]}
+    provider = ProviderFalso(sem_resumo, {"roteiro_podcast": [{"personagem": "Helena", "fala": " ".join(["palavra"] * 200)},
+                                                               {"personagem": "Ramos", "fala": " ".join(["palavra"] * 230)}]})
+    s = Summarizer(provider=provider)
+    s.process(principal)
+    orc = s.ultimo_diagnostico["orcamento"]
+    assert s.ultimo_diagnostico["correcao"] == "roteiro" and s.ultimo_diagnostico["problemas_da_revisao"] == []
+    (_, geracao), (_, revisao) = (args for args, _ in provider.chamadas)
+    bloco = bloco_dos_lados(s.ultimo_diagnostico["lados"].lados, "", (), orc)
+    assert bloco in geracao and bloco in revisao
+    assert "o alvo do bloco é" in s.ultimo_diagnostico["problemas"][0]
+
+
 # ── Quem diz o quê (item 4 de 19/10) ──────────────────────────────────────────────────────
 
 def test_o_prompt_do_episodio_pede_atribuicao_e_nada_alem_do_que_os_textos_trazem():
@@ -695,7 +731,7 @@ def test_a_lista_de_veiculos_nunca_chega_como_none_ao_qa(ollama_8192, monkeypatc
     recebidos = []
     monkeypatch.setattr(
         summarizer, "problemas_com_campo",
-        lambda result, veiculos, lados, ressalvas, textos: recebidos.append((veiculos, lados, ressalvas, len(textos))) or [],
+        lambda result, veiculos, lados, ressalvas, textos, orc: recebidos.append((veiculos, lados, ressalvas, len(textos))) or [],
     )
 
     Summarizer(provider=ProviderFalso(_episodio([]))).process(_artigo("G1", 2000))                 # como o pipeline chama: só o principal

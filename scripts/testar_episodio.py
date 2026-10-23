@@ -46,6 +46,7 @@ from techdigest import trava
 from techdigest.ai import maquina, qa
 from techdigest.ai.llm import get_provider
 from techdigest.ai.lados import lados_finos
+from techdigest.ai.orcamento import faixa
 from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
 from techdigest.ai.summarizer import CORRECOES, TETO_PRINCIPAL, TETO_RELACIONADO, QAReprovado, Summarizer
 from techdigest.config import Settings
@@ -557,9 +558,24 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
             frases_na_primeira_pessoa=_primeira_pessoa(episodio),
         )
         analise = diagnostico.get("lados")
+        orc = diagnostico.get("orcamento")
+        if orc is not None:
+            relatorio["orcamento"] = {"helena": orc.helena, "analistas": list(orc.analistas), "total": orc.total,
+                                      "palavras_do_texto": orc.palavras_do_texto, "reduzido": orc.reduzido,
+                                      "turnos": list(orc.turnos), "por_fala": list(orc.por_fala)}
         try:
             relatorio["palavras_por_personagem"] = qa.palavras_por_personagem(episodio["roteiro_podcast"])
-            relatorio["limites_por_personagem"] = qa.limites_de_cada_personagem(episodio, analise.lados) if analise else None
+            relatorio["limites_por_personagem"] = qa.limites_de_cada_personagem(episodio, analise.lados, orc) if analise else None
+            if analise and orc is not None:   # quanto cada personagem passa da faixa que o bloco pediu: só diagnóstico
+                alvos = qa.alvo_de_cada_personagem(episodio, analise.lados, orc)
+                relatorio["alvo_por_personagem"] = {
+                    nome: {"alvo": alvo, "faixa": list(faixa(alvo)), "palavras": relatorio["palavras_por_personagem"][nome],
+                           "acima_da_faixa": max(relatorio["palavras_por_personagem"][nome] - faixa(alvo)[1], 0)}
+                    for nome, alvo in alvos.items()
+                }
+                total = sum(relatorio["palavras_por_personagem"].values())
+                relatorio["alvo_do_total"] = {"alvo": orc.total, "faixa": list(faixa(orc.total)), "palavras": total,
+                                              "acima_da_faixa": max(total - faixa(orc.total)[1], 0)}
             relatorio["lado_de_cada_analista"] = qa.lado_de_cada_analista(episodio, analise.lados) if analise else None
             relatorio["lado_fino_acima_do_teto"] = {   # o teto do analista de lado fino é só diagnóstico: o QA não cobra
                 nome: relatorio["palavras_por_personagem"][nome] for nome in qa.analistas_de_lado_fino(episodio, analise.lados)
@@ -569,6 +585,15 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
             pass
         print(f"  turnos: {relatorio['turnos']} · palavras: {relatorio.get('palavras_por_personagem')} · "
               f"limites: {relatorio.get('limites_por_personagem')}")
+        if "orcamento" in relatorio:
+            o = relatorio["orcamento"]
+            print(f"  orçamento: {o['palavras_do_texto']} palavras de texto → Helena {o['helena']}, analistas {o['analistas']}, "
+                  f"total {o['total']}{' (reduzido)' if o['reduzido'] else ''}; turnos {o['turnos'][0]}-{o['turnos'][1]}, "
+                  f"falas de {o['por_fala'][0]}-{o['por_fala'][1]} palavras")
+            for nome, a in (relatorio.get("alvo_por_personagem") or {}).items():
+                if a["acima_da_faixa"]:
+                    print(f"  diagnóstico: {nome} com {a['palavras']} palavras, {a['acima_da_faixa']} acima da faixa "
+                          f"{a['faixa'][0]}-{a['faixa'][1]} que o bloco pediu")
         for nome, palavras in (relatorio.get("lado_fino_acima_do_teto") or {}).items():
             print(f"  diagnóstico: {nome}, analista de lado fino, com {palavras} palavras (o prompt pede até {qa.MAX_LADO_FINO})")
         print(f"  papéis: {[(p.get('nome'), p.get('papel')) for p in relatorio['personagens'] or [] if isinstance(p, dict)]}")

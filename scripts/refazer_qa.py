@@ -30,6 +30,9 @@ from pathlib import Path
 import checar_fidelidade as cf
 from techdigest.ai import qa
 from techdigest.ai.lados import Lado, Ressalva
+from techdigest.ai.orcamento import Orcamento, orcamento
+from techdigest.ai.recorte import paragrafos
+from techdigest.ai.summarizer import _limpar
 from techdigest.config import Settings
 
 settings = Settings()
@@ -76,13 +79,42 @@ def _amostra(relatorio: dict) -> dict[int, dict]:
     return {c["id"]: c for c in json.loads(amostra.read_text(encoding="utf-8"))["candidatos"]}
 
 
-def entrada_do_qa(item: dict, candidatos: dict[int, dict]) -> tuple[list[str], list[Lado], list[Ressalva], list[str]]:
-    """O que o QA recebeu quando o episódio foi gerado: veículos, lados, ressalvas e textos da pauta.
+def palavras_recebidas(item: dict, candidatos: dict[int, dict]) -> int | None:
+    """As palavras que a geração recebeu, remontadas dos parágrafos que o relatório diz que entraram.
+
+    Cada parágrafo entra com os caracteres gravados (o último pode ter entrado em parte). Sem o
+    registro dos parágrafos (relatórios antigos), None.
+    """
+    cortes = item.get("cortes_na_geracao") or []
+    if not cortes or any(c.get("paragrafos_que_entraram") is None for c in cortes):
+        return None
+    total = 0
+    for artigo, corte in zip(item["artigos"], cortes):
+        texto = _limpar(candidatos[artigo["id"]]["texto"])
+        por_numero = {p.numero: p for p in paragrafos(texto)}
+        for entrou in corte["paragrafos_que_entraram"]:
+            p = por_numero[entrou["paragrafo"]]
+            total += len(texto[p.inicio:p.inicio + entrou["caracteres"]].split())
+    return total
+
+
+def orcamento_do_item(item: dict, lados: list[Lado], candidatos: dict[int, dict]) -> Orcamento | None:
+    """O orçamento de palavras do episódio: o gravado pelo relatório ou, nos relatórios de antes dele, o recalculado
+    das palavras que a geração recebeu. None quando não há como saber essas palavras."""
+    gravado = item.get("orcamento")
+    if gravado:
+        return Orcamento(gravado["helena"], tuple(gravado["analistas"]), gravado["palavras_do_texto"], gravado["reduzido"])
+    medidas = palavras_recebidas(item, candidatos)
+    return None if medidas is None else orcamento(lados, medidas)
+
+
+def entrada_do_qa(item: dict, candidatos: dict[int, dict]) -> tuple[list[str], list[Lado], list[Ressalva], list[str], Orcamento | None]:
+    """O que o QA recebeu quando o episódio foi gerado: veículos, lados, ressalvas, textos da pauta e orçamento.
 
     Os veículos são os dos textos que entraram na geração (os cortes com algo incluído; sem cortes,
     os artigos da pauta). O lado fino é o que o relatório gravou: pela contagem das frases, quando
     ela existe, ou pela marca "fino" dos relatórios mais antigos. Os textos são título e texto
-    completo de cada artigo, como o Summarizer os passa ao QA.
+    completo de cada artigo, como o Summarizer os passa ao QA. O orçamento é o de `orcamento_do_item`.
     """
     cortes = item.get("cortes_na_geracao") or []
     veiculos = [c["fonte"] for c in cortes if c.get("incluido", 0) > 0] or [a["veiculo"] for a in item["artigos"]]
@@ -94,7 +126,7 @@ def entrada_do_qa(item: dict, candidatos: dict[int, dict]) -> tuple[list[str], l
     ]
     ressalvas = [Ressalva(tuple(r["grupos"]), r["posicao"], tuple(r["veiculos"]), r.get("trecho", "")) for r in analise.get("ressalvas", [])]
     textos = [f"{candidatos[a['id']]['titulo']}\n{candidatos[a['id']]['texto']}" for a in item["artigos"]]
-    return veiculos, lados, ressalvas, textos
+    return veiculos, lados, ressalvas, textos, orcamento_do_item(item, lados, candidatos)
 
 
 def refazer(caminho: Path) -> list[Refeito]:
@@ -108,9 +140,9 @@ def refazer(caminho: Path) -> list[Refeito]:
         if not item.get("arquivo"):
             continue
         episodio = json.loads(Path(item["arquivo"]).read_text(encoding="utf-8"))
-        veiculos, lados, ressalvas, textos = entrada_do_qa(item, candidatos)
+        veiculos, lados, ressalvas, textos, orc = entrada_do_qa(item, candidatos)
         try:
-            agora = [p.texto for p in qa.problemas_com_campo(episodio, veiculos, lados, ressalvas, textos)]
+            agora = [p.texto for p in qa.problemas_com_campo(episodio, veiculos, lados, ressalvas, textos, orc)]
         except (KeyError, TypeError, AttributeError) as e:
             agora = [f"estrutura inválida para o QA ({type(e).__name__}: {e})"]
         antes = [] if item["situacao"] == "aprovado" else (item.get("problemas_depois_da_revisao") or item.get("problemas_antes_da_revisao") or [])

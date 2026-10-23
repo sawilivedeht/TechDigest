@@ -12,10 +12,11 @@ import re
 import unicodedata
 from dataclasses import dataclass, field, replace
 
+from techdigest.ai.orcamento import Orcamento, faixa, orcamento
 from techdigest.ai.prompt import PROMPT_LADOS
 from techdigest.ai.qa import (
-    MAX_LADO_FINO, MIN_LADO_FINO, QUANTIFICADORES, ator_citado, atores_exclusivos, frases, mesmo_ator, mesmo_veiculo,
-    palavras_do_ator, termo_do_grupo, veiculos_distintos,
+    QUANTIFICADORES, ator_citado, atores_exclusivos, frases, mesmo_ator, mesmo_veiculo, palavras_do_ator, termo_do_grupo,
+    veiculos_distintos,
 )
 from techdigest.ai.recorte import cortar_em_paragrafo, literal, localizar_trecho, procurado
 from techdigest.ai.verbos import verbos_de_decisao, verbos_de_posicao
@@ -37,8 +38,6 @@ MIN_TRECHO = 20             # caracteres: trecho de evidência menor que isto n�
 MAX_MENCOES_DO_LADO_FINO = 1   # frases dos textos em que os atores de um lado fino aparecem, no máximo
 # A posição do lado neutro: quando nenhum lado tem ator nomeado ou quando as duas tentativas da análise não valem.
 POSICAO_DE_EMERGENCIA = "relato dos fatos, sem lados definidos"
-# Alvo de palavras por personagem conforme o número de analistas: com Helena, o total cabe em 600-1300.
-ALVO_POR_PERSONAGEM = {1: "360 a 420", 2: "320 a 400", 3: "260 a 310"}
 # Termos que não fazem um ator, sem acento: coletivo sem nome ("economistas"), designação vaga sem
 # qualificador ("o governo", "a empresa", "a campanha") e os quantificadores que os acompanham ("alguns analistas").
 # É genérico o ator que só tem palavras daqui: "governo federal" e "campanha de Lula" valem.
@@ -774,10 +773,26 @@ def _frase(texto: str) -> str:
     return texto if texto.endswith((".", "!", "?", "…")) else texto + "."
 
 
-def _linhas_do_bloco(lados, questao: str, ressalvas, finos: list[bool], teto: int) -> list[str]:
-    """As linhas do bloco: o cabeçalho (com a questão), uma por lado, uma por ressalva e o elenco.
+def _alvo_do_elenco(orc: Orcamento) -> str:
+    """O alvo de palavras de cada personagem e do total, os turnos e o tamanho das falas, como o bloco os diz."""
+    def de(alvo: int) -> str:
+        return "{} a {}".format(*faixa(alvo))
+    if len(orc.analistas) == 1:
+        analistas = f"analista, {de(orc.analistas[0])}"
+    else:
+        analistas = "; ".join(f"analista do lado {i}, {de(alvo)}" for i, alvo in enumerate(orc.analistas, 1))
+    texto = (f" Alvo de palavras: Helena, {de(orc.helena)}; {analistas}; total, {de(orc.total)}. Roteiro de "
+             f"{orc.turnos[0]} a {orc.turnos[1]} turnos, com falas de {orc.por_fala[0]} a {orc.por_fala[1]} palavras.")
+    if orc.reduzido:
+        texto += " Os textos trazem pouco material, e o alvo é menor: não preencha o tempo com argumento que as fontes não trazem."
+    return texto
 
-    `finos` diz quais lados são finos e `teto`, quantos caracteres a frase de posição de cada um pode ter.
+
+def _linhas_do_bloco(lados, questao: str, ressalvas, finos: list[bool], teto: int, orc: Orcamento) -> list[str]:
+    """As linhas do bloco: o cabeçalho (com a questão), uma por lado, uma por ressalva e o elenco, com o alvo de palavras.
+
+    `finos` diz quais lados são finos, `teto`, quantos caracteres a frase de posição de cada um
+    pode ter, e `orc`, o orçamento de palavras do episódio (ver `ai/orcamento.py`).
     """
     n = len(lados)
     if n > 1:
@@ -801,11 +816,8 @@ def _linhas_do_bloco(lados, questao: str, ressalvas, finos: list[bool], teto: in
             'em "Segundo <veículo>, <grupo> alertam que... Como você vê isso?".'
         )
     if any(finos):
-        elenco += (
-            f" Lado fino tem pouco material nas fontes: o analista dele fala de {MIN_LADO_FINO} a "
-            f"{MAX_LADO_FINO} palavras e não amplia além do que as fontes trazem."
-        )
-    elenco += f" Alvo: {ALVO_POR_PERSONAGEM[n]} palavras por personagem{', fora o de lado fino' if any(finos) else ''}."
+        elenco += " Lado fino tem pouco material nas fontes: o analista dele não amplia além do que as fontes trazem."
+    elenco += _alvo_do_elenco(orc)
     cabecalho = f"\nLADOS DA PAUTA: {n} lado{'s' if n > 1 else ''}."
     if questao:
         cabecalho += f"\nQUESTÃO: {_encurtar(questao, MAX_QUESTAO)}"
@@ -828,18 +840,20 @@ def _linhas_do_bloco(lados, questao: str, ressalvas, finos: list[bool], teto: in
     ]
 
 
-def bloco_dos_lados(lados, questao: str = "", ressalvas=()) -> str:
+def bloco_dos_lados(lados, questao: str = "", ressalvas=(), orc: Orcamento | None = None) -> str:
     """O bloco LADOS DA PAUTA da entrada do episódio: a questão, os lados, as ressalvas, o elenco exato e o alvo de palavras.
 
+    O alvo vem de `orc`; sem ele, é o de antes para o tamanho do elenco (ver `orcamento.orcamento`).
     Nunca passa de MAX_BLOCO caracteres: se for preciso, as frases de posição encolhem. O orçamento
     da entrada reserva para ele o tamanho que ele tem (ver `reserva_do_bloco`).
     """
     finos = lados_finos(lados)
+    orc = orc or orcamento(lados)
     teto = MAX_POSICAO
-    linhas = _linhas_do_bloco(lados, questao, ressalvas, finos, teto)
+    linhas = _linhas_do_bloco(lados, questao, ressalvas, finos, teto, orc)
     while len("\n".join(linhas)) > MAX_BLOCO and teto > MIN_POSICAO:
         teto -= 20
-        linhas = _linhas_do_bloco(lados, questao, ressalvas, finos, teto)
+        linhas = _linhas_do_bloco(lados, questao, ressalvas, finos, teto, orc)
     bloco = "\n".join(linhas)
     if len(bloco) > MAX_BLOCO:   # listas de atores longas demais: o que fica de fora é o fim da última linha
         logger.warning("Bloco de lados com %d caracteres: cortado em %d.", len(bloco), MAX_BLOCO)
@@ -849,11 +863,14 @@ def bloco_dos_lados(lados, questao: str = "", ressalvas=()) -> str:
 
 
 def reserva_do_bloco(lados, questao: str = "", ressalvas=()) -> int:
-    """Quantos caracteres guardar para o bloco antes de saber quais lados são finos.
+    """Quantos caracteres guardar para o bloco antes de saber quais lados são finos e qual é o orçamento.
 
-    O lado fino só é contado depois do recorte dos textos, e o recorte depende do espaço que o
-    bloco ocupa. Por isso a reserva é o tamanho do bloco com todos os lados finos (em pauta de 2
-    lados ou mais), sem encolher as posições e até MAX_BLOCO: o bloco de verdade nunca passa disso.
+    O lado fino só é contado depois do recorte dos textos, e o orçamento de palavras vem das
+    palavras do recorte, que depende do espaço que o bloco ocupa. Por isso a reserva é o tamanho do
+    bloco com todos os lados finos (em pauta de 2 lados ou mais) e o orçamento com os números mais
+    compridos e o aviso de pouco material, sem encolher as posições e até MAX_BLOCO: o bloco de
+    verdade nunca passa disso.
     """
     todos = [len(lados) >= 2] * len(lados)
-    return min(MAX_BLOCO, len("\n".join(_linhas_do_bloco(lados, questao, ressalvas, todos, MAX_POSICAO))))
+    maior = Orcamento(9990, (9990,) * max(len(lados), 1), 0, reduzido=True)
+    return min(MAX_BLOCO, len("\n".join(_linhas_do_bloco(lados, questao, ressalvas, todos, MAX_POSICAO, maior))))
