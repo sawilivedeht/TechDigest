@@ -493,7 +493,8 @@ def test_as_revisoes_levam_o_recorte_por_relevancia_no_espaco_de_cada_uma(tipo, 
     fonte = diagnostico["revisao"]
     # a revisão completa tem menos espaço que a geração, e mesmo assim leva o parágrafo do trecho de cada lado, depois da marca
     incluido, na_geracao = (sum(c["incluido"] for c in e.cortes) for e in (fonte, diagnostico["entrada"]))
-    assert incluido < na_geracao if tipo == "completa" else incluido <= na_geracao
+    # (a do roteiro leva só o roteiro, e com o PROMPT_SISTEMA mais comprido pode levar mais texto que a geração)
+    assert incluido < na_geracao if tipo == "completa" else incluido > 0
     for texto, fim in zip(fonte.textos, (FIM_DA_AB, FIM_DA_CARTA)):
         assert texto["texto"].endswith("\n[...]\n" + fim) and texto["texto"] in revisao
     assert [r["entraram"][-1]["motivo"] for r in fonte.recortes] == ["trecho do lado 2", "trecho do lado 1"]
@@ -501,6 +502,33 @@ def test_as_revisoes_levam_o_recorte_por_relevancia_no_espaco_de_cada_uma(tipo, 
     # o bloco é o mesmo da geração (os lados finos não são recontados) e ocupa o tamanho que tem
     bloco = bloco_dos_lados(diagnostico["lados"].lados, diagnostico["lados"].questao)
     assert bloco in geracao and bloco in revisao
+
+
+# ── Quem diz o quê (item 4 de 19/10) ──────────────────────────────────────────────────────
+
+def test_o_prompt_do_episodio_pede_atribuicao_e_nada_alem_do_que_os_textos_trazem():
+    from techdigest.ai import prompt
+    secao = prompt.PROMPT_SISTEMA.split("## QUEM DIZ O QUÊ")[1].split("## ENTRADA")[0]
+    assert prompt.PROMPT_SISTEMA.index("## IDENTIDADE") < prompt.PROMPT_SISTEMA.index("## QUEM DIZ O QUÊ") < prompt.PROMPT_SISTEMA.index("## ENTRADA")
+    assert "Acusação, crítica, opinião, avaliação e previsão são de quem as faz" in secao
+    assert "o episódio mantém a ressalva, atribuída ao veículo" in secao and "A análise que o veículo faz em nome próprio" in secao
+    # a regra de não acrescentar vale também para o "por que importa"
+    assert 'Helena, os analistas e o "por_que_importa" não acrescentam avaliação, motivo, consequência' in secao
+    assert "sem consequência ou previsão que eles não fazem" in prompt.PROMPT_SISTEMA
+    assert "Helena não monta escolhas, dilemas ou contrapontos que os textos não fazem" in secao
+    # a versão curta vale para as duas revisões, e a completa cobra também o "por que importa"
+    curta = "Acusação, crítica, opinião e previsão ficam sempre atribuídas a quem as faz"
+    assert curta in prompt.PROMPT_REVISOR and curta in prompt.PROMPT_ROTEIRO
+    assert "O por_que_importa também não traz consequência ou previsão" in prompt.PROMPT_REVISOR
+
+
+def test_os_exemplos_dos_prompts_nao_usam_veiculos_que_existem():
+    # num prompt sobre atribuição, um veículo real é o nome que o modelo pode pôr num episódio em que ele não é fonte
+    from techdigest.ai import prompt
+    textos = [getattr(prompt, nome) for nome in dir(prompt) if nome.startswith(("PROMPT_", "_REGRAS"))]
+    for real in ("Jornal do Vale", "Diário do Litoral"):
+        assert not any(real in texto for texto in textos), real
+    assert "Diário de Lagoa Quieta" in prompt.PROMPT_SISTEMA and "Correio de Serra Quieta" in prompt.PROMPT_SISTEMA
 
 
 # ── Correções direcionadas ────────────────────────────────────────────────────────────────

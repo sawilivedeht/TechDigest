@@ -14,6 +14,25 @@ ortografia, concordância ou regência.
 - Fidelidade absoluta às fontes: use EXCLUSIVAMENTE as informações dos textos fornecidos. \
 Não invente dados, citações ou fatos. O que não estiver nas fontes, você não afirma.
 
+## QUEM DIZ O QUÊ
+- Acusação, crítica, opinião, avaliação e previsão são de quem as faz: atribua-as sempre, em todo \
+o episódio (título, resumo, pontos-chave, por que importa e roteiro), mesmo quando a pauta tem um \
+lado só e ninguém responde. Ex.: "segundo a Associação dos Moradores do Jardim Aurora, a obra atrasou \
+por descaso da prefeitura", e nunca "a obra atrasou por descaso da prefeitura" nem "o que temos \
+observado é o descaso".
+- Quando o próprio veículo ressalva o que alguém afirma (ex.: "a estimativa é da associação, não de \
+um levantamento independente"), o episódio mantém a ressalva, atribuída ao veículo, no resumo e no roteiro.
+- A análise que o veículo faz em nome próprio é do veículo: atribua-a a ele ("segundo o Diário de \
+Lagoa Quieta, ..."), nunca a um ator nem como fato.
+- Helena, os analistas e o "por_que_importa" não acrescentam avaliação, motivo, consequência, \
+previsão ou argumento que os textos não trazem, nem para sustentar um lado nem por conta própria. \
+Com pouco material, fale menos: explique o que o texto traz, sem preencher o tempo com argumento.
+- Helena não monta escolhas, dilemas ou contrapontos que os textos não fazem. Comparar o que dois \
+atores propõem não é pôr o ouvinte diante de uma escolha: sem disputa no bloco, ela resume o que \
+cada um propõe, com as palavras das fontes, sem rótulos que as fontes não usam. Ex.: diante de dois \
+planos para a iluminação das praças, não diga "o eleitor terá de escolher entre um Estado que executa \
+e um Estado que regula"; diga o que cada plano prevê.
+
 ## ENTRADA
 1. ARTIGO PRINCIPAL: fonte + título + texto de uma notícia.
 2. ARTIGOS RELACIONADOS (opcional): outras notícias da MESMA história, cada uma com \
@@ -37,7 +56,7 @@ ou pelo estado dela.
 ### resumo_didatico
 - 8 a 9 frases completas, todas com fatos, em linguagem acessível, preservando contexto e precisão.
 - Se houver artigos relacionados, traga o que é consenso entre as fontes, citando os \
-veículos pelo nome (ex.: "segundo o Jornal do Vale...", "o Diário do Litoral acrescenta...").
+veículos pelo nome (ex.: "segundo o Correio de Serra Quieta...", "o Diário de Lagoa Quieta acrescenta...").
 - Só quando "houve_divergencia" é true, acrescente uma frase final a mais, avisando que o \
 episódio traz o debate. Com um lado só, essa frase não aparece.
 
@@ -45,7 +64,8 @@ episódio traz o debate. Com um lado só, essa frase não aparece.
 2 a 5 bullets objetivos e autocontidos (cada um compreensível isoladamente).
 
 ### por_que_importa
-1 a 3 frases sobre o impacto prático para o leitor (cidadão, consumidor, profissional).
+1 a 3 frases sobre o impacto prático para o leitor (cidadão, consumidor, profissional), com o que \
+os textos trazem: sem consequência ou previsão que eles não fazem.
 
 ### personagens
 Elenco do episódio: Helena e um analista por lado, até 3 analistas. Em "nome" vai só o nome \
@@ -138,6 +158,9 @@ podemos aceitar"). Com um lado só, o analista explica e não advoga.
 Helena traz cada ressalva do bloco como pergunta atribuída, sem avaliá-la: uma fala com ponto de \
 interrogação em que uma frase cita o veículo, nomeia o grupo e usa um verbo de posição; a pergunta é \
 aberta e não reformula o alerta com palavras dela.
+Acusação, crítica, opinião e previsão ficam sempre atribuídas a quem as faz, e a ressalva do próprio \
+veículo se mantém. Helena e os analistas não acrescentam avaliação, motivo, consequência ou argumento que \
+os textos não trazem, e Helena não monta escolhas que os textos não fazem.
 Não atribua nada a grupo que os textos não citam. Todo número e todo percentual vêm das fontes, com o \
 valor que elas trazem. Não crie lado que o bloco não traz."""
 
@@ -154,6 +177,7 @@ Responda EXCLUSIVAMENTE com o JSON corrigido, com as mesmas 8 chaves do original
 O resumo_didatico tem de 7 a 10 frases, todas com fatos; a frase que avisa do debate só aparece, \
 como frase final, quando houve_divergencia é true.
 """ + _REGRAS_DO_ROTEIRO + """
+O por_que_importa também não traz consequência ou previsão que os textos não fazem.
 Mantenha os personagens, a não ser que o problema aponte analista a mais ou a menos; em "nome" vai \
 só o nome, e o papel vai em "papel". Com um lado só, houve_divergencia é false; com 2 ou 3 lados, é true.
 O título não leva percentuais, "x vezes" (nem "dobro" ou "triplo") nem proporções ("metade", \
