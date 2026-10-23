@@ -306,6 +306,7 @@ def _lados(analise, chamadas: list[dict]) -> dict:
         "quantos": len(analise.lados), "questao": analise.questao, "motivo": analise.motivo,
         "tentativas": len(feitas), "lado_de_emergencia": bool(analise.problemas), "invalida_porque": analise.problemas,
         "ajustes": analise.ajustes, "atores_sem_entrada": analise.faltam, "textos_cortados_na_analise": analise.cortes,
+        "atores_recusados": [{"ator": r.ator, "trecho": r.trecho, "motivo": r.motivo} for r in analise.recusados],
         "ressalvas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos), "trecho": r.trecho}
                       for r in analise.ressalvas],
         "ressalvas_descartadas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos), "trecho": r.trecho,
@@ -314,11 +315,13 @@ def _lados(analise, chamadas: list[dict]) -> dict:
                    "trechos": list(lado.trechos), "frases_com_os_atores": lado.mencoes, "fino": fino}
                   for lado, fino in zip(analise.lados, lados_finos(analise.lados))],
         "respostas_por_ator": [{"ator": e.ator, "resposta": e.resposta, "trecho": e.trecho, "veiculo": e.veiculo,
-                                "comprovada": e.comprovada, "trecho_do_llm": e.trecho_do_llm, "diferencas": e.diferencas}
+                                "comprovada": e.comprovada, "prova": e.prova, "trecho_do_llm": e.trecho_do_llm,
+                                "diferencas": e.diferencas}
                                for e in analise.respostas],
         "resposta_do_llm": analise.resposta,
         "primeira_tentativa": None if analise.primeira is None else {
             "invalida_porque": analise.primeira.problemas, "atores_sem_entrada": analise.primeira.faltam,
+            "atores_recusados": [{"ator": r.ator, "trecho": r.trecho, "motivo": r.motivo} for r in analise.primeira.recusados],
             "resposta_do_llm": analise.primeira.resposta,
         },
         "segunda_tentativa_recusada": None if analise.segunda is None else {
@@ -335,7 +338,8 @@ def _lados(analise, chamadas: list[dict]) -> dict:
     print(f"    questão: {registro['questao'] or '(sem disputa)'}")
     for e in registro["respostas_por_ator"]:
         quase = f" (quase literal, {e['diferencas']} palavra(s) diferente(s); o LLM escreveu: \"{e['trecho_do_llm']}\")" if e["trecho_do_llm"] else ""
-        print(f"    resposta de {e['ator']}: {e['resposta'] or '-'} · {'comprovada' if e['comprovada'] else 'TRECHO NÃO ENCONTRADO'} "
+        conferencia = (f"comprovada ({e['prova']})" if e["prova"] else "SEM A RESPOSTA DO ATOR") if e["comprovada"] else "TRECHO NÃO ENCONTRADO"
+        print(f"    resposta de {e['ator']}: {e['resposta'] or '-'} · {conferencia} "
               f"em {e['veiculo'] or '-'}: \"{e['trecho']}\"{quase}")
     for i, lado in enumerate(registro["lados"], 1):
         resposta = f"[{lado['resposta']}] " if lado["resposta"] else ""
@@ -356,13 +360,20 @@ def _lados(analise, chamadas: list[dict]) -> dict:
         print(f"    PRIMEIRA TENTATIVA RECUSADA: {'; '.join(analise.primeira.problemas)}")
         print(f"    resposta recusada: {json.dumps(analise.primeira.resposta, ensure_ascii=False)}")
     elif analise.primeira is not None:
-        print(f"    PRIMEIRA TENTATIVA SEM A ENTRADA DE: {'; '.join(analise.primeira.faltam)} (a nova tentativa pediu a entrada)")
+        if analise.primeira.faltam:
+            print(f"    PRIMEIRA TENTATIVA SEM A ENTRADA DE: {'; '.join(analise.primeira.faltam)} (a nova tentativa pediu a entrada)")
+        for r in analise.primeira.recusados:
+            print(f"    PRIMEIRA TENTATIVA COM TRECHO RECUSADO: {r.ator}: \"{r.trecho}\" ({r.motivo}; a nova tentativa pediu o trecho)")
         print(f"    primeira resposta: {json.dumps(analise.primeira.resposta, ensure_ascii=False)}")
     if analise.segunda is not None:
-        print(f"    NOVA TENTATIVA RECUSADA (fica a primeira, sem {'; '.join(analise.faltam)}): {'; '.join(analise.segunda.problemas)}")
+        sem = "; ".join([*analise.faltam, *(r.ator for r in analise.recusados)])
+        print(f"    NOVA TENTATIVA RECUSADA (fica a primeira, sem {sem}): {'; '.join(analise.segunda.problemas)}")
         print(f"    resposta recusada: {json.dumps(analise.segunda.resposta, ensure_ascii=False)}")
     elif analise.faltam:
         print(f"    A ENTRADA NÃO VEIO NA NOVA TENTATIVA, o ator saiu: {'; '.join(analise.faltam)}")
+    for r in analise.recusados if analise.segunda is None else ():
+        print(f"    TRECHO SEM VALER{' NA NOVA TENTATIVA' if analise.primeira is not None else ''}, o ator saiu: {r.ator}: "
+              f"\"{r.trecho}\" ({r.motivo})")
     if analise.problemas:
         print(f"    AS DUAS TENTATIVAS FALHARAM, a pauta ficou com o lado de emergência: {'; '.join(analise.problemas)}")
         print(f"    resposta do LLM: {json.dumps(analise.resposta, ensure_ascii=False)}")

@@ -18,6 +18,7 @@ from techdigest.ai.qa import (
     palavras_do_ator, termo_do_grupo, veiculos_distintos,
 )
 from techdigest.ai.recorte import cortar_em_paragrafo, literal, localizar_trecho, procurado
+from techdigest.ai.verbos import verbos_de_decisao, verbos_de_posicao
 
 logger = logging.getLogger("techdigest.ai.lados")
 
@@ -39,8 +40,8 @@ POSICAO_DE_EMERGENCIA = "relato dos fatos, sem lados definidos"
 # Alvo de palavras por personagem conforme o número de analistas: com Helena, o total cabe em 600-1300.
 ALVO_POR_PERSONAGEM = {1: "360 a 420", 2: "320 a 400", 3: "260 a 310"}
 # Termos que não fazem um ator, sem acento: coletivo sem nome ("economistas"), designação vaga sem
-# qualificador ("o governo", "a empresa") e os quantificadores que os acompanham ("alguns analistas").
-# É genérico o ator que só tem palavras daqui: "governo federal" e "governo do Amazonas" valem.
+# qualificador ("o governo", "a empresa", "a campanha") e os quantificadores que os acompanham ("alguns analistas").
+# É genérico o ator que só tem palavras daqui: "governo federal" e "campanha de Lula" valem.
 # O ator genérico passa a grupo, e a posição que só grupos sustentam vira ressalva.
 TERMOS_GENERICOS = frozenset({
     "economista", "economistas", "especialista", "especialistas", "analista", "analistas", "critico", "criticos",
@@ -50,7 +51,28 @@ TERMOS_GENERICOS = frozenset({
     "apoiador", "apoiadores", "parlamentar", "parlamentares", "politico", "politicos",
     "governo", "governos", "empresa", "empresas", "companhia", "companhias", "entidade", "entidades",
     "organizacao", "organizacoes", "instituicao", "instituicoes", "orgao", "orgaos",
+    # instituições: só são grupo sem qualificador ("a campanha", não "a campanha de Lula")
+    "ministerio", "ministerios", "campanha", "campanhas", "prefeitura", "prefeituras", "secretaria", "secretarias",
+    "tribunal", "tribunais", "corte", "cortes", "partido", "partidos", "sindicato", "sindicatos", "coligacao",
+    "coligacoes", "plataforma", "plataformas", "rede", "redes",
 }) | QUANTIFICADORES
+# Coletivos de pessoas, sem acento: o ator cuja palavra principal é um deles é grupo mesmo com qualificador
+# ("comunidade de programação", "usuários do Reddit"), a não ser que ela venha com maiúscula, como nome
+# próprio ("Comunidade Europeia"). Ver `ator_generico`.
+COLETIVOS_DE_PESSOAS = frozenset({
+    "comunidade", "comunidades", "especialista", "especialistas", "usuario", "usuarios", "critico", "criticos",
+    "economista", "economistas", "analista", "analistas", "observador", "observadores", "pesquisador", "pesquisadores",
+    "estudioso", "estudiosos", "cientista", "cientistas", "jurista", "juristas", "tecnico", "tecnicos", "comentarista",
+    "comentaristas", "opositor", "opositores", "adversario", "adversarios", "aliado", "aliados", "apoiador", "apoiadores",
+    "parlamentares", "politicos", "consumidor", "consumidores", "eleitor", "eleitores", "internauta", "internautas",
+    "desenvolvedor", "desenvolvedores", "programador", "programadores", "morador", "moradores", "fa", "fas", "jogador",
+    "jogadores", "leitor", "leitores", "cidadaos", "trabalhadores", "servidores", "profissionais", "investidores",
+    "empresarios", "militantes", "ativistas", "autoridades", "fontes", "membros", "integrantes", "ministros", "setores",
+})
+# Marcadores de que a frase atribui o que diz a alguém já nomeado, sem verbo de posição (sem acento).
+_MARCADOR_DE_ATRIBUICAO = re.compile(
+    r"\b(?:segundo (?:ele|ela|eles|elas)|de acordo com (?:ele|ela|eles|elas)|na (?:avaliacao|visao|opiniao) (?:dele|dela|deles|delas))\b"
+)
 # O que a nova tentativa lembra ao LLM, depois do erro da primeira.
 LEMBRETE_DA_CORRECAO = (
     "Responda de novo, com o JSON completo. Uma questão só; cada lado é uma resposta diferente a ela; agrupe os "
@@ -58,11 +80,12 @@ LEMBRETE_DA_CORRECAO = (
     'coletivo sem nome vai em "grupos", nunca em "atores"; com questão, "respostas_por_ator" traz a resposta de cada '
     "ator e um trecho copiado ao pé da letra do texto; a ressalva traz o grupo e o trecho dela."
 )
-# O que a nova tentativa pede quando um ator está num lado e não tem entrada em "respostas_por_ator".
+# O que a nova tentativa pede quando um ator está num lado e não tem entrada em "respostas_por_ator", ou tem uma
+# cujo trecho não está no texto ou não traz a resposta dele.
 LEMBRETE_DAS_RESPOSTAS = (
-    "Responda de novo, com o JSON completo, e inclua a entrada de cada um desses atores: a resposta dele à questão e "
-    "um trecho copiado ao pé da letra do texto de um veículo. Ator sem trecho que comprove a resposta sai do lado. "
-    "Não mude o resto da resposta."
+    "Responda de novo, com o JSON completo, e traga a entrada de cada um desses atores: a resposta dele à questão e, "
+    "copiada ao pé da letra do texto de um veículo, a frase em que o texto traz essa resposta (o que ele afirma, "
+    "decide ou declara). Ator cuja resposta o texto não traz sai do lado. Não mude o resto da resposta."
 )
 
 
@@ -96,6 +119,20 @@ class Evidencia:
     comprovada: bool            # o trecho está no texto inteiro desse veículo, ao pé da letra ou quase
     trecho_do_llm: str = ""     # o que o LLM escreveu, quando difere do texto e foi aceito como quase literal
     diferencas: int = 0         # quantas palavras o trecho do LLM difere do texto do veículo
+    prova: str = ""             # o que mostra que o trecho traz a resposta do ator (ver `traz_a_resposta`); vazio se nada mostra
+
+    @property
+    def vale(self) -> bool:
+        """O trecho está no texto e traz a resposta do ator: só assim a entrada põe o ator num lado."""
+        return self.comprovada and bool(self.prova)
+
+
+@dataclass(frozen=True)
+class Recusado:
+    """Um ator que está num lado e tem entrada em "respostas_por_ator", mas nenhum trecho que valha."""
+    ator: str
+    trecho: str
+    motivo: str
 
 
 @dataclass(frozen=True)
@@ -122,6 +159,7 @@ class Analise:
     ajustes: list[str] = field(default_factory=list)     # o que o código mudou na resposta (ator que passou a grupo...)
     descartadas: list[tuple[Ressalva, str]] = field(default_factory=list)   # as ressalvas que não entram no episódio, com o motivo
     faltam: list[str] = field(default_factory=list)      # atores que estão num lado e não têm entrada em respostas_por_ator
+    recusados: list[Recusado] = field(default_factory=list)   # atores que estão num lado e cujo trecho não vale
     cortes: list[dict] = field(default_factory=list)     # se os textos não couberam inteiros na chamada: fonte, texto e lido
     resposta: dict | None = None
     primeira: "Analise | None" = None                    # a primeira tentativa, quando houve outra e a outra ficou valendo
@@ -170,7 +208,17 @@ def _mesma_resposta(a: str, b: str) -> bool:
 
 
 def ator_generico(nome) -> bool:
-    """Se o nome não chega a ser um ator: só tem termos de TERMOS_GENERICOS (sem contar artigo nem partícula)."""
+    """Se o nome não chega a ser um ator.
+
+    Não chega quando só tem termos de TERMOS_GENERICOS (sem contar artigo nem partícula), ou quando
+    a palavra principal (a primeira que não é artigo, partícula nem quantificador) é um coletivo de
+    pessoas (COLETIVOS_DE_PESSOAS) escrito em minúscula: "comunidade de programação" é grupo, mesmo
+    com o qualificador, e "Comunidade Europeia" é ator.
+    """
+    principal = next((p for p in re.findall(r"[^\W\d_]+", unicodedata.normalize("NFC", str(nome)))
+                      if termo_do_grupo(p)), "")
+    if termo_do_grupo(principal) in COLETIVOS_DE_PESSOAS and not principal[:1].isupper():
+        return True
     return palavras_do_ator(nome) <= TERMOS_GENERICOS
 
 
@@ -247,10 +295,94 @@ def _no_texto(trecho: str, textos, veiculos) -> tuple[str, int] | None:
     return next(filter(None, (localizar_trecho(trecho, texto) for texto in dos_veiculos)), None)
 
 
-def _evidencias(entradas: list, textos) -> list[Evidencia]:
-    """As respostas por ator da resposta do LLM, cada uma com o resultado da conferência do trecho (ver `_no_texto`).
+def _linhas_do_veiculo(textos, veiculo: str) -> list[str]:
+    """O título e os parágrafos dos textos desse veículo, na ordem."""
+    return [linha for t in textos if mesmo_veiculo(t["fonte"], veiculo) for linha in (t["titulo"], *t["texto"].splitlines())]
 
-    `textos` são os textos inteiros da pauta, mesmo quando a chamada leu um corte deles.
+
+def frase_do_trecho(trecho: str, textos, veiculo: str) -> str:
+    """A frase (ou as frases) do texto do veículo em que o trecho está, pela comparação de `recorte.literal`.
+
+    Vazio se o trecho não está, ao pé da letra, num parágrafo do título ou do texto desse veículo.
+    """
+    alvo = procurado(trecho)
+    for linha in _linhas_do_veiculo(textos, veiculo) if alvo else ():
+        paragrafo = literal(linha)
+        inicio = paragrafo.find(alvo)
+        if inicio < 0:
+            continue
+        fim, pos, envolvem = inicio + len(alvo), 0, []
+        for frase in frases(paragrafo):
+            i = paragrafo.find(frase, pos)
+            if i < 0:
+                continue
+            pos = i + len(frase)
+            if i < fim and pos > inicio:
+                envolvem.append(frase)
+        return " ".join(envolvem) or paragrafo
+    return ""
+
+
+def _citacao_direta(trecho: str, textos, veiculo: str) -> bool:
+    """Se o trecho está dentro de uma citação no texto do veículo: entre aspas ou numa fala marcada com travessão.
+
+    As aspas curvas abertas num parágrafo e não fechadas continuam abertas no seguinte, como se
+    escreve uma citação longa. Quem disse a citação não é conferido.
+    """
+    alvo, aberta = procurado(trecho), False
+    for linha in _linhas_do_veiculo(textos, veiculo) if alvo else ():
+        plano = literal(linha)
+        # as aspas como estão no texto, para separar a curva de abrir da de fechar (o resto é como em `literal`)
+        curvo = " ".join(re.sub("[„‟«]", "“", re.sub("»", "”", unicodedata.normalize("NFC", linha))).split()).casefold()
+        i = plano.find(alvo)
+        if i >= 0:
+            antes = curvo[:i]
+            curvas, retas = aberta, 0
+            for c in antes:
+                if c in "“”":
+                    curvas = c == "“"
+                retas += c == '"'
+            travessao = plano.lstrip().startswith(("—", "–", "- ")) or antes.rstrip().endswith(("—", "–")) or alvo.startswith(("—", "–"))
+            return curvas or retas % 2 == 1 or travessao
+        for c in curvo:
+            if c in "“”":
+                aberta = c == "“"
+    return False
+
+
+def _sem_acento(texto: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", texto) if not unicodedata.combining(c)).lower()
+
+
+def traz_a_resposta(ator: str, trecho: str, textos, veiculo: str) -> str:
+    """O que mostra que o trecho traz a resposta do ator à questão, e não só o descreve; vazio se nada mostra.
+
+    Vale, nesta ordem: um verbo de posição (`verbos.py`) no trecho; ou na frase do texto em que o
+    trecho está; o trecho ser citação direta; a frase nomear o ator e ter um verbo de decisão
+    (quem decide responde a favor da decisão); ou um marcador de atribuição na frase ("segundo
+    ele", "na avaliação dela"). O trecho que descreve a conduta do ator ("admitido falhas técnicas")
+    não traz a resposta dele. A conferência não vê de quem é o verbo da frase nem quem disse a
+    citação: o verbo de outro ator na mesma frase também vale.
+    """
+    if verbos := verbos_de_posicao(trecho):
+        return f"verbo de posição no trecho ({verbos[0]})"
+    frase = frase_do_trecho(trecho, textos, veiculo)
+    if verbos := verbos_de_posicao(frase):
+        return f"verbo de posição na frase ({verbos[0]})"
+    if _citacao_direta(trecho, textos, veiculo):
+        return "citação direta"
+    if ator_citado(ator, frase) and (verbos := verbos_de_decisao(frase)):
+        return f"verbo de decisão de quem decidiu ({verbos[0]})"
+    if marcador := _MARCADOR_DE_ATRIBUICAO.search(_sem_acento(frase)):
+        return f"marcador de atribuição ({marcador.group()})"
+    return ""
+
+
+def _evidencias(entradas: list, textos) -> list[Evidencia]:
+    """As respostas por ator da resposta do LLM, cada uma com o resultado da conferência do trecho.
+
+    O trecho tem de estar no texto do veículo (ver `_no_texto`) e trazer a resposta do ator (ver
+    `traz_a_resposta`). `textos` são os textos inteiros da pauta, mesmo quando a chamada leu um corte deles.
     """
     evidencias = []
     for entrada in entradas:
@@ -260,10 +392,14 @@ def _evidencias(entradas: list, textos) -> list[Evidencia]:
         if not ator:
             continue
         achado = _no_texto(trecho, textos, [veiculo] if veiculo else [])
-        if achado and achado[0] != trecho:   # achado palavra por palavra: vale o trecho como está no veículo
-            evidencias.append(Evidencia(ator, resposta, achado[0], veiculo, True, trecho_do_llm=trecho, diferencas=achado[1]))
+        if achado is None:
+            evidencias.append(Evidencia(ator, resposta, trecho, veiculo, False))
+            continue
+        prova = traz_a_resposta(ator, achado[0], textos, veiculo)
+        if achado[0] != trecho:   # achado palavra por palavra: vale o trecho como está no veículo
+            evidencias.append(Evidencia(ator, resposta, achado[0], veiculo, True, trecho_do_llm=trecho, diferencas=achado[1], prova=prova))
         else:
-            evidencias.append(Evidencia(ator, resposta, trecho, veiculo, achado is not None))
+            evidencias.append(Evidencia(ator, resposta, trecho, veiculo, True, prova=prova))
     return evidencias
 
 
@@ -276,29 +412,37 @@ def _responde(resposta_do_ator: str, resposta_do_lado: str) -> bool:
     return bool(a) and b[:len(a)] == a
 
 
-def _conferir_atores(rascunhos: list[_Rascunho], evidencias: list[Evidencia]) -> tuple[list[str], list[str]]:
+def _conferir_atores(rascunhos: list[_Rascunho], evidencias: list[Evidencia]) -> tuple[list[str], list[str], list[Recusado]]:
     """Deixa em cada lado só os atores cuja resposta, comprovada por um trecho, é a do lado.
 
-    Um ator pode ter mais de uma entrada, uma por trecho. O ator sem resposta listada ou sem
-    trecho comprovado sai. O ator que está num lado de resposta diferente da dele vai para o lado
-    da resposta dele, se existir, ou sai. Cada lado fica com os trechos comprovados dos atores que
-    ficaram nele. Devolve o que mudou e os atores que saíram por não terem entrada na lista.
+    Um ator pode ter mais de uma entrada, uma por trecho. O ator sem resposta listada sai, e o
+    ator sem trecho que valha (que esteja no texto e traga a resposta dele, ver `Evidencia.vale`)
+    também. O ator que está num lado de resposta diferente da dele vai para o lado da resposta
+    dele, se existir, ou sai. Cada lado fica com os trechos que valem dos atores que ficaram nele.
+    Devolve o que mudou, os atores que saíram por não terem entrada na lista e os que saíram
+    porque nenhum trecho deles valeu, com o trecho e o motivo.
     """
     def evidencias_de(ator: str) -> list[Evidencia]:
         iguais = [e for e in evidencias if palavras_do_ator(e.ator) == palavras_do_ator(ator)]
         return iguais or [e for e in evidencias if mesmo_ator(e.ator, ator)]
 
-    ajustes, faltam, ficam = [], [], {r.numero: [] for r in rascunhos}   # por lado: (ator, trechos)
+    ajustes, faltam, recusados, ficam = [], [], [], {r.numero: [] for r in rascunhos}   # por lado: (ator, trechos)
     for r in rascunhos:
         for ator in r.atores:
             listadas = evidencias_de(ator)
-            comprovadas = [e for e in listadas if e.comprovada]
+            comprovadas = [e for e in listadas if e.vale]
             if not listadas:
                 ajustes.append(f"ator do lado {r.numero} saiu: não está em respostas_por_ator ({ator})")
                 faltam.append(ator)
                 continue
             if not comprovadas:
-                ajustes.append(f"ator do lado {r.numero} saiu: o trecho não está no texto de {listadas[0].veiculo or 'nenhum veículo'} ({ator})")
+                no_texto = next((e for e in listadas if e.comprovada), None)
+                if no_texto is None:
+                    motivo = f"o trecho não está no texto de {listadas[0].veiculo or 'nenhum veículo'}"
+                else:
+                    motivo = "o trecho não traz a resposta dele (sem verbo de posição, citação direta, decisão dele nem marcador de atribuição)"
+                ajustes.append(f"ator do lado {r.numero} saiu: {motivo} ({ator})")
+                recusados.append(Recusado(ator, (no_texto or listadas[0]).trecho, motivo))
                 continue
             if any(_responde(e.resposta, r.resposta) for e in comprovadas):
                 ficam[r.numero].append((ator, [e.trecho for e in comprovadas]))   # todo trecho comprovado dele conta para o lado
@@ -318,7 +462,7 @@ def _conferir_atores(rascunhos: list[_Rascunho], evidencias: list[Evidencia]) ->
                 for trecho in trechos:
                     if trecho not in r.trechos:
                         r.trechos.append(trecho)
-    return ajustes, faltam
+    return ajustes, faltam, recusados
 
 
 def _separar(rascunhos: list[_Rascunho], textos) -> tuple[dict[int, Lado], list[Ressalva], list[tuple[Ressalva, str]], list[str]]:
@@ -434,10 +578,11 @@ def analise_da_resposta(resposta, textos) -> Analise:
     lado sem ator nem grupo não vale; se ele é o único da resposta, a pauta fica com o lado neutro.
 
     Com questão, a resposta traz também "respostas_por_ator": a resposta de cada ator e um trecho
-    literal de um texto da pauta que a comprova. O ator sem trecho comprovado sai, e o ator que
-    está num lado de resposta diferente da dele vai para o lado certo, ou sai (ver
-    `_conferir_atores`); o que não tem entrada na lista fica em `faltam`. O lado que perde todos os
-    atores nomeados é descartado. Sem questão, os atores ficam como vieram.
+    literal de um texto da pauta que a comprova. O ator sem trecho que valha (no texto e com a
+    resposta dele, ver `traz_a_resposta`) sai e fica em `recusados`, e o ator que está num lado de
+    resposta diferente da dele vai para o lado certo, ou sai (ver `_conferir_atores`); o que não
+    tem entrada na lista fica em `faltam`. O lado que perde todos os atores nomeados é descartado.
+    Sem questão, os atores ficam como vieram.
 
     Dos lados com ator nomeado, vale até 3, cada um com um ator que nenhum outro tem. A questão só
     fica com 2 lados ou mais, e aí cada lado tem a sua resposta, diferente das outras; com um lado
@@ -468,7 +613,7 @@ def analise_da_resposta(resposta, textos) -> Analise:
     if vazios:
         return invalida(*(f"lado {i} sem ator nem grupo (a ressalva tem de nomear o grupo que a sustenta)" for i in vazios))
     sem_lado = [v for v in da_pauta if not any(v in r.veiculos for r in rascunhos)]
-    respostas, faltam = [], []
+    respostas, faltam, recusados = [], [], []
     if questao:
         entradas = resposta.get("respostas_por_ator")
         if not (isinstance(entradas, list) and entradas):
@@ -478,7 +623,7 @@ def analise_da_resposta(resposta, textos) -> Analise:
             f"trecho de {e.ator} aceito como quase literal ({e.diferencas} palavra(s) diferente(s) do texto de {e.veiculo}): "
             f"vale o do veículo" for e in respostas if e.trecho_do_llm
         ]
-        mudou, faltam = _conferir_atores(rascunhos, respostas)
+        mudou, faltam, recusados = _conferir_atores(rascunhos, respostas)
         ajustes += mudou
     nomeados, ressalvas, descartadas, mudou = _separar(rascunhos, textos)
     ajustes += mudou
@@ -512,7 +657,7 @@ def analise_da_resposta(resposta, textos) -> Analise:
         ressalvas = ressalvas[:MAX_RESSALVAS]
     return Analise(
         validos, questao, motivo, ressalvas=ressalvas, respostas=respostas, ajustes=ajustes,
-        descartadas=descartadas, faltam=faltam, resposta=resposta,
+        descartadas=descartadas, faltam=faltam, recusados=recusados, resposta=resposta,
     )
 
 
@@ -531,11 +676,17 @@ def pedido_de_correcao(recusada: Analise) -> str:
 
 
 def pedido_das_respostas(incompleta: Analise) -> str:
-    """O que a nova tentativa acrescenta à entrada quando um ator de um lado não tem entrada em "respostas_por_ator"."""
-    return "\n".join([
-        f'CORREÇÃO: na sua resposta anterior, estes atores estão num lado e não têm entrada em "respostas_por_ator": '
-        f"{'; '.join(incompleta.faltam)}.", *_anterior(incompleta), LEMBRETE_DAS_RESPOSTAS,
-    ])
+    """O que a nova tentativa acrescenta à entrada quando um ator de um lado não tem entrada em "respostas_por_ator"
+    ou tem uma cujo trecho não vale: cada ator recusado vai com o trecho e o motivo."""
+    linhas = []
+    if incompleta.faltam:
+        linhas.append(f'CORREÇÃO: na sua resposta anterior, estes atores estão num lado e não têm entrada em '
+                      f'"respostas_por_ator": {"; ".join(incompleta.faltam)}.')
+    if incompleta.recusados:
+        linhas.append(f"{'Além disso' if linhas else 'CORREÇÃO'}: na sua resposta anterior, o trecho destes atores não "
+                      f"comprova a resposta deles:")
+        linhas += [f'- {r.ator}: "{r.trecho}" ({r.motivo}).' for r in incompleta.recusados]
+    return "\n".join([*linhas, *_anterior(incompleta), LEMBRETE_DAS_RESPOSTAS])
 
 
 def _tentar(chamar, entrada: str, textos) -> Analise:
@@ -558,8 +709,9 @@ def analisar_lados(chamar, textos, limite: int | None = None) -> Analise:
     Há no máximo uma nova tentativa. Chamada que falha ou resposta inválida ganham uma, com o erro
     anexado à entrada; se ela também não valer, a pauta segue com o lado único de emergência, com
     aviso no log. A resposta válida em que um ator está num lado sem entrada em
-    "respostas_por_ator" também ganha uma, que pede a entrada dele: se a nova resposta valer, é ela
-    que fica (e o ator que continuar sem entrada sai); se não valer, fica a primeira, sem o ator.
+    "respostas_por_ator", ou com entrada cujo trecho não vale, também ganha uma, que pede a entrada
+    de cada um, com o trecho recusado e o motivo: se a nova resposta valer, é ela que fica (e o
+    ator que continuar sem entrada ou sem trecho que valha sai); se não valer, fica a primeira, sem o ator.
     `chamar(system, user, **opções)` é o chat_json do provider (ou o `_chamar` do Summarizer).
     """
     def entrada(pedido: str = "") -> tuple[str, list[dict]]:
@@ -577,9 +729,13 @@ def analisar_lados(chamar, textos, limite: int | None = None) -> Analise:
         logger.warning("Análise de lados: a resposta não valeu (%s). Nova tentativa, com o erro anexado.", "; ".join(analise.problemas))
         mensagem, cortes = entrada(pedido_de_correcao(analise))
         analise = replace(_tentar(chamar, mensagem, textos), cortes=cortes, primeira=analise)
-    elif analise.faltam:
-        logger.warning('Análise de lados: ator sem entrada em "respostas_por_ator" (%s). Nova tentativa, pedindo a entrada.',
-                       "; ".join(analise.faltam))
+    elif analise.faltam or analise.recusados:
+        if analise.faltam:
+            logger.warning('Análise de lados: ator sem entrada em "respostas_por_ator" (%s). Nova tentativa, pedindo a entrada.',
+                           "; ".join(analise.faltam))
+        if analise.recusados:
+            logger.warning("Análise de lados: ator com trecho que não vale (%s). Nova tentativa, pedindo o trecho.",
+                           "; ".join(f"{r.ator}: {r.motivo}" for r in analise.recusados))
         mensagem, cortes = entrada(pedido_das_respostas(analise))
         nova = replace(_tentar(chamar, mensagem, textos), cortes=cortes)
         if nova.problemas:

@@ -293,7 +293,8 @@ def test_process_com_dois_veiculos_cobra_as_fontes_e_revisa_dentro_do_orcamento(
     assert provider.analises[0][0][1] == entrada_dos_lados(lidos) and len(provider.analises[0][0][1]) <= espaco
     analise = s.ultimo_diagnostico["lados"]                           # inválida duas vezes: a nova tentativa leva o pedido e lê menos texto
     assert analise.primeira.cortes == cortes and [c["lido"] > 3000 for c in cortes] == [True, True, True]
-    assert sum(c["lido"] for c in analise.cortes) < sum(c["lido"] for c in cortes)
+    # o corte é em fim de parágrafo: com o pedido, a nova tentativa cabe no mesmo espaço e não lê mais que a primeira
+    assert sum(c["lido"] for c in analise.cortes) <= sum(c["lido"] for c in cortes) and len(provider.analises[1][0][1]) <= espaco
     assert "\nLADOS DA PAUTA: 1 lado.\n" in entrada and "\nLADOS DA PAUTA: 1 lado.\n" in revisao
     assert s.ultimo_diagnostico["problemas"] == [
         "fontes_citadas sem Agência Brasil (o episódio tem 3 veículos como fonte: cite cada um pelo nome no "
@@ -308,10 +309,9 @@ def test_process_com_dois_veiculos_cobra_as_fontes_e_revisa_dentro_do_orcamento(
 
 
 def test_process_com_dois_lados_exige_um_analista_por_lado(ollama_8192):
-    trecho = "Uma frase qualquer sobre o assunto"          # está em todo texto de _artigo
-    dois_lados = {"questao": "A Meta favoreceu um candidato?", "respostas_por_ator": [
-        {"ator": "campanha de Lula", "resposta": "Sim", "trecho": trecho, "veiculo": "CartaCapital"},
-        {"ator": "Meta", "resposta": "Não", "trecho": trecho, "veiculo": "Agência Brasil"},
+    dois_lados = {"questao": "A Meta favoreceu um candidato?", "respostas_por_ator": [   # trechos de _artigos_da_meta
+        {"ator": "campanha de Lula", "resposta": "Sim", "trecho": "A campanha de Lula acusa a empresa", "veiculo": "CartaCapital"},
+        {"ator": "Meta", "resposta": "Não", "trecho": "A Meta nega o favorecimento", "veiculo": "Agência Brasil"},
     ], "lados": [
         {"resposta": "Sim", "posicao": "A campanha acusa a Meta.", "atores": ["campanha de Lula"], "veiculos": ["CartaCapital"]},
         {"resposta": "Não", "posicao": "A Meta nega.", "atores": ["Meta"], "veiculos": ["Agência Brasil"]},
@@ -346,7 +346,7 @@ def test_process_com_dois_lados_exige_um_analista_por_lado(ollama_8192):
 
 def test_process_com_ressalva_cobra_a_pergunta_atribuida_da_helena(ollama_8192):
     um_lado_e_uma_ressalva = {"questao": "A flexibilização é boa para o Brasil?", "respostas_por_ator": [
-        {"ator": "Flávio Bolsonaro", "resposta": "Sim", "trecho": "Uma frase qualquer sobre o assunto", "veiculo": "G1"},
+        {"ator": "Flávio Bolsonaro", "resposta": "Sim", "trecho": "Flávio Bolsonaro defende flexibilizar o Mercosul", "veiculo": "G1"},
     ], "lados": [
         {"resposta": "Sim", "posicao": "Flávio propõe flexibilizar o Mercosul.", "atores": ["Flávio Bolsonaro"], "grupos": [], "veiculos": ["G1"]},
         {"resposta": "Não", "posicao": "A mudança pode enfraquecer a tarifa comum.", "atores": [], "grupos": ["economistas"],
@@ -358,7 +358,7 @@ def test_process_com_ressalva_cobra_a_pergunta_atribuida_da_helena(ollama_8192):
     provider = ProviderFalso(sem_pergunta, {"roteiro_podcast": roteiro}, lados=um_lado_e_uma_ressalva)
     s = Summarizer(provider=provider)
     principal = _artigo("G1", 2000)
-    principal["text"] += "\n\nNo entanto, economistas alertam para o risco."
+    principal["text"] += "\n\nFlávio Bolsonaro defende flexibilizar o Mercosul. No entanto, economistas alertam para o risco."
 
     episodio = s.process(principal)                                          # um lado e uma ressalva: um analista, sem divergência
     assert episodio == {**sem_pergunta, "roteiro_podcast": roteiro}          # só o roteiro mudou
@@ -614,10 +614,9 @@ def test_titulo_corrigido_que_ainda_reprova_ganha_uma_segunda_tentativa_com_os_d
 
 
 def test_papel_com_nome_de_ator_vai_para_a_revisao_do_roteiro_que_so_troca_o_papel(ollama_8192):
-    trecho = "Uma frase qualquer sobre o assunto"
-    dois_lados = {"questao": "A Meta favoreceu um candidato?", "respostas_por_ator": [
-        {"ator": "campanha de Lula", "resposta": "Sim", "trecho": trecho, "veiculo": "CartaCapital"},
-        {"ator": "Meta", "resposta": "Não", "trecho": trecho, "veiculo": "Agência Brasil"},
+    dois_lados = {"questao": "A Meta favoreceu um candidato?", "respostas_por_ator": [   # trechos de _artigos_da_meta
+        {"ator": "campanha de Lula", "resposta": "Sim", "trecho": "A campanha de Lula acusa a empresa", "veiculo": "CartaCapital"},
+        {"ator": "Meta", "resposta": "Não", "trecho": "A Meta nega o favorecimento", "veiculo": "Agência Brasil"},
     ], "lados": [
         {"resposta": "Sim", "posicao": "A campanha acusa a Meta.", "atores": ["campanha de Lula"], "veiculos": ["CartaCapital"]},
         {"resposta": "Não", "posicao": "A Meta nega.", "atores": ["Meta"], "veiculos": ["Agência Brasil"]},

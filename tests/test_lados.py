@@ -95,8 +95,9 @@ def test_resposta_valida_vira_a_questao_e_os_lados_com_a_grafia_da_pauta():
     # a contagem das frases em que os atores aparecem vem depois, sobre os textos que a geração recebe
     assert [lado.mencoes for lado in com_mencoes(analise.lados, TEXTOS)] == [1, 3]
     assert analise.respostas == [
-        Evidencia("campanha de Lula", "Sim", DA_CARTA, "cartacapital", True), Evidencia("PT", "sim", DA_AB, "Agência Brasil", True),
-        Evidencia("Meta", "Não", DA_AB, "Agência Brasil", True),
+        Evidencia("campanha de Lula", "Sim", DA_CARTA, "cartacapital", True, prova="verbo de posição no trecho (acusou)"),
+        Evidencia("PT", "sim", DA_AB, "Agência Brasil", True, prova="verbo de posição no trecho (respondeu)"),
+        Evidencia("Meta", "Não", DA_AB, "Agência Brasil", True, prova="verbo de posição no trecho (respondeu)"),
     ]
     assert analise.motivo == "Acusação contra defesa." and analise.problemas == [] and analise.faltam == []
     assert analise.primeira is None and analise.segunda is None and len(chamada.recebido) == 1   # resposta válida não pede nova tentativa
@@ -211,7 +212,7 @@ def test_coletivo_sem_nome_e_designacao_vaga_sao_atores_genericos(ator):
 @pytest.mark.parametrize("ator", [
     "Governo federal", "governo do Amazonas", "governo Lula",                   # com qualificador, vale
     "Meta", "campanha de Lula", "Nunes Marques", "Grupo Prerrogativas",
-    "comandante do Corpo de Bombeiros do Amazonas", "economistas do Ipea",
+    "comandante do Corpo de Bombeiros do Amazonas", "Comunidade Europeia",
 ])
 def test_nome_ou_designacao_com_qualificador_nao_e_generico(ator):
     assert not ator_generico(ator)
@@ -219,7 +220,28 @@ def test_nome_ou_designacao_com_qualificador_nao_e_generico(ator):
 
 def test_termos_genericos_vao_sem_acento_e_em_minusculas():
     assert all(termo == termo.lower() and termo.isascii() for termo in modulo.TERMOS_GENERICOS)
+    assert all(termo == termo.lower() and termo.isascii() for termo in modulo.COLETIVOS_DE_PESSOAS)
     assert {"economistas", "especialistas", "analistas", "criticos", "observadores", "governo", "empresa"} <= modulo.TERMOS_GENERICOS
+
+
+@pytest.mark.parametrize("ator", [
+    "comunidade de programação", "usuários do fórum Vila Byte", "economistas do Ipea", "moradores do Jardim Sereno",
+    "alguns desenvolvedores de jogos", "os eleitores de Porto Quieto",
+])
+def test_coletivo_de_pessoas_e_grupo_mesmo_com_qualificador(ator):
+    # como na pauta N55 de 17/10/2026: a "comunidade de programação" virou um lado e inventou a disputa
+    assert ator_generico(ator)
+
+
+@pytest.mark.parametrize("ator", ["Comunidade Europeia", "Usuários Unidos", "a Comunidade Vila Byte"])
+def test_coletivo_com_maiuscula_e_nome_proprio_e_continua_ator(ator):
+    assert not ator_generico(ator)
+
+
+def test_instituicao_so_e_grupo_sem_qualificador():
+    assert ator_generico("a campanha") and ator_generico("o ministério") and ator_generico("o tribunal") and ator_generico("a Corte")
+    assert not ator_generico("campanha de Lula") and not ator_generico("Ministério da Saúde")
+    assert not ator_generico("Coligação Força do Vale") and not ator_generico("Sindicato dos Metalúrgicos de Joinville")
 
 
 # ── Respostas por ator ────────────────────────────────────────────────────────────────────
@@ -292,6 +314,75 @@ def test_o_trecho_tem_de_estar_ao_pe_da_letra_no_texto_do_veiculo(trecho, veicul
     assert analise.respostas[0].comprovada is vale and (("Nunes Marques",) in [lado.atores for lado in analise.lados]) is vale
 
 
+# ── O trecho traz a resposta do ator ──────────────────────────────────────────────────────
+
+# Uma pauta inventada: a cooperativa decidiu fechar a feira, os feirantes protestam, e um texto descreve a conduta dela.
+FEIRA = [{"fonte": "Folha de Vila Serena", "titulo": "Cooperativa fecha a feira de domingo", "texto": (
+    "A Cooperativa Raízes do Campo decidiu fechar a feira de domingo a partir de novembro.\n"
+    "Segundo a cooperativa, a decisão foi tomada por falta de verba.\n"
+    "A Associação dos Feirantes protestou na porta da sede. “A feira sustenta duzentas famílias.\n"
+    "Fechar agora é abandonar quem produz”, disse a presidente da associação, Marta Quaresma.\n"
+    "— Não vamos sair da praça sem resposta — completou Marta Quaresma.\n"
+    "A cooperativa tem admitido atrasos no repasse aos produtores desde o ano passado.\n"
+    "O conselho da cooperativa, presidido por Edson Lacerda, determinou o fechamento em reunião fechada.\n"
+    "Na avaliação dela, o prazo dado aos feirantes é curto demais para reorganizar as vendas.\n"
+    "A prefeitura havia classificado a feira como patrimônio do bairro em 2019."
+)}]
+VILA = "Folha de Vila Serena"
+
+
+@pytest.mark.parametrize("ator, trecho, prova", [
+    ("Cooperativa Raízes do Campo", "A Cooperativa Raízes do Campo decidiu fechar a feira de domingo", "verbo de posição no trecho (decidiu)"),
+    ("Associação dos Feirantes", "A Associação dos Feirantes protestou na porta da sede", ""),        # descreve a conduta, não responde
+    ("Marta Quaresma", "A feira sustenta duzentas famílias", "verbo de posição no trecho (sustenta)"),
+    ("Marta Quaresma", "Fechar agora é abandonar quem produz", "verbo de posição na frase (disse)"),
+    ("Marta Quaresma", "Não vamos sair da praça sem resposta", "citação direta"),                    # fala com travessão
+    ("Edson Lacerda", "o fechamento em reunião fechada", "verbo de posição na frase (determinou)"),
+    ("Marta Quaresma", "o prazo dado aos feirantes é curto demais para reorganizar as vendas", "marcador de atribuição (na avaliacao dela)"),
+    ("prefeitura", "a feira como patrimônio do bairro em 2019", "verbo de posição na frase (havia classificado)"),
+    ("Cooperativa Raízes do Campo", "atrasos no repasse aos produtores desde o ano passado", ""),        # "admitir" não é verbo de posição
+])
+def test_o_trecho_tem_de_trazer_a_resposta_do_ator(ator, trecho, prova):
+    assert modulo.traz_a_resposta(ator, trecho, FEIRA, VILA) == prova
+
+
+def test_a_citacao_entre_aspas_vale_mesmo_continuada_de_outro_paragrafo():
+    # a citação que abre num parágrafo e fecha no seguinte continua aberta, e a frase sem verbo ainda é fala de alguém
+    sem_verbo = [{"fonte": VILA, "titulo": "Feira", "texto": "A presidente falou na praça. “A feira é o sustento do bairro.\nSem ela, a praça morre”."}]
+    assert modulo.traz_a_resposta("Marta Quaresma", "Sem ela, a praça morre", sem_verbo, VILA) == "citação direta"
+    retas = [{"fonte": VILA, "titulo": "Feira", "texto": 'A presidente falou na praça: "a feira é o sustento do bairro todo".'}]
+    assert modulo.traz_a_resposta("Marta Quaresma", "a feira é o sustento do bairro todo", retas, VILA) == "citação direta"
+    fora = [{"fonte": VILA, "titulo": "Feira", "texto": "“Fechou.” A feira é o sustento do bairro todo, mostram os dados."}]
+    assert modulo.traz_a_resposta("Marta Quaresma", "A feira é o sustento do bairro todo", fora, VILA) == ""
+
+
+def test_o_verbo_de_decisao_so_vale_na_frase_que_nomeia_o_ator():
+    texto = [{"fonte": VILA, "titulo": "Feira", "texto": (
+        "O fechamento da feira foi mandado pelo conselho presidido por Edson Lacerda.\n"
+        "A feira foi suspensa por tempo indeterminado, sem data para voltar."
+    )}]
+    assert modulo.traz_a_resposta("Edson Lacerda", "O fechamento da feira foi mandado pelo conselho", texto, VILA) == (
+        "verbo de decisão de quem decidiu (mandado)")
+    assert modulo.traz_a_resposta("Edson Lacerda", "A feira foi suspensa por tempo indeterminado", texto, VILA) == ""
+
+
+def test_ator_cujo_trecho_nao_traz_a_resposta_sai_e_fica_entre_os_recusados():
+    resposta = {"questao": "A feira deve fechar?", "respostas_por_ator": [
+        _evidencia("Cooperativa Raízes do Campo", "Sim", "A Cooperativa Raízes do Campo decidiu fechar a feira de domingo", VILA),
+        _evidencia("Associação dos Feirantes", "Não", "A Associação dos Feirantes protestou na porta da sede", VILA),
+    ], "lados": [_lado("Fecha.", ["Cooperativa Raízes do Campo"], [VILA], "Sim"), _lado("Não fecha.", ["Associação dos Feirantes"], [VILA], "Não")]}
+    analise = analise_da_resposta(resposta, FEIRA)
+    assert [lado.atores for lado in analise.lados] == [("Cooperativa Raízes do Campo",)] and analise.questao == ""
+    motivo = "o trecho não traz a resposta dele (sem verbo de posição, citação direta, decisão dele nem marcador de atribuição)"
+    assert analise.ajustes[0] == f"ator do lado 2 saiu: {motivo} (Associação dos Feirantes)"
+    assert analise.recusados == [modulo.Recusado("Associação dos Feirantes", "A Associação dos Feirantes protestou na porta da sede", motivo)]
+    assert [e.comprovada for e in analise.respostas] == [True, True] and [e.vale for e in analise.respostas] == [True, False]
+    # outra entrada do mesmo ator, com a fala dele, basta para ele ficar
+    com_a_fala = {**resposta, "respostas_por_ator": [*resposta["respostas_por_ator"],
+                                                     _evidencia("Associação dos Feirantes", "Não", "Fechar agora é abandonar quem produz", VILA)]}
+    assert len(analise_da_resposta(com_a_fala, FEIRA).lados) == 2 and analise_da_resposta(com_a_fala, FEIRA).recusados == []
+
+
 def test_sem_questao_os_atores_ficam_como_vieram():
     # pauta sem disputa: ninguém confere respostas nem trechos
     um = analise_da_resposta({"questao": "", "lados": [_lado(atores=["Terra de Direitos", "Justiça Global"], veiculos=VEICULOS)]}, TEXTOS)
@@ -332,7 +423,7 @@ def test_lado_fino_e_o_que_tem_os_atores_em_no_maximo_uma_frase_dos_textos():
     assert mencoes(["Waldez Góes", "governo federal"], QUEIMADAS) == 3  # a frase que cita dois atores do lado conta uma vez
     assert mencoes(["Nunes Marques"], QUEIMADAS) == 0 and mencoes([], QUEIMADAS) == 0
 
-    trecho_dele, trecho_do_ministro = "o governo federal estaria negando ajuda ao estado", "Waldez Góes anunciou a força-tarefa"
+    trecho_dele, trecho_do_ministro = "o governo federal estaria negando ajuda ao estado", "Waldez Góes respondeu às declarações do comandante"
     resposta = {"questao": "O governo federal nega ajuda ao Amazonas?", "respostas_por_ator": [
         _evidencia("comandante do Corpo de Bombeiros do Amazonas", "Sim", trecho_dele), _evidencia("Waldez Góes", "Não", trecho_do_ministro),
     ], "lados": [_lado("Nega.", ["comandante do Corpo de Bombeiros do Amazonas"], resposta="Sim"), _lado("Não nega.", ["Waldez Góes"], resposta="Não")]}
@@ -351,13 +442,13 @@ def test_lado_fino_e_o_que_tem_os_atores_em_no_maximo_uma_frase_dos_textos():
 # Uma pauta inventada, com frases de mais de dez palavras: a cópia quase literal pode diferir em uma palavra a cada dez.
 OBRA = [
     {"fonte": "Jornal do Vale", "titulo": "Prefeitura multa construtora",
-     "texto": ("A prefeitura de Curitiba multou a Construtora Alfa por atrasar a entrega da ponte em mais de seis meses.\n"
+     "texto": ("A prefeitura de Curitiba decidiu multar a Construtora Alfa por atrasar a entrega da ponte em mais de seis meses.\n"
                "A construtora afirmou em nota que o atraso foi causado pelas chuvas e que vai recorrer da multa na Justiça.")},
     {"fonte": "Diário do Litoral", "titulo": "Engenheiros veem risco na obra",
      "texto": ("Engenheiros ouvidos pelo jornal alertam que a pressa para terminar a ponte pode comprometer a segurança da estrutura.\n"
                "A Construtora Alfa sustenta que a obra segue todas as normas técnicas e que não há risco para os motoristas.")},
 ]
-MULTOU = "A prefeitura de Curitiba multou a Construtora Alfa por atrasar a entrega da ponte em mais de seis meses."
+MULTOU = "A prefeitura de Curitiba decidiu multar a Construtora Alfa por atrasar a entrega da ponte em mais de seis meses."
 RECORRE = "A construtora afirmou em nota que o atraso foi causado pelas chuvas e que vai recorrer da multa na Justiça."
 ALERTAM = "Engenheiros ouvidos pelo jornal alertam que a pressa para terminar a ponte pode comprometer a segurança da estrutura."
 SUSTENTA = "A Construtora Alfa sustenta que a obra segue todas as normas técnicas e que não há risco para os motoristas."
@@ -655,6 +746,76 @@ def test_se_a_nova_tentativa_nao_vale_fica_a_primeira_resposta_sem_o_ator(caplog
         assert [lado.atores for lado in analise.lados] == [("Nunes Marques",), ("Lula",)] and analise.problemas == []
         assert analise.resposta is SEM_A_CAMPANHA and analise.primeira is None and analise.segunda.problemas
         assert "a nova tentativa não valeu" in caplog.text and "Fica a primeira resposta, sem o ator." in caplog.text
+
+
+# ── Ator cujo trecho não vale: a mesma nova tentativa ─────────────────────────────────────
+
+PROTESTOU = "A Associação dos Feirantes protestou na porta da sede"
+
+
+def _feira(trecho_da_associacao=PROTESTOU, *, com_marta=False) -> dict:
+    entradas = [_evidencia("Cooperativa Raízes do Campo", "Sim", "A Cooperativa Raízes do Campo decidiu fechar a feira de domingo", VILA),
+                _evidencia("Associação dos Feirantes", "Não", trecho_da_associacao, VILA)]
+    atores_do_nao = ["Associação dos Feirantes", "Marta Quaresma"] if com_marta else ["Associação dos Feirantes"]
+    return {"questao": "A feira deve fechar?", "respostas_por_ator": entradas,
+            "lados": [_lado("Fecha.", ["Cooperativa Raízes do Campo"], [VILA], "Sim"), _lado("Não fecha.", atores_do_nao, [VILA], "Não")]}
+
+
+def test_ator_cujo_trecho_nao_vale_ganha_nova_tentativa_com_o_trecho_e_o_motivo(caplog):
+    corrigida = _feira("Fechar agora é abandonar quem produz")
+    chamada = Chamada(_feira(), corrigida)
+    with caplog.at_level(logging.WARNING, logger="techdigest.ai.lados"):
+        analise = analisar_lados(chamada, FEIRA)
+    assert [lado.atores for lado in analise.lados] == [("Cooperativa Raízes do Campo",), ("Associação dos Feirantes",)]
+    assert analise.resposta is corrigida and analise.recusados == [] and analise.primeira.recusados and analise.segunda is None
+    (_, primeira, _), (_, segunda, _) = chamada.recebido
+    motivo = "o trecho não traz a resposta dele (sem verbo de posição, citação direta, decisão dele nem marcador de atribuição)"
+    assert segunda == primeira + "\n\n" + pedido_das_respostas(analise.primeira) == primeira + (
+        "\n\nCORREÇÃO: na sua resposta anterior, o trecho destes atores não comprova a resposta deles:\n"
+        f'- Associação dos Feirantes: "{PROTESTOU}" ({motivo}).\n'
+        "Resposta anterior: " + json.dumps(_feira(), ensure_ascii=False) + "\n" + modulo.LEMBRETE_DAS_RESPOSTAS
+    )
+    assert "a frase em que o texto traz essa resposta" in modulo.LEMBRETE_DAS_RESPOSTAS
+    assert "ator com trecho que não vale (Associação dos Feirantes: o trecho não traz a resposta dele" in caplog.text
+
+
+def test_o_pedido_junta_o_ator_sem_entrada_e_o_de_trecho_recusado():
+    analise = analise_da_resposta(_feira(com_marta=True), FEIRA)
+    assert analise.faltam == ["Marta Quaresma"] and [r.ator for r in analise.recusados] == ["Associação dos Feirantes"]
+    pedido = pedido_das_respostas(analise)
+    assert pedido.startswith('CORREÇÃO: na sua resposta anterior, estes atores estão num lado e não têm entrada em '
+                             '"respostas_por_ator": Marta Quaresma.\nAlém disso: na sua resposta anterior, o trecho destes '
+                             f'atores não comprova a resposta deles:\n- Associação dos Feirantes: "{PROTESTOU}"')
+    chamada = Chamada(_feira(com_marta=True))                              # uma vaga só: a mesma nova tentativa para os dois
+    analisar_lados(chamada, FEIRA)
+    assert len(chamada.recebido) == 2
+
+
+def test_se_o_trecho_continua_sem_valer_o_ator_sai_e_nao_ha_terceira_tentativa():
+    chamada = Chamada(_feira())                                            # a nova tentativa repete o mesmo trecho
+    analise = analisar_lados(chamada, FEIRA)
+    assert len(chamada.recebido) == 2 and analise.problemas == [] and analise.questao == ""
+    assert [lado.atores for lado in analise.lados] == [("Cooperativa Raízes do Campo",)] and analise.recusados
+
+
+def test_se_a_nova_tentativa_pelo_trecho_nao_vale_fica_a_primeira():
+    chamada = Chamada(_feira(), {"lados": []})
+    analise = analisar_lados(chamada, FEIRA)
+    assert analise.resposta == _feira() and analise.segunda.problemas and analise.primeira is None
+    assert [lado.atores for lado in analise.lados] == [("Cooperativa Raízes do Campo",)]
+
+
+def test_resposta_invalida_usa_a_vaga_e_nao_ha_tentativa_pelo_trecho():
+    # a vaga é uma por análise: depois da correção de uma resposta inválida, o trecho recusado não pede outra
+    chamada = Chamada({"lados": []}, _feira())
+    analise = analisar_lados(chamada, FEIRA)
+    assert len(chamada.recebido) == 2 and analise.recusados and analise.primeira.problemas
+
+
+def test_o_prompt_diz_que_estrategias_diferentes_nao_criam_disputa():
+    # como no N69 de 17/10/2026: a decisão de outra empresa sobre o próprio negócio virou o lado "Sim"
+    assert "estratégias, planos ou decisões diferentes de atores diferentes, cada um sobre o próprio negócio" in PROMPT_LADOS
+    assert "esse lado precisaria de um ator que afirme que a Rede Sul vai suspender a linha" in PROMPT_LADOS
 
 
 # ── O bloco da entrada ────────────────────────────────────────────────────────────────────

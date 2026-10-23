@@ -216,6 +216,10 @@ Se a questão do fato novo só tem um lado com ator nomeado, verifique se os tex
 fato, outra questão em que atores nomeados tomam posições opostas. Se trouxerem, use essa.
 NÃO criam disputa: informação complementar, detalhes diferentes entre os textos, a simples sequência dos \
 fatos, o contexto ou o histórico do assunto.
+Também NÃO criam disputa estratégias, planos ou decisões diferentes de atores diferentes, cada um sobre o \
+próprio negócio. Se a questão é "A Viação Rede Sul vai suspender a linha noturna?", a Viação Velox ter cortado \
+as próprias linhas noturnas é contexto, e não o lado "Sim": esse lado precisaria de um ator que afirme que a \
+Rede Sul vai suspender a linha.
 Sem disputa, a questão fica vazia ("") e a história tem UM lado só. Na dúvida, não há disputa.
 
 ## OS LADOS

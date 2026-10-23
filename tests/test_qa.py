@@ -183,7 +183,7 @@ def test_titulo_com_ano_ordinal_ou_quantidade_absoluta_passa(titulo):
 # ── Verbos de posição ─────────────────────────────────────────────────────────────────────
 
 def test_verbos_de_posicao_sao_formas_inteiras_e_nao_radicais():
-    assert len(VERBOS_DE_POSICAO) == 25 and len(FORMAS_DE_POSICAO) == 25 * 7
+    assert len(VERBOS_DE_POSICAO) == 27 and len(FORMAS_DE_POSICAO) == 27 * 8     # sete formas e o infinitivo de cada um
     # os de quem informa ou declara: a constatação de um órgão técnico ("informou que não identificou...")
     assert verbos_de_posicao("A assessoria informou e concluiu; o porta-voz disse e declarou.") == ["informou", "concluiu", "disse", "declarou"]
     assert verbos_de_posicao("Eles diziam, concluíram e vêm informando.") == ["diziam", "concluíram", "informando"]
@@ -197,6 +197,31 @@ def test_verbos_de_posicao_sao_formas_inteiras_e_nao_radicais():
     assert verbos_de_posicao("O negócio da empresa e a cobertura do jornal") == []      # "nega" e "cobra" não são radicais
     assert verbos_de_posicao("A crítica da campanha é dura.") == []                     # o acento conta: não é "critica"
     assert verbos_de_posicao("A campanha critica a empresa.") == ["critica"]
+
+
+def test_verbos_novos_o_infinitivo_e_o_preterito_composto():
+    # classificar e ressaltar, de quem qualifica um fato ou põe ênfase numa parte dele
+    assert verbos_de_posicao("O instituto classificou o vídeo como falso e ressaltou o prazo.") == ["classificou", "ressaltou"]
+    # o infinitivo de qualquer verbo da lista
+    assert verbos_de_posicao("A defesa vai alegar nulidade, e o ministro deve decidir hoje.") == ["alegar", "decidir"]
+    # o pretérito composto vale como par: o auxiliar e o particípio
+    assert verbos_de_posicao("O ministro havia classificado a ação, e a cooperativa tinha dito que não.") == [
+        "havia classificado", "tinha dito"]
+    assert verbos_de_posicao("A empresa teria negado o pedido e tem defendido o plano.") == ["teria negado", "tem defendido"]
+    # o particípio sozinho é substantivo ou adjetivo: "o pedido", "o dito", "o acusado"
+    assert verbos_de_posicao("O tribunal apreciou outro pedido da campanha, e o acusado não veio.") == []
+    assert verbos_de_posicao("Foi um dia determinado; o ponto destacado no relatório.") == []
+    # considerar, justificar, pedir e chamar ficaram fora (decisão de 23/10/2026)
+    assert verbos_de_posicao("Ele considera, justifica, pede e chama.") == []
+
+
+def test_verbos_de_decisao_sao_outra_lista_que_o_qa_nao_usa():
+    from techdigest.ai.verbos import FORMAS_DE_DECISAO, verbos_de_decisao
+    assert verbos_de_decisao("O ministro mandou suspender; a feira foi suspensa e a multa, determinada.") == [
+        "mandou", "suspensa", "determinada"]
+    assert {"suspendeu", "mandou", "suspensa", "mandado"}.isdisjoint(FORMAS_DE_POSICAO)
+    assert {"determinou", "decidiu"} <= FORMAS_DE_DECISAO & FORMAS_DE_POSICAO   # determinar e decidir estão nas duas
+    assert verbos_de_posicao("O ministro mandou suspender a feira.") == []
 
 
 # ── Analistas por lado ────────────────────────────────────────────────────────────────────
