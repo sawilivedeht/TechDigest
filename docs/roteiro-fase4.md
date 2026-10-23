@@ -462,6 +462,25 @@ Três condições, todas cumpridas:
   item 2.
 - **Itens 7 e 8:** no relatório; o 7 depende da linha de base.
 
+**Em 23/10, a linha de base:**
+
+- **A rodada:**
+  - **Máquina:** continuava no kernel comum (7.2.11-arch1-1), agora com o `nvidia-open`, a GPU
+    respondendo e `library=CUDA` no log.
+  - **Resultado:** a `master` aprovou os 20 itens em 38 minutos, com 21 chamadas.
+  - **Carga:** o modelo carregou com 27 de 31 camadas na GPU, e a memória disponível ficou sempre
+    acima de 17 GiB.
+- **A mesma leitura, frase a frase:**
+  - **Taxa:** 30% das frases da `master` trazem argumento, opinião ou fato que o texto não traz,
+    contra 21% na fase 4.
+  - **Por tamanho de texto:** na `master`, 36% nos textos curtos e 27% nos longos, o que reforça a
+    hipótese do orçamento.
+  - **Nas cinco disputas:** a `master` põe menos argumento na boca dos atores (9 contra 29), mas
+    inventa mais no geral (32% contra 27%).
+  - **Outros erros:** pende para um lado (A79) e troca as posições (N13). Também cria um debate
+    sem disputa (A72).
+- **Item 7:** a recomendação é manter a análise de lados na fonte única, com as correções.
+
 ## Números medidos
 
 - **Produção, 07/10/2026** (`master`, execução das 08:09): geração de 208 a 291 s a 11-16 tok/s,
