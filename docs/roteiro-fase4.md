@@ -30,7 +30,9 @@ ele está; este arquivo guarda o que foi decidido e o que falta, e é atualizado
    20 aprovados, todos os outros por palavras abaixo do mínimo, e uma disputa inventada nova (N27).
    Em 24/10, as decisões do dono entraram (f1e2713 e 31a2060), e a rodada curta de 8 itens também
    não atingiu o aceite: 5 de 8 aprovados, os outros por palavras, porque a conta do bloco não
-   fecha, com 9,8 marcas por mil palavras. O resultado espera a decisão do dono.
+   fecha, com 9,8 marcas por mil palavras. Na segunda leva do mesmo dia, o plano das falas entrou
+   (70ef651), e a segunda rodada curta também não atingiu o aceite: 6 de 8 aprovados, com 6,8 marcas
+   por mil palavras. A regressão não rodou. O resultado espera a decisão do dono.
 5. **Integração do agrupamento** atrás de `AGRUPAMENTO_ATIVO`, com os filtros, o limite de
    tentativas, os excedentes e o registro de cada execução.
 6. **Simulação de ponta a ponta.** A que libera o merge roda com `AGRUPAMENTO_ATIVO=false`, que é o
@@ -812,6 +814,52 @@ GiB; o detalhe em `data/agrupamento/rodada_20261024/resultado.md`):
   - o teste da janela de 8192 passou a usar a menor proporção de caracteres por token medida (3,26):
     com a inicial de 3,0, que só vale se a análise de lados falhar, um texto de 5.000 caracteres
     perderia o último parágrafo.
+
+**Em 24/10, a segunda rodada curta** (19:03 a 19:20, 19 chamadas, memória disponível sempre acima de
+18,2 GiB; o detalhe em `data/agrupamento/rodada_20261024b/resultado.md`):
+
+- **O aceite não foi atingido:**
+
+  | Critério | Meta | Resultado |
+  |---|---|---|
+  | Aprovados | 7 de 8 ou mais | 6 (A79, A104, N86, N92, N27, N84) |
+  | Marcas por mil palavras de roteiro | menos de 10 | 6,8 |
+
+  A regressão nos 20 não rodou.
+- **O plano das falas foi seguido em número e ordem, mas não em tamanho.**
+  - O número de falas e a ordem bateram em 6 dos 8. No A79 faltou uma rodada; no N13 o analista falou
+    duas vezes seguidas.
+  - Nenhum episódio termina com o analista (2 de 8 de manhã).
+  - As falas dos analistas saíram com uns 75% do tamanho do plano, e as da Helena, com 89%. O roteiro
+    médio caiu de 597 para 517 palavras.
+- **Os dois reprovados:**
+  - **A63, pela regra dos analistas por lado.** A Beatriz apresenta o Kassio na voz passiva ("foi
+    determinada por decisão do presidente do TSE"), e o particípio sozinho não é verbo de posição. O
+    texto só traz o Kassio assim. A revisão completa corrigiu as palavras sem encurtar.
+  - **N13, por palavras.** O Dr. Ramos fez as 4 falas do plano com 49 palavras em vez de 90, e a
+    revisão manteve o plano mas acrescentou só 15 palavras. O episódio não tem marca.
+- **A leitura** (`data/agrupamento/correcoes_20261024b/leitura_curta2.py`): 28 marcas.
+  - O fechamento caiu de 12 marcas para 4: nenhum "segue em aberto" sem base, e uma questão em aberto
+    inventada (N84). O "fica claro" apareceu uma vez, no meio do A104.
+  - 6 das 16 marcas dos analistas são da Bia do A79, a do lado do comandante (2 frases de material,
+    185 palavras); o Dr. Ramos, do lado do ministro, não tem nenhuma.
+- **Por analista** (`analistas.py`, nas quatro rodadas): nas pautas com disputa, a invenção salta
+  acima de umas 90 palavras por frase do lado. Desde 23/10, até 50 palavras por frase dão 6,7 marcas
+  por mil, de 50 a 90 dão 6,8, e acima de 90, 19,8.
+- **Lado fino:** o Dr. Ramos do N92 (1 frase, alvo 120) escreveu 101 palavras com 2 marcas. Desde 23/10,
+  5 dos 6 analistas de lado fino (44 a 120 palavras) não têm marca. O piso de 120 é decisão do dono.
+- **N27:** foi para o lado neutro. O plano de Flávio ficou com 59 palavras e o de Lula com 94, contra
+  umas 70 e 290 no texto; de manhã, com o lado único de Flávio, tinham sido 146 e 99.
+- **Outras observações:**
+  - no N86, o analista leva o nome do colunista que é a fonte ("Bruno Silva"); em 96 episódios
+    gravados, só o N86 tem isso, nas quatro rodadas;
+  - no N84, a ressalva do próprio veículo sumiu;
+  - no N92, a distorção dos 30 mil voltou.
+- **À espera do dono** (propostas em `resultado.md`; nada foi mudado):
+  - a mensagem do QA dizer quantas palavras faltam por fala (a recomendada); ou o plano em frases;
+  - um teto do alvo do analista pelo material, de 90 palavras por frase do lado;
+  - aceitar na regra dos analistas por lado o verbo de decisão na passiva com o ator como agente;
+  - o nome do analista igual ao de um ator, e as respostas trocadas, como regras a decidir.
 
 ## Números medidos
 
