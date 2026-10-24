@@ -519,7 +519,7 @@ def test_texto_curto_pede_menos_palavras_e_o_qa_cobra_o_minimo_da_pauta(ollama_8
     assert orc.reduzido and orc.total < 600 and orc.palavras_do_texto == palavras(entrada.textos) < 300
     [(_, mensagem)] = [args for args, _ in provider.chamadas]
     assert bloco_dos_lados(s.ultimo_diagnostico["lados"].lados, "", (), orc) in mensagem
-    assert "Os textos trazem pouco material, e o alvo é menor" in mensagem and mensagem.endswith(LEMBRETE)
+    assert "Os textos trazem pouco material, e o alvo já é menor" in mensagem and mensagem.endswith(LEMBRETE)
     assert len(qa.problemas(curto, ["G1"], s.ultimo_diagnostico["lados"].lados, [], [principal["text"]])) == 3   # sem o orçamento
     assert orc.palavras_do_texto == 256 and (orc.helena, orc.analistas, orc.total) == (200, (250,), 450)   # 1,75 × 256
 
@@ -556,6 +556,28 @@ def test_o_prompt_do_episodio_pede_atribuicao_e_nada_alem_do_que_os_textos_traze
     curta = "Acusação, crítica, opinião e previsão ficam sempre atribuídas a quem as faz"
     assert curta in prompt.PROMPT_REVISOR and curta in prompt.PROMPT_ROTEIRO
     assert "O por_que_importa também não traz consequência ou previsão" in prompt.PROMPT_REVISOR
+
+
+def test_o_prompt_pede_que_as_falas_cheguem_ao_alvo_com_o_que_os_textos_trazem():
+    # decisão de 24/10/2026, depois da regressão em que os roteiros ficaram com 66% do alvo
+    from techdigest.ai import prompt
+    assert "expanda as falas até o alvo de cada um, com o que os textos trazem, sem argumento novo" in prompt.PROMPT_SISTEMA
+    # o "fale menos" do item 4 saiu: ele contradiz o "expanda até o alvo"
+    assert "fale menos" not in prompt.PROMPT_SISTEMA
+    assert ("O alvo do bloco já é menor quando há pouco material; cumpra-o com o que os textos trazem, sem argumento novo."
+            in prompt.PROMPT_SISTEMA)
+    assert "as falas chegam ao alvo com o que os textos trazem, sem argumento novo" in prompt.PROMPT_REVISOR
+    for revisao in (prompt.PROMPT_REVISOR, prompt.PROMPT_ROTEIRO):
+        assert "EXPANDA com o que os textos trazem, sem argumento novo" in revisao and "mire no alvo que o bloco" in revisao
+
+
+def test_no_fechamento_helena_recapitula_fatos_e_posicoes_atribuidas():
+    from techdigest.ai import prompt
+    assert "ficou claro" not in prompt.PROMPT_SISTEMA and "fica claro" not in prompt.PROMPT_SISTEMA
+    assert ("FECHAMENTO: Helena recapitula os fatos e as posições, cada uma atribuída a quem a sustenta, e o que os textos "
+            "dizem que segue em aberto, e se despede.") in prompt.PROMPT_SISTEMA
+    curta = "No fechamento, Helena recapitula os fatos e as posições, cada uma atribuída a quem a sustenta"
+    assert curta in prompt.PROMPT_REVISOR and curta in prompt.PROMPT_ROTEIRO
 
 
 def test_os_exemplos_dos_prompts_nao_usam_veiculos_que_existem():

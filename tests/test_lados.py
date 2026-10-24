@@ -837,29 +837,32 @@ def test_bloco_diz_a_questao_os_lados_o_elenco_exato_e_o_alvo_de_palavras():
         "uma vez, na abertura, com palavras naturais, e não atribui as posições aos atores; cada analista sustenta a "
         "posição do seu lado, numa frase que nomeia um ator do lado, cita um veículo do lado e usa um verbo de posição, "
         'como em "segundo <veículo>, <ator> afirma que...". Lado fino tem pouco material nas fontes: o analista dele não '
-        "amplia além do que as fontes trazem. Alvo de palavras: Helena, 340 a 420; analista do lado 1, 160 a 200; analista "
-        "do lado 2, 390 a 470; total, 890 a 1090. Roteiro de 10 a 20 turnos, com falas de 50 a 90 palavras."
+        "amplia além do que as fontes trazem. Alvo de palavras: Helena, 380; analista do lado 1, 180; analista do lado 2, "
+        "430; total, 990. Roteiro de 13 turnos, com falas de 70 a 80 palavras."
     )   # sem as palavras do texto, o total é o de antes, e os analistas dividem pelas menções (1 contra 3)
     sem_fino = [Lado("A campanha acusa.", ("PT",), ("G1",), "Sim", ("um trecho", "outro trecho")), Lado("A Meta nega.", ("Meta",), ("G1",), "Não")]
     assert "lado fino" not in bloco_dos_lados(sem_fino, "Q?")
-    assert bloco_dos_lados(sem_fino, "Q?").endswith("Alvo de palavras: Helena, 340 a 420; analista do lado 1, 320 a 390; analista "
-                                                   "do lado 2, 320 a 390; total, 970 a 1190. Roteiro de 11 a 20 turnos, com falas de 50 a 90 palavras.")
+    assert bloco_dos_lados(sem_fino, "Q?").endswith("Alvo de palavras: Helena, 380; analista do lado 1, 350; analista do lado 2, "
+                                                   "350; total, 1080. Roteiro de 14 turnos, com falas de 70 a 80 palavras.")
     um = analise_da_resposta(UM_LADO, TEXTOS)
     assert reserva_do_bloco(um.lados) >= len(bloco_dos_lados(um.lados))  # a reserva cobre o orçamento com os números mais compridos
     assert bloco_dos_lados(um.lados, um.questao) == (
         "\nLADOS DA PAUTA: 1 lado.\n"
         "Lado 1: Uma posição. Atores: Meta. Veículos: Agência Brasil, CartaCapital.\n"
         'ELENCO: Helena e exatamente 1 analista, que explica o tema com ela, sem advogar; "houve_divergencia": false. '
-        "Alvo de palavras: Helena, 320 a 390; analista, 390 a 470; total, 700 a 860. Roteiro de 8 a 17 turnos, com falas de 50 a 90 palavras."
+        "Alvo de palavras: Helena, 350; analista, 430; total, 780. Roteiro de 10 turnos, com falas de 70 a 80 palavras."
     )
     # com o orçamento da pauta, o bloco pede menos e avisa que o material é pouco
     curto = bloco_dos_lados(um.lados, um.questao, (), orcamento(um.lados, 201))
-    assert curto.endswith("Alvo de palavras: Helena, 140 a 180; analista, 170 a 210; total, 320 a 390. Roteiro de 6 a 13 turnos, com "
-                          "falas de 30 a 54 palavras. Os textos trazem pouco material, e o alvo é menor: não preencha o tempo com "
-                          "argumento que as fontes não trazem.")
+    assert curto.endswith("Alvo de palavras: Helena, 160; analista, 190; total, 350. Roteiro de 5 turnos, com falas de 70 a 80 "
+                          "palavras. Os textos trazem pouco material, e o alvo já é menor: cumpra-o com o que as fontes trazem, sem "
+                          "argumento novo.")
+    # quando a estrutura pede mais turnos do que o total comporta com falas de 70 a 80 palavras, o bloco diz a média
+    dois = [Lado("p", ("Ator A",), ("G1",), "Sim", (), 1), Lado("p", ("Ator B",), ("G1",), "Não", (), 6)]
+    assert "Roteiro de 7 turnos, com falas de uns 60 palavras." in bloco_dos_lados(dois, "Q?", (), orcamento(dois, 239))
     assert reserva_do_bloco(um.lados) >= len(curto)
     tres = [Lado("p", (f"Ator {i}",), ("G1",), f"Resposta {i}") for i in range(3)]
-    assert "exatamente 3 analistas, um por lado" in bloco_dos_lados(tres, "Q?") and "analista do lado 3, 230 a 280" in bloco_dos_lados(tres, "Q?")
+    assert "exatamente 3 analistas, um por lado" in bloco_dos_lados(tres, "Q?") and "analista do lado 3, 250; total, 1150" in bloco_dos_lados(tres, "Q?")
 
 
 def test_bloco_traz_as_ressalvas_logo_depois_dos_lados():
@@ -874,7 +877,7 @@ def test_bloco_traz_as_ressalvas_logo_depois_dos_lados():
         'sem tomar partido; "houve_divergencia": false. Ressalva não é lado nem ganha analista: Helena traz cada uma como '
         "pergunta atribuída, sem avaliá-la nem reformulá-la, numa frase com o veículo, o grupo e um verbo de posição, "
         'seguida de uma pergunta aberta, como em "Segundo <veículo>, <grupo> alertam que... Como você vê isso?". '
-        "Alvo de palavras: Helena, 320 a 390; analista, 390 a 470; total, 700 a 860. Roteiro de 8 a 17 turnos, com falas de 50 a 90 palavras."
+        "Alvo de palavras: Helena, 350; analista, 430; total, 780. Roteiro de 10 turnos, com falas de 70 a 80 palavras."
     )
     dois = analisar_lados(Chamada(DOIS_LADOS), TEXTOS)
     com_ressalva = bloco_dos_lados(dois.lados, dois.questao, ressalvas[:1])
@@ -887,7 +890,7 @@ def test_bloco_do_lado_neutro_leva_a_posicao_e_os_veiculos():
         "\nLADOS DA PAUTA: 1 lado.\n"
         "Lado 1: relato dos fatos, sem lados definidos. Veículos: Agência Brasil, CartaCapital.\n"
         'ELENCO: Helena e exatamente 1 analista, que explica o tema com ela, sem advogar; "houve_divergencia": false. '
-        "Alvo de palavras: Helena, 320 a 390; analista, 390 a 470; total, 700 a 860. Roteiro de 8 a 17 turnos, com falas de 50 a 90 palavras."
+        "Alvo de palavras: Helena, 350; analista, 430; total, 780. Roteiro de 10 turnos, com falas de 70 a 80 palavras."
     )
 
 
@@ -895,7 +898,7 @@ def test_bloco_nunca_passa_do_espaco_reservado():
     longos = [Lado("Posição muito comprida. " * 40, ("Ator Um", "Ator Dois", "Ator Três"), ("O GLOBO", "G1", "Agência Brasil"),
                    "Uma resposta comprida demais para caber inteira no bloco de lados da pauta. " * 3) for _ in range(3)]
     bloco = bloco_dos_lados(longos, "Uma questão comprida demais? " * 20)
-    assert len(bloco) <= modulo.MAX_BLOCO and bloco.count("…") == 7 and bloco.endswith("50 a 90 palavras.")   # questão, 3 respostas e 3 posições
+    assert len(bloco) <= modulo.MAX_BLOCO and bloco.count("…") == 7 and bloco.endswith("70 a 80 palavras.")   # questão, 3 respostas e 3 posições
     assert reserva_do_bloco(longos, "Uma questão comprida demais? " * 20) == modulo.MAX_BLOCO                        # a reserva nunca passa do teto do bloco
     assert all(f"Lado {i} (resposta: Uma resposta comprida" in bloco and "): Posição muito comprida." in bloco for i in (1, 2, 3))
 

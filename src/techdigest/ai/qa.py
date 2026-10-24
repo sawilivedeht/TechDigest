@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from techdigest.ai.atribuicoes import atribuicoes_a_grupos, grupo_na_pauta, plano
 from techdigest.ai.numeros import dobrar as _dobrar
 from techdigest.ai.numeros import formatar, mais_proximo, numeros, pede_fonte, qualificador, tem_fonte, valores_dos_textos
-from techdigest.ai.orcamento import Orcamento, faixa, minimo_do_qa
+from techdigest.ai.orcamento import Orcamento, minimo_do_qa
 from techdigest.ai.verbos import FORMAS_DE_POSICAO, INFINITIVOS, verbos_de_posicao
 from techdigest.config import Settings
 
@@ -278,7 +278,7 @@ def limites_de_cada_personagem(result: dict, lados, orc: Orcamento | None = None
     analista de um lado fino (ver `analistas_de_lado_fino`), que é MIN_LADO_FINO, e para Helena em
     episódio com dois analistas ou mais, que é MIN_HELENA_COM_DEBATE. Com o orçamento da pauta
     (`orc`), o mínimo é uma fração do alvo de cada personagem, nunca acima do mínimo de antes (ver
-    `orcamento.minimo_do_qa`): fica sempre abaixo da faixa que o bloco pede. O teto que o prompt
+    `orcamento.minimo_do_qa`): fica sempre abaixo do alvo que o bloco pede. O teto que o prompt
     pedia ao analista de lado fino (MAX_LADO_FINO) não entra aqui: é só diagnóstico.
     """
     por_pers = palavras_por_personagem(result["roteiro_podcast"])
@@ -534,15 +534,13 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos, orc: O
     for nome, (minimo, maximo) in limites_de_cada_personagem(result, lados, orc).items():
         if not (minimo <= por_pers[nome] <= maximo):
             fino = ": é o analista de um lado fino, que não amplia além do que as fontes trazem" if nome in finos else ""
-            limites = (f"aceito de {minimo} a {maximo}; o alvo do bloco é " + "{} a {}".format(*faixa(alvos[nome]))) if orc else (
-                f"alvo {minimo}-{maximo}")
+            limites = f"aceito de {minimo} a {maximo}; o alvo do bloco é {alvos[nome]}" if orc else f"alvo {minimo}-{maximo}"
             probs.append(Problema(ROTEIRO, f"{nome} com {por_pers[nome]} palavras ({limites}{fino})"))
 
     total = sum(por_pers.values())
     minimo_total, maximo_total = limites_do_total(orc)
     if not (minimo_total <= total <= maximo_total):
-        limites = (f"aceito de {minimo_total} a {maximo_total}; o alvo do bloco é " + "{} a {}".format(*faixa(orc.total))) if orc else (
-            f"alvo {MIN_TOTAL}-{MAX_TOTAL}")
+        limites = f"aceito de {minimo_total} a {maximo_total}; o alvo do bloco é {orc.total}" if orc else f"alvo {MIN_TOTAL}-{MAX_TOTAL}"
         probs.append(Problema(ROTEIRO, f"total de {total} palavras ({limites})"))
 
     declarados = {p["nome"] for p in result["personagens"]}

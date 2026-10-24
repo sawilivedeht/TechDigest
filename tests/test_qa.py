@@ -713,9 +713,9 @@ def test_com_o_orcamento_da_pauta_o_minimo_vem_do_alvo_de_cada_personagem():
     assert len(qa.problemas(curto, ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS)) == 4
     # abaixo do mínimo, a mensagem diz o que é aceito e o alvo do bloco, para a revisão mirar no alvo
     assert qa.problemas(debate(130, 100, 100), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc) == [
-        f"Bia com 110 palavras (aceito de 112 a {qa.MAX_POR_PERSONAGEM}; o alvo do bloco é 140 a 170)"]
+        f"Bia com 110 palavras (aceito de 112 a {qa.MAX_POR_PERSONAGEM}; o alvo do bloco é 150)"]
     assert qa.problemas(debate(90, 100, 100), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc)[-1] == (
-        f"total de 309 palavras (aceito de 315 a {qa.MAX_TOTAL}; o alvo do bloco é 380 a 460)")
+        f"total de 309 palavras (aceito de 315 a {qa.MAX_TOTAL}; o alvo do bloco é 420)")
     # os máximos não mudam: com o orçamento, 650 continua passando
     assert qa.problemas(debate(130, qa.MAX_POR_PERSONAGEM - 11, 100), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc) == []
     # o mínimo nunca passa do de antes, mesmo com o alvo cheio

@@ -12,7 +12,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field, replace
 
-from techdigest.ai.orcamento import Orcamento, faixa, orcamento
+from techdigest.ai.orcamento import Orcamento, orcamento
 from techdigest.ai.prompt import PROMPT_LADOS
 from techdigest.ai.qa import (
     QUANTIFICADORES, ator_citado, atores_exclusivos, frases, mesmo_ator, mesmo_veiculo, palavras_do_ator, termo_do_grupo,
@@ -774,17 +774,20 @@ def _frase(texto: str) -> str:
 
 
 def _alvo_do_elenco(orc: Orcamento) -> str:
-    """O alvo de palavras de cada personagem e do total, os turnos e o tamanho das falas, como o bloco os diz."""
-    def de(alvo: int) -> str:
-        return "{} a {}".format(*faixa(alvo))
+    """O alvo de palavras de cada personagem e do total, os turnos e o tamanho das falas, como o bloco os diz.
+
+    Cada alvo é um número só: o QA cobra uma fração dele, e a diferença fica como margem.
+    """
     if len(orc.analistas) == 1:
-        analistas = f"analista, {de(orc.analistas[0])}"
+        analistas = f"analista, {orc.analistas[0]}"
     else:
-        analistas = "; ".join(f"analista do lado {i}, {de(alvo)}" for i, alvo in enumerate(orc.analistas, 1))
-    texto = (f" Alvo de palavras: Helena, {de(orc.helena)}; {analistas}; total, {de(orc.total)}. Roteiro de "
-             f"{orc.turnos[0]} a {orc.turnos[1]} turnos, com falas de {orc.por_fala[0]} a {orc.por_fala[1]} palavras.")
+        analistas = "; ".join(f"analista do lado {i}, {alvo}" for i, alvo in enumerate(orc.analistas, 1))
+    menor, maior = orc.por_fala
+    falas = f"de {menor} a {maior}" if menor != maior else f"de uns {menor}"
+    texto = (f" Alvo de palavras: Helena, {orc.helena}; {analistas}; total, {orc.total}. Roteiro de {orc.turnos} turnos, "
+             f"com falas {falas} palavras.")
     if orc.reduzido:
-        texto += " Os textos trazem pouco material, e o alvo é menor: não preencha o tempo com argumento que as fontes não trazem."
+        texto += " Os textos trazem pouco material, e o alvo já é menor: cumpra-o com o que as fontes trazem, sem argumento novo."
     return texto
 
 

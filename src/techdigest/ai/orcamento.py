@@ -4,9 +4,10 @@ O alvo total é FATOR vezes as palavras dos textos que a geração recebe (os re
 PISO_TOTAL e teto no alvo de antes para o tamanho do elenco (ALVO_DE_ANTES por personagem). A
 Helena fica com uma parte do total (`parte_da_helena`); os analistas dividem o resto na proporção
 das frases dos textos com os atores do lado de cada um (`Lado.mencoes`), cada um com MIN_ANALISTA
-palavras ou mais, e nenhum personagem passa de MAX_ALVO. Com pouco material, as falas encolhem e o
-número de turnos acompanha o total. O alvo vai ao bloco LADOS DA PAUTA como faixa; o QA cobra uma
-fração dele como mínimo (ver `qa.limites_de_cada_personagem`). Os máximos do QA não mudam.
+palavras ou mais, e nenhum personagem passa de MAX_ALVO. O alvo de cada personagem e o do total vão
+ao bloco LADOS DA PAUTA como um número só, e o número de turnos também, calculado com falas de 70 a
+80 palavras. O QA cobra uma fração do alvo como mínimo (ver `qa.limites_de_cada_personagem`), e a
+diferença fica como margem, como nas frases do resumo. Os máximos do QA não mudam.
 
 Não importa nada de `lados.py` nem de `qa.py`, que o usam: dos lados, só lê `mencoes`.
 """
@@ -19,29 +20,26 @@ PISO_TOTAL = 300
 ALVO_DE_ANTES = {1: 390, 2: 360, 3: 285}
 MENOR_PARTE_DA_HELENA, MAIOR_PARTE_DA_HELENA = 0.35, 0.45
 MIN_ANALISTA = 120            # o alvo de cada analista, no mínimo (o que se pedia ao de lado fino)
-MAX_ALVO = 430                # o alvo de cada personagem, no máximo: a faixa fica abaixo dos 480 que o prompt pedia
-FAIXA = 0.10                  # o alvo vai ao prompt como faixa: 10% para baixo e para cima
+MAX_ALVO = 430                # o alvo de cada personagem, no máximo: abaixo dos 480 que o prompt pedia
 FRACAO_DO_MINIMO = 0.75       # o QA cobra esta fração do alvo como mínimo (nunca acima do mínimo de antes)
-PALAVRAS_POR_FALA = (50, 90)  # com material cheio
-TOTAL_DAS_FALAS_CHEIAS = 600  # abaixo deste total, as falas encolhem na proporção...
-MENOR_ESCALA_DAS_FALAS = 0.6  # ...até 60% (30 a 54 palavras)
+PALAVRAS_POR_FALA = (70, 80)  # o número de turnos é calculado com falas deste tamanho
 MAX_TURNOS = 20
 
 
+def _metade_para_cima(valor: float) -> int:
+    """O inteiro mais próximo, com a metade para cima (o `round` do Python leva 4,5 a 4)."""
+    return int(math.floor(valor + 0.5))
+
+
 def _dezena(valor: float) -> int:
-    """A dezena mais próxima, com a metade para cima (165 vira 170, e não 160 como no `round` do Python)."""
-    return int(math.floor(valor / 10 + 0.5) * 10)
-
-
-def faixa(alvo: int) -> tuple[int, int]:
-    """A faixa que o prompt pede em volta de um alvo, em dezenas."""
-    return _dezena(alvo * (1 - FAIXA)), _dezena(alvo * (1 + FAIXA))
+    """A dezena mais próxima, com a metade para cima (165 vira 170, e não 160)."""
+    return _metade_para_cima(valor / 10) * 10
 
 
 def minimo_do_qa(alvo: int, minimo_de_antes: int) -> int:
     """O mínimo que o QA cobra de um alvo: FRACAO_DO_MINIMO dele, nunca acima do mínimo de antes.
 
-    Fica sempre abaixo da faixa que o prompt pede, inclusive para quem antes tinha um piso (o
+    Fica sempre abaixo do alvo que o bloco pede, inclusive para quem antes tinha um piso (o
     analista de lado fino, 120; a Helena com debate, 180).
     """
     return min(int(alvo * FRACAO_DO_MINIMO), minimo_de_antes)
@@ -83,22 +81,22 @@ class Orcamento:
         return self.helena + sum(self.analistas)
 
     @property
-    def por_fala(self) -> tuple[int, int]:
-        """Quantas palavras cada fala tem: 50 a 90 com material cheio, e menos com pouco."""
-        escala = min(max(self.total / TOTAL_DAS_FALAS_CHEIAS, MENOR_ESCALA_DAS_FALAS), 1.0)
-        return round(PALAVRAS_POR_FALA[0] * escala), round(PALAVRAS_POR_FALA[1] * escala)
+    def turnos(self) -> int:
+        """O número de turnos: o total dividido por uma fala de 75 palavras, o meio de PALAVRAS_POR_FALA.
+
+        Nunca fica abaixo da estrutura do episódio (a Helena abrindo, fechando e passando a palavra
+        a cada analista duas vezes: 5, 7 ou 9) nem acima de MAX_TURNOS.
+        """
+        estrutura = 2 * len(self.analistas) + 3
+        return min(max(_metade_para_cima(self.total / (sum(PALAVRAS_POR_FALA) / 2)), estrutura), MAX_TURNOS)
 
     @property
-    def turnos(self) -> tuple[int, int]:
-        """Quantos turnos cabem no total com falas do tamanho pedido; pelo menos os da estrutura.
-
-        A estrutura é a Helena abrindo, fechando e passando a palavra a cada analista duas vezes.
-        """
-        menor_fala, maior_fala = self.por_fala
-        baixo, alto = faixa(self.total)
-        estrutura = 2 * len(self.analistas) + 3
-        primeiro = min(max(math.ceil(baixo / maior_fala), estrutura), MAX_TURNOS)
-        return primeiro, min(max(alto // menor_fala, primeiro), MAX_TURNOS)
+    def por_fala(self) -> tuple[int, int]:
+        """O tamanho de cada fala: 70 a 80 palavras, ou, quando a estrutura pede mais turnos do que o
+        total comporta com falas desse tamanho, a média que sobra para cada turno (de-até iguais)."""
+        media = _metade_para_cima(self.total / self.turnos)
+        menor, maior = PALAVRAS_POR_FALA
+        return (menor, maior) if menor <= media <= maior else (media, media)
 
 
 def orcamento(lados, palavras_do_texto: int | None = None) -> Orcamento:
