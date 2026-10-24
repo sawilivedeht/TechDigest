@@ -101,7 +101,12 @@ def ollama_8192(monkeypatch):
 def test_fonte_unica_leva_o_bloco_de_lados_antes_do_lembrete(caracteres, ollama_8192):
     principal = {"source": "G1", "title": "Um  título\tcom espaços", "text": "\x00Sujeira  no começo.\n\n\n\n" + _texto(caracteres)}
     sem_bloco = _entrada_antiga(principal)
-    limite = Summarizer(provider=ProviderFalso())._limite_da_entrada(PROMPT_SISTEMA)    # o limite real de num_ctx=8192
+    resumidor = Summarizer(provider=ProviderFalso())
+    # A geração vem depois da análise de lados, que já mede a proporção de caracteres por token: a menor medida nas
+    # rodadas de 23 e 24/10/2026 foi 3,26. Com a inicial de 3,0, que só valeria se a análise falhasse, o plano das falas
+    # no bloco deixa um texto de 5.000 caracteres sem o último parágrafo.
+    resumidor.chars_por_token = 3.26
+    limite = resumidor._limite_da_entrada(PROMPT_SISTEMA)    # o limite real de num_ctx=8192
 
     # sem os lados, a entrada é a de sempre: o limite não chega a cortar um texto de fonte única
     assert montar_entrada(principal).texto == montar_entrada(principal, [], limite).texto == sem_bloco
@@ -561,7 +566,8 @@ def test_o_prompt_do_episodio_pede_atribuicao_e_nada_alem_do_que_os_textos_traze
 def test_o_prompt_pede_que_as_falas_cheguem_ao_alvo_com_o_que_os_textos_trazem():
     # decisão de 24/10/2026, depois da regressão em que os roteiros ficaram com 66% do alvo
     from techdigest.ai import prompt
-    assert "expanda as falas até o alvo de cada um, com o que os textos trazem, sem argumento novo" in prompt.PROMPT_SISTEMA
+    assert ("expanda as falas até o tamanho do plano, para que cada personagem chegue ao alvo dele, com o que os textos "
+            "trazem, sem argumento novo") in prompt.PROMPT_SISTEMA
     # o "fale menos" do item 4 saiu: ele contradiz o "expanda até o alvo"
     assert "fale menos" not in prompt.PROMPT_SISTEMA
     assert ("O alvo do bloco já é menor quando há pouco material; cumpra-o com o que os textos trazem, sem argumento novo."
@@ -571,12 +577,29 @@ def test_o_prompt_pede_que_as_falas_cheguem_ao_alvo_com_o_que_os_textos_trazem()
         assert "EXPANDA com o que os textos trazem, sem argumento novo" in revisao and "mire no alvo que o bloco" in revisao
 
 
+def test_o_prompt_e_as_revisoes_seguem_o_plano_das_falas():
+    # decisão de 24/10/2026: o bloco diz quantas falas cada personagem tem, de que tamanho e em que ordem
+    from techdigest.ai import prompt
+    assert ("o bloco LADOS DA PAUTA traz o plano das falas: quantas falas cada personagem tem, de que tamanho e em que "
+            "ordem, começando e terminando com Helena. Siga o plano.") in prompt.PROMPT_SISTEMA
+    # a revisão recebe o mesmo plano (o bloco vai junto) e o mantém: no A63 e no N13, ela encurtou o roteiro
+    assert "Mantenha o plano: corrija o que os problemas apontam sem encurtar as falas" in prompt._REGRAS_DO_ROTEIRO
+    for revisao in (prompt.PROMPT_REVISOR, prompt.PROMPT_ROTEIRO):
+        assert prompt._REGRAS_DO_ROTEIRO in revisao
+        assert ("Corrigir um problema nunca encurta o roteiro: o roteiro corrigido segue o plano das falas do bloco, com o "
+                "mesmo número de falas de cada personagem, na mesma ordem e com o tamanho do plano.") in revisao
+    assert "plano das falas" in summarizer.LEMBRETE and "não encurta as falas" in summarizer.LEMBRETE_DO_ROTEIRO
+
+
 def test_no_fechamento_helena_recapitula_fatos_e_posicoes_atribuidas():
     from techdigest.ai import prompt
-    assert "ficou claro" not in prompt.PROMPT_SISTEMA and "fica claro" not in prompt.PROMPT_SISTEMA
-    assert ("FECHAMENTO: Helena recapitula os fatos e as posições, cada uma atribuída a quem a sustenta, e o que os textos "
-            "dizem que segue em aberto, e se despede.") in prompt.PROMPT_SISTEMA
-    curta = "No fechamento, Helena recapitula os fatos e as posições, cada uma atribuída a quem a sustenta"
+    assert "ficou claro" not in prompt.PROMPT_SISTEMA
+    assert ("FECHAMENTO: Helena recapitula os fatos e as posições, cada uma atribuída a quem a sustenta, e se despede. Ela só "
+            "fala do que segue em aberto quando os textos disserem o que segue em aberto; se não disserem, não fala disso. Ela "
+            'não tira conclusão que os textos não tiram (como "fica claro que...").') in prompt.PROMPT_SISTEMA
+    assert prompt.PROMPT_SISTEMA.count("fica claro") == 1                # só como o exemplo do que não se faz
+    curta = ("No fechamento, Helena recapitula os fatos e as posições, cada uma atribuída a quem a sustenta; só fala do que "
+             "segue em aberto quando os textos disserem o que segue em aberto, e não tira conclusão que os textos não tiram")
     assert curta in prompt.PROMPT_REVISOR and curta in prompt.PROMPT_ROTEIRO
 
 

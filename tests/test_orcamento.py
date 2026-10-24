@@ -1,5 +1,5 @@
-"""Testes de ai/orcamento.py: o alvo de palavras proporcional ao material, a divisão entre os personagens, os turnos e o
-mínimo que o QA cobra."""
+"""Testes de ai/orcamento.py: o alvo de palavras proporcional ao material, a divisão entre os personagens, o plano das
+falas e o mínimo que o QA cobra."""
 import pytest
 
 from techdigest.ai import orcamento as modulo
@@ -39,26 +39,34 @@ def test_os_analistas_dividem_pelas_mencoes_com_120_no_minimo_e_430_no_maximo():
     assert orcamento(_lados(1, 1, 1), 150).analistas == (120, 120, 120)
 
 
-@pytest.mark.parametrize("total, turnos, por_fala", [
-    (350, 5, (70, 80)),       # 350 / 75 = 4,7: cinco turnos de 70 palavras
-    (470, 6, (70, 80)),
-    (780, 10, (70, 80)),      # material cheio: dez turnos de 78
-    (1080, 14, (70, 80)),
-])
-def test_o_numero_de_turnos_e_um_so_calculado_com_falas_de_70_a_80(total, turnos, por_fala):
-    orc = Orcamento(total // 2, (total - total // 2,), None)
-    assert (orc.turnos, orc.por_fala) == (turnos, por_fala)
-    assert 70 <= total / orc.turnos <= 80
+def test_o_plano_diz_quantas_falas_cada_personagem_tem_de_que_tamanho_e_em_que_ordem():
+    # um analista: Helena e analista alternados, começando e terminando com a Helena
+    um = Orcamento(350, (430,), None).plano
+    assert (um.falas, um.tamanhos, um.ordem, um.turnos) == ((6, 5), (60, 85), (0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0), 11)
+    # dois analistas, como no N13 de 24/10/2026: a Helena fala entre as rodadas, e o lado fino tem o mínimo de falas
+    n13 = Orcamento(260, (360, 120), None).plano
+    assert (n13.falas, n13.tamanhos, n13.ordem) == ((5, 4, 2), (50, 90, 60), (0, 1, 2, 0, 1, 2, 0, 1, 0, 1, 0))
+    # pouco material: cada analista fala pelo menos duas vezes, e as falas encolhem
+    assert Orcamento(140, (120, 140), None).plano.falas == (3, 2, 2)
+    assert Orcamento(160, (190,), None).plano == modulo.Plano((4, 3), (40, 65), (0, 1, 0, 1, 0, 1, 0))
+    assert Orcamento(350, (430,), None).turnos == 11
 
 
-def test_a_estrutura_pode_pedir_mais_turnos_e_as_falas_ficam_menores():
-    # Helena abre, fecha e passa a palavra a cada analista duas vezes: 5, 7 ou 9 turnos no mínimo
-    assert Orcamento(140, (160,), None).turnos == 5 and Orcamento(140, (160,), None).por_fala == (60, 60)
-    tres = orcamento(_lados(1, 1, 1), 150)
-    assert (tres.total, tres.turnos, tres.por_fala) == (470, 9, (52, 52))
-    dois = orcamento(_lados(1, 6), 239)                            # o N92: 420 palavras em 7 turnos
-    assert (dois.total, dois.turnos, dois.por_fala) == (420, 7, (60, 60))
-    assert orcamento(_lados(3, 3, 3), 5000).turnos == 15 and Orcamento(9990, (9990,) * 3, None).turnos == 20   # o teto
+@pytest.mark.parametrize("n", [1, 2, 3])
+def test_o_plano_fecha_a_conta_do_alvo_e_comeca_e_termina_com_a_helena(n):
+    for texto in range(50, 1500, 23):
+        for mencoes in ([None], [1, 4], [2, 2], [1, 4, 2], [3, 3, 3]):
+            if len(mencoes) != n:
+                continue
+            orc = orcamento(_lados(*mencoes), texto)
+            plano = orc.plano
+            assert plano.ordem[0] == plano.ordem[-1] == 0 and plano.turnos <= 20
+            assert all(not (a == b == 0) for a, b in zip(plano.ordem, plano.ordem[1:]))   # a Helena nunca fala duas vezes seguidas
+            for i, (alvo, falas, tamanho) in enumerate(zip((orc.helena, *orc.analistas), plano.falas, plano.tamanhos)):
+                assert plano.ordem.count(i) == falas
+                assert abs(falas * tamanho - alvo) <= 2.5 * falas                          # o tamanho arredondado a 5
+                if i:
+                    assert falas >= modulo.MIN_FALAS_DO_ANALISTA and alvo / falas <= modulo.MAX_FALA_DO_ANALISTA
 
 
 def test_o_minimo_do_qa_fica_abaixo_do_alvo_e_nunca_acima_do_de_antes():

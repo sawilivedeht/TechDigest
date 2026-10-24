@@ -236,6 +236,50 @@ Em 24/10/2026, ao ler o resultado da regressão (a fidelidade resolvida, o taman
   - Prompt e QA não mudam por causa do resultado: ele vem primeiro.
 - **Terceira amostra:** a coleta 3 a partir de 26/10, quando o dono pedir.
 
+Em 24/10/2026, segunda leva, ao ler o resultado da rodada curta (o diagnóstico e as três leituras
+confirmados):
+
+- **Tamanho: a opção a.** O bloco diz quantas falas cada personagem tem e de que tamanho, numa
+  sequência que começa e termina com a Helena; o relatório mostra o plano de cada um dos 8 itens e a
+  conferência feita sem o modelo. A revisão recebe o mesmo plano e o mantém: corrige o que o QA apontou
+  sem encurtar as falas. As opções b (a Helena com uns 50%) e c (o mínimo do QA mais baixo) ficam de
+  fora por enquanto.
+- **Contagem de menções, agora:** com o plano, os analistas chegam ao alvo, e a Beatriz do A79 seria
+  levada a 350 palavras com 2 frases de material. Antes de mudar, medir nas análises gravadas quantas
+  divisões mudam e listar os sobrenomes que passam a contar. O sobrenome sozinho não conta quando outra
+  pessoa citada no texto tem o mesmo (Bolsonaro, por exemplo). Só na contagem, não na regra do QA.
+- **Fechamento, a opção a:** a Helena só fala do que segue em aberto quando os textos disserem; se não
+  disserem, não fala disso. Ela também não tira conclusão que os textos não tiram ("fica claro
+  que..."). A regra do QA para a Helena fechar fica só como diagnóstico: contar os episódios que
+  terminam com o analista.
+- **N27:** o lado único só com Flávio é desequilíbrio numa matéria que compara dois candidatos, e vai
+  se repetir sempre que a conferência tirar um dos dois. A regra da questão aberta se amplia: com
+  qualquer número de lados, a questão que não é de sim ou não leva ao lado neutro. Antes, medir nas
+  análises gravadas, com as da rodada curta; na rodada, contar as falas e as palavras de cada plano no
+  N27.
+- **Outros pontos:**
+  - a pergunta com confirmação no fim ("..., não é?") afirma e se julga pelo texto: o 3.1 do N84 fica
+    sem marca porque o texto descreve a mudança, e não por ser pergunta;
+  - A72: a medida da posição contra o trecho não diz de quem são as palavras que vão além dele, então
+    não separa a paráfrase da atribuição errada. Fica como limitação, sem regra por enquanto;
+  - A63: conferir de que lado ficou o Kassio; se o "Sim" o pôs junto de Lula, é lado trocado, conta
+    como erro da análise, e o relatório diz por que a conferência não pegou.
+- **A rodada:** os itens 1 a 4 com testes e commit, com o CLAUDE.md e o roteiro atualizados. A
+  mudança do item 2 que contar sobrenome para a pessoa errada, ou a do item 4 que mudar uma análise
+  certa pelo gabarito, fica fora da rodada, e a medida vem para o dono.
+  - Depois, os mesmos 8 itens, com o mesmo critério: pelo menos 7 aprovados e menos de 10 marcas por
+    mil palavras.
+  - O relatório traz também: de cada analista, as palavras, o alvo, as frases do lado dele no recorte
+    e as marcas, com o lado fino em destaque, e a mesma conta, sem o modelo, para os analistas de
+    17/10 e da regressão (a partir de que proporção entre palavras e material o analista passa a
+    inventar); se o plano foi seguido (falas e palavras por personagem); os episódios que terminam
+    com o analista.
+  - Se a rodada curta passar nos dois critérios, segue a regressão nos 20, com o critério de 23/10,
+    as marcas por mil palavras e as mesmas medidas por analista. Se não passar, parar e trazer.
+  - Em nenhum caso mudar prompt ou QA por causa do resultado.
+  - Se o analista do lado fino inventar para chegar ao alvo, trazer a medida: baixar o piso de 120 é
+    decisão do dono.
+
 Das fases 1 a 3, continuam valendo (o detalhe está no CLAUDE.md e no histórico do git):
 
 - Mesma história é o mesmo acontecimento ou um desdobramento direto dele na janela da coleta; só o
@@ -712,6 +756,62 @@ GiB; o detalhe em `data/agrupamento/rodada_20261024/resultado.md`):
     com a Helena (a recomendada);
   - só falar do que segue em aberto quando os textos disserem;
   - contar o sobrenome sozinho nas menções, depois de medir.
+
+**Em 24/10, a segunda leva** (as decisões de mesmo nome; medidas em
+`data/agrupamento/correcoes_20261024b/`):
+
+- **Item 4, medido antes** (`medir_questao_aberta.py`): das 185 análises gravadas, só as duas do N27
+  (23 e 24/10) têm questão aberta, as duas na resposta que valeu, e a da rodada curta também na
+  primeira tentativa. As duas passam de "Flávio Bolsonaro" para o lado neutro e continuam certas pelo
+  gabarito, que não tem disputa. Nenhuma análise certa muda: entra na rodada.
+- **Item 2, medido antes** (`medir_sobrenomes.py`): das 61 análises com dois lados ou mais, mudam 28
+  divisões do orçamento e 3 lados finos (o Cueva da pauta 71+85 passa de 1 frase para 3).
+  - Os sobrenomes que passam a contar são Amorim, Cueva, Góes, Janones e Marques, todos da pessoa
+    certa, frase por frase. Nenhum ficou de fora por outra pessoa com o mesmo sobrenome.
+  - A primeira versão barrava Janones e Amorim por engano: em "Lula, Janones e Sidônio", lia "Lula"
+    como prenome. Corrigido antes da medida final: só vale a palavra colada ao sobrenome, com espaço
+    ou partícula entre elas.
+  - No A79, o ministro passa de 2 frases para 4, e a divisão, de 350 e 350 para 430 e 230. Entra na
+    rodada.
+- **Item 1, o plano sem o modelo** (`planos.py`): nos 20 itens da regressão, todos os planos começam e
+  terminam com a Helena, ela nunca fala duas vezes seguidas, cada analista tem de 2 a 5 falas de no
+  máximo 90 palavras, e falas × tamanho ficam entre 96% e 105% do alvo. O plano dos 8 itens vai no
+  relatório da rodada.
+- **O bloco com o plano** cabe: das 155 análises válidas, 3 encolhem as posições (dois lados e uma
+  ressalva), e nenhuma é cortada. O `PROMPT_SISTEMA` foi para 9.604 caracteres.
+- **A63:** o Kassio ficou num lado separado do de Lula, mas com a resposta "Sim" à pergunta "foi
+  intromissão indevida?", que é a de Lula, em 17/10 e em 24/10 (na regressão, as respostas saíram
+  certas). Lula ficou com uma citação que começa por "Não". Conta como erro da análise (respostas
+  trocadas). A conferência não pegou por duas razões:
+  - ela vê se o trecho traz uma resposta, e não qual: o do Kassio passou pelo "disse" de Lula na mesma
+    frase (a limitação 1);
+  - nada compara a resposta com a posição do lado nem cobra respostas de sim ou não opostas, só que
+    sejam diferentes. Das 61 análises com disputa, 10 têm alguma resposta que não é sim nem não
+    (`medir_respostas.py`): o A63 em duas e a pauta 86+71 em sete.
+  - Uma regra para isso reprovaria: passa antes pelo diagnóstico, e fica para o dono.
+- **Limitação registrada (A72):** a medida da posição contra o trecho mostra que a posição vai além
+  do trecho em mais da metade das palavras, quase sempre com palavras do texto, mas não diz de quem
+  são essas palavras, então não separa a paráfrase da atribuição errada. Sem regra por enquanto.
+- **A leitura:** a pergunta com confirmação no fim afirma e se julga pelo texto. O 3.1 do N84 fica sem
+  marca porque o texto descreve a mudança.
+- **Leituras minhas, para o dono corrigir:**
+  - cada analista tem as falas que o alvo pede com no máximo 90 palavras (o máximo de fala do prompt
+    de antes), e pelo menos 2; o tamanho vai arredondado a 5 ("uns 85");
+  - a Helena fala entre as rodadas e não entre cada analista: com dois analistas, eles falam em
+    seguida ("Helena, lado 1, lado 2, Helena"). Com três analistas de 250, a Helena fica com 4 falas de
+    uns 100 palavras;
+  - o bloco dá o alvo e o plano juntos, e a ordem como lista ("Helena, lado 1, lado 2, ..."); com um
+    analista, a lista também vai inteira;
+  - o "fica claro que..." aparece no prompt, entre parênteses, como o que não se faz, como na decisão;
+    em 24/10 ele tinha saído do prompt para não ser sugerido;
+  - o sobrenome conta para nome de pessoa (duas palavras ou mais, todas com maiúscula, a penúltima sem
+    partícula); "o ministro" continua não contando; começo de frase e cargo antes do sobrenome não são
+    outra pessoa;
+  - a questão aberta vai direto ao lado neutro, sem nova tentativa (antes, com dois lados, ela ganhava
+    uma), e as ressalvas saem, como em todo lado neutro;
+  - o teste da janela de 8192 passou a usar a menor proporção de caracteres por token medida (3,26):
+    com a inicial de 3,0, que só vale se a análise de lados falhar, um texto de 5.000 caracteres
+    perderia o último parágrafo.
 
 ## Números medidos
 

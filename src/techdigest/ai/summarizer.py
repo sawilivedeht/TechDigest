@@ -29,11 +29,12 @@ FOLGA_DA_MEDIDA = 0.9           # vale 90% da menor proporção medida
 
 LEMBRETE = (
     "\nLEMBRETE: só o JSON das 8 chaves. Roteiro no alvo de palavras de cada personagem e do total, "
-    "nos turnos e no tamanho das falas que o bloco LADOS DA PAUTA indica."
+    "no plano das falas que o bloco LADOS DA PAUTA indica: quantas falas cada um tem, de que tamanho e em que ordem."
 )
 LEMBRETE_DO_ROTEIRO = (
     "\nLEMBRETE: só o JSON com a chave roteiro_podcast. Roteiro no alvo de palavras de cada personagem e do "
-    "total, nos turnos e no tamanho das falas que o bloco LADOS DA PAUTA indica."
+    "total, no plano das falas que o bloco LADOS DA PAUTA indica: quantas falas cada um tem, de que tamanho e em "
+    "que ordem. Corrigir os problemas não encurta as falas."
 )
 FONTE_ANTES = "ARTIGO-FONTE (use somente fatos deste texto; não invente informações):\n"
 MAX_SAIDA_RESUMO = 700          # tokens: a correção do resumo devolve só o resumo

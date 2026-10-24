@@ -468,6 +468,50 @@ def _trechos_nas_falas(episodio: dict, analise) -> list[dict]:
     return achados
 
 
+def _plano_seguido(episodio: dict, analise, orc) -> dict:
+    """Se o roteiro seguiu o plano das falas do bloco, quem fecha o episódio e, de cada analista, as palavras, o alvo e
+    as frases do lado dele no recorte (só diagnóstico; o QA não cobra o plano nem quem fecha).
+
+    O analista de cada lado vem da correspondência um a um do QA; com um lado só, é o único analista. Na ordem, 0 é a
+    Helena, i é o analista do lado i e "?" é quem não tem lado.
+    """
+    roteiro = episodio["roteiro_podcast"]
+    nomes = list(dict.fromkeys(str(t["personagem"]) for t in roteiro))
+    analistas = [nome for nome in nomes if qa._palavras_do_nome(nome) != [qa.HELENA]]
+    if len(analise.lados) == 1:
+        do_lado = {nome: 0 for nome in analistas[:1]} if len(analistas) == 1 else {}
+    else:
+        do_lado = qa.lado_de_cada_analista(episodio, analise.lados)
+
+    def codigo(nome: str):
+        return 0 if qa._palavras_do_nome(nome) == [qa.HELENA] else (do_lado[nome] + 1 if nome in do_lado else "?")
+
+    plano = orc.plano
+    ordem = [codigo(str(t["personagem"])) for t in roteiro]
+    palavras = qa.palavras_por_personagem(roteiro)
+    por_personagem = {}
+    for nome in nomes:
+        i = codigo(nome)
+        falas = [len(str(t["fala"]).split()) for t in roteiro if str(t["personagem"]) == nome]
+        por_personagem[nome] = {
+            "falas": len(falas), "media": round(sum(falas) / len(falas)), "falas_do_plano": plano.falas[i] if i != "?" else None,
+            "tamanho_do_plano": plano.tamanhos[i] if i != "?" else None,
+        }
+    analistas_por_lado = [
+        {"personagem": nome, "lado": do_lado[nome] + 1, "palavras": palavras[nome], "alvo": orc.analistas[do_lado[nome]],
+         "frases_do_lado": analise.lados[do_lado[nome]].mencoes,
+         "fino": len(analise.lados) >= 2 and analise.lados[do_lado[nome]].fino}
+        for nome in analistas if nome in do_lado
+    ]
+    ultimo = str(roteiro[-1]["personagem"])
+    return {
+        "plano": {"falas": list(plano.falas), "tamanhos": list(plano.tamanhos), "ordem": list(plano.ordem)},
+        "ordem_do_roteiro": ordem, "ordem_igual_ao_plano": ordem == list(plano.ordem), "por_personagem": por_personagem,
+        "termina_com": ultimo, "termina_com_analista": qa._palavras_do_nome(ultimo) != [qa.HELENA],
+        "analistas": analistas_por_lado,
+    }
+
+
 def _analisar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer, monitor: ProviderMonitorado) -> dict:
     """Só a análise de lados de uma pauta, sobre os textos inteiros, e o recorte que a geração receberia."""
     relatorio = _apresentar("Pauta", n, caso, pauta, ids)
@@ -561,7 +605,8 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
         if orc is not None:
             relatorio["orcamento"] = {"helena": orc.helena, "analistas": list(orc.analistas), "total": orc.total,
                                       "palavras_do_texto": orc.palavras_do_texto, "reduzido": orc.reduzido,
-                                      "turnos": orc.turnos, "por_fala": list(orc.por_fala)}
+                                      "turnos": orc.turnos, "falas": list(orc.plano.falas),
+                                      "tamanhos": list(orc.plano.tamanhos), "ordem": list(orc.plano.ordem)}
         try:
             relatorio["palavras_por_personagem"] = qa.palavras_por_personagem(episodio["roteiro_podcast"])
             relatorio["limites_por_personagem"] = qa.limites_de_cada_personagem(episodio, analise.lados, orc) if analise else None
@@ -574,6 +619,8 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
                                                     for nome, alvo in alvos.items()}
                 relatorio["alvo_do_total"] = medida(sum(relatorio["palavras_por_personagem"].values()), orc.total)
             relatorio["lado_de_cada_analista"] = qa.lado_de_cada_analista(episodio, analise.lados) if analise else None
+            if analise and orc is not None:
+                relatorio["plano_seguido"] = _plano_seguido(episodio, analise, orc)
             relatorio["lado_fino_acima_do_teto"] = {   # o teto do analista de lado fino é só diagnóstico: o QA não cobra
                 nome: relatorio["palavras_por_personagem"][nome] for nome in qa.analistas_de_lado_fino(episodio, analise.lados)
                 if relatorio["palavras_por_personagem"][nome] > qa.MAX_LADO_FINO
@@ -585,12 +632,23 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
         if "orcamento" in relatorio:
             o = relatorio["orcamento"]
             print(f"  orçamento: {o['palavras_do_texto']} palavras de texto → Helena {o['helena']}, analistas {o['analistas']}, "
-                  f"total {o['total']}{' (reduzido)' if o['reduzido'] else ''}; {o['turnos']} turnos, "
-                  f"falas de {o['por_fala'][0]}-{o['por_fala'][1]} palavras")
+                  f"total {o['total']}{' (reduzido)' if o['reduzido'] else ''}; plano: "
+                  + ", ".join(f"{'Helena' if i == 0 else f'lado {i}'} {n}×{tam}" for i, (n, tam) in enumerate(zip(o['falas'], o['tamanhos'])))
+                  + f"; {o['turnos']} turnos ({' '.join('H' if i == 0 else str(i) for i in o['ordem'])})")
             for nome, a in [*(relatorio.get("alvo_por_personagem") or {}).items(), ("total", relatorio.get("alvo_do_total"))]:
                 if a:
                     print(f"  diagnóstico: {nome} com {a['palavras']} palavras para o alvo de {a['alvo']} ({a['proporcao']:.0%})"
                           + (f", {a['acima_do_alvo']} acima" if a["acima_do_alvo"] else ""))
+        if seguido := relatorio.get("plano_seguido"):
+            print("  plano seguido: " + "; ".join(
+                f"{nome} {d['falas']} falas (plano {d['falas_do_plano']}) de {d['media']} palavras em média (plano {d['tamanho_do_plano']})"
+                for nome, d in seguido["por_personagem"].items())
+                + f" · ordem {'igual ao' if seguido['ordem_igual_ao_plano'] else 'DIFERENTE do'} plano "
+                  f"({' '.join('H' if i == 0 else str(i) for i in seguido['ordem_do_roteiro'])})")
+            print(f"  fecha o episódio: {seguido['termina_com']}" + (" (ANALISTA: o plano termina com a Helena)" if seguido["termina_com_analista"] else ""))
+            for a in seguido["analistas"]:
+                print(f"  analista {a['personagem']}: lado {a['lado']}{' (FINO)' if a['fino'] else ''}, {a['palavras']} palavras para o alvo "
+                      f"de {a['alvo']}, {a['frases_do_lado']} frases do lado no recorte")
         for nome, palavras in (relatorio.get("lado_fino_acima_do_teto") or {}).items():
             print(f"  diagnóstico: {nome}, analista de lado fino, com {palavras} palavras (o prompt pede até {qa.MAX_LADO_FINO})")
         print(f"  papéis: {[(p.get('nome'), p.get('papel')) for p in relatorio['personagens'] or [] if isinstance(p, dict)]}")

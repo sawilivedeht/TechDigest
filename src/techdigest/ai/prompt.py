@@ -103,14 +103,16 @@ mais, é ali que ela apresenta a questão em disputa.
 - DESENVOLVIMENTO: os analistas explicam o assunto; com dois lados ou mais, promovam \
 DISCUSSÃO respeitosa e factual, cada analista sustentando a posição do seu lado, com \
 Helena mediando com perguntas abertas ("e você, como responde a isso?").
-- FECHAMENTO: Helena recapitula os fatos e as posições, cada uma atribuída a quem a sustenta, e o \
-que os textos dizem que segue em aberto, e se despede.
-- ESTRUTURA: o número de turnos e o tamanho de cada fala estão no bloco LADOS DA PAUTA. \
-Falas de uma frase só são inaceitáveis neste formato.
+- FECHAMENTO: Helena recapitula os fatos e as posições, cada uma atribuída a quem a sustenta, e se \
+despede. Ela só fala do que segue em aberto quando os textos disserem o que segue em aberto; se não \
+disserem, não fala disso. Ela não tira conclusão que os textos não tiram (como "fica claro que...").
+- ESTRUTURA: o bloco LADOS DA PAUTA traz o plano das falas: quantas falas cada personagem tem, de \
+que tamanho e em que ordem, começando e terminando com Helena. Siga o plano. Falas de uma frase só \
+são inaceitáveis neste formato.
 - ORÇAMENTO DE PALAVRAS (obrigatório): o alvo de palavras de cada personagem e do total está \
 no bloco LADOS DA PAUTA e já acompanha o material das fontes. Antes de responder, conte \
-mentalmente as palavras de cada personagem e expanda as falas até o alvo de cada um, com o que \
-os textos trazem, sem argumento novo.
+mentalmente as palavras de cada fala e expanda as falas até o tamanho do plano, para que cada \
+personagem chegue ao alvo dele, com o que os textos trazem, sem argumento novo.
 - Escreva para ser FALADO: sem markdown, sem URLs (diga "o site do veículo" se \
 precisar), sem listas; siglas pronunciáveis (IA, CPI); números por extenso quando \
 ficar mais natural à locução.
@@ -140,10 +142,11 @@ omitir um lado ou uma ressalva do bloco é tão grave quanto.
 - Com artigos relacionados, cite cada veículo pelo nome no roteiro e inclua todos em \
 "fontes_citadas", haja ou não divergência."""
 
-_REGRAS_DO_ROTEIRO = """Regras do roteiro: o alvo de palavras de cada personagem e do total, o número de \
-turnos e o tamanho das falas estão no bloco LADOS DA PAUTA do artigo-fonte; as falas chegam ao alvo com o \
-que os textos trazem, sem argumento novo; tom de conversa. O analista de um lado que o bloco marca como fino \
-não amplia além das fontes.
+_REGRAS_DO_ROTEIRO = """Regras do roteiro: o alvo de palavras de cada personagem e do total e o plano das \
+falas (quantas falas cada personagem tem, de que tamanho e em que ordem, começando e terminando com Helena) \
+estão no bloco LADOS DA PAUTA do artigo-fonte. Mantenha o plano: corrija o que os problemas apontam sem \
+encurtar as falas; as falas chegam ao alvo com o que os textos trazem, sem argumento novo; tom de conversa. O \
+analista de um lado que o bloco marca como fino não amplia além das fontes.
 Elenco: Helena e um analista por lado, até 3 analistas, conforme o bloco LADOS DA PAUTA do \
 artigo-fonte. Helena só media, sem tomar posição. A questão do bloco é um guia interno: Helena a \
 apresenta uma vez, na abertura, com palavras naturais, sem repeti-la ao pé da letra e sem transformar \
@@ -156,7 +159,8 @@ podemos aceitar"). Com um lado só, o analista explica e não advoga.
 Helena traz cada ressalva do bloco como pergunta atribuída, sem avaliá-la: uma fala com ponto de \
 interrogação em que uma frase cita o veículo, nomeia o grupo e usa um verbo de posição; a pergunta é \
 aberta e não reformula o alerta com palavras dela. No fechamento, Helena recapitula os fatos e as \
-posições, cada uma atribuída a quem a sustenta, e o que os textos dizem que segue em aberto.
+posições, cada uma atribuída a quem a sustenta; só fala do que segue em aberto quando os textos disserem o \
+que segue em aberto, e não tira conclusão que os textos não tiram (como "fica claro que...").
 Acusação, crítica, opinião e previsão ficam sempre atribuídas a quem as faz, e a ressalva do próprio \
 veículo se mantém. Helena e os analistas não acrescentam avaliação, motivo, consequência ou argumento que \
 os textos não trazem, e Helena não monta escolhas que os textos não fazem.
@@ -171,7 +175,9 @@ e as fontes. Use SOMENTE fatos do artigo-fonte e do episódio original: não inv
 Ajuste o tamanho conforme cada problema: se um personagem ou o total estiver ACIMA do \
 máximo, ENXUGUE as falas (corte repetições e detalhes secundários); se estiver ABAIXO do \
 mínimo, EXPANDA com o que os textos trazem, sem argumento novo. Não altere o que já está \
-dentro dos limites e mire no alvo que o bloco LADOS DA PAUTA indica, nunca no limite exato.
+dentro dos limites e mire no alvo que o bloco LADOS DA PAUTA indica, nunca no limite exato. \
+Corrigir um problema nunca encurta o roteiro: o roteiro corrigido segue o plano das falas do bloco, \
+com o mesmo número de falas de cada personagem, na mesma ordem e com o tamanho do plano.
 Responda EXCLUSIVAMENTE com o JSON corrigido, com as mesmas 8 chaves do original.
 O resumo_didatico tem de 7 a 10 frases, todas com fatos; a frase que avisa do debate só aparece, \
 como frase final, quando houve_divergencia é true.
@@ -193,7 +199,9 @@ como vieram; só mude o "papel" quando um problema apontar o papel: ele diz a es
 Ajuste o tamanho conforme cada problema: se um personagem ou o total estiver ACIMA do \
 máximo, ENXUGUE as falas (corte repetições e detalhes secundários); se estiver ABAIXO do \
 mínimo, EXPANDA com o que os textos trazem, sem argumento novo. Não altere o que já está \
-dentro dos limites e mire no alvo que o bloco LADOS DA PAUTA indica, nunca no limite exato.
+dentro dos limites e mire no alvo que o bloco LADOS DA PAUTA indica, nunca no limite exato. \
+Corrigir um problema nunca encurta o roteiro: o roteiro corrigido segue o plano das falas do bloco, \
+com o mesmo número de falas de cada personagem, na mesma ordem e com o tamanho do plano.
 """ + _REGRAS_DO_ROTEIRO + """
 Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
 {"personagens": [{"nome": "<nome exato>", "papel": "<papel>"}], \

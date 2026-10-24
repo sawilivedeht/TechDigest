@@ -8,8 +8,8 @@ import pytest
 from techdigest.ai import lados as modulo
 from techdigest.ai.lados import (
     Evidencia, Lado, Ressalva, analisar_lados, analise_da_resposta, ator_generico, bloco_dos_lados, com_mencoes,
-    entrada_dos_lados, lado_unico, lados_finos, mencoes, pedido_das_respostas, pedido_de_correcao, reserva_do_bloco,
-    textos_que_cabem, trechos_de_evidencia,
+    entrada_dos_lados, lado_unico, lados_finos, mencoes, outro_com_o_sobrenome, pedido_das_respostas, pedido_de_correcao,
+    reserva_do_bloco, sobrenome, sobrenomes_que_contam, textos_que_cabem, trechos_de_evidencia,
 )
 from techdigest.ai.orcamento import orcamento
 from techdigest.ai.prompt import PROMPT_LADOS
@@ -418,6 +418,38 @@ QUEIMADAS = [{"fonte": "Agência Brasil", "titulo": "Força-tarefa federal comba
 )}]
 
 
+# Nomes inventados, fora das amostras: o sobrenome sozinho conta, a não ser que outra pessoa tenha o mesmo.
+BAIRRO = [{"fonte": VILA, "titulo": "Quaresma cobra a cooperativa", "texto": (
+    "A presidente da associação, Marta Quaresma, cobrou a cooperativa. Segundo Quaresma, o prazo é curto. "
+    "A cooperativa não respondeu. Para a Presidente Quaresma, a praça é dos feirantes. A vereadora cobrou "
+    "explicações. Edson Lacerda, Quaresma e Dalva Brandão estiveram na reunião."
+)}]
+
+
+def test_a_contagem_aceita_o_sobrenome_sozinho_de_quem_e_nome_de_pessoa():
+    assert [sobrenome(a) for a in ("Marta Quaresma", "Kassio Nunes Marques", "Edson Lacerda")] == ["Quaresma", "Marques", "Lacerda"]
+    # nome de uma palavra, designação e instituição não têm sobrenome
+    for ator in ("Lula", "campanha de Marta Quaresma", "Associação dos Feirantes", "Corpo de Bombeiros do Amazonas", "Ivo van Rijn"):
+        assert sobrenome(ator) == "", ator
+    # começo de frase, cargo e vírgula não fazem outra pessoa: o título, "Segundo Quaresma", "Presidente Quaresma" e
+    # "Lacerda, Quaresma" contam
+    assert outro_com_o_sobrenome("Marta Quaresma", BAIRRO) == ""
+    assert mencoes(["Marta Quaresma"], BAIRRO) == 5                     # pela regra do QA sozinha, só a 1ª frase contaria
+    # outra pessoa com o mesmo sobrenome, citada no texto ou num ator de outro lado: o sobrenome sozinho não conta
+    com_ivo = [{**BAIRRO[0], "texto": BAIRRO[0]["texto"] + " O vice, Ivo Quaresma, não comentou."}]
+    assert outro_com_o_sobrenome("Marta Quaresma", com_ivo) == "Ivo Quaresma"
+    assert mencoes(["Marta Quaresma"], com_ivo) == 1 and sobrenomes_que_contam(["Marta Quaresma"], com_ivo) == []
+    assert outro_com_o_sobrenome("Marta Quaresma", BAIRRO, ["Ivo Quaresma"]) == "Ivo Quaresma"
+    assert mencoes(["Marta Quaresma"], BAIRRO, ["Ivo Quaresma"]) == 1
+    # a partícula entre o prenome e o sobrenome não esconde a outra pessoa
+    assert outro_com_o_sobrenome("Ana Brandão", BAIRRO) == "Dalva Brandão"
+    # o cargo não conta pela pessoa
+    assert mencoes(["Edson Lacerda"], BAIRRO) == 1
+    # com_mencoes passa os atores dos outros lados
+    lados = [Lado("p", ("Marta Quaresma",), (VILA,), "Sim"), Lado("p", ("Ivo Quaresma",), (VILA,), "Não")]
+    assert [lado.mencoes for lado in com_mencoes(lados, BAIRRO)] == [1, 0]
+
+
 def test_lado_fino_e_o_que_tem_os_atores_em_no_maximo_uma_frase_dos_textos():
     assert mencoes(["Waldez Góes"], QUEIMADAS) == 3 and mencoes(["comandante do Corpo de Bombeiros do Amazonas"], QUEIMADAS) == 1
     assert mencoes(["Meta"], TEXTOS) == 3                               # o título de cada texto conta como uma frase
@@ -769,21 +801,19 @@ def test_a_questao_da_disputa_e_de_sim_ou_nao():
         _evidencia("Associação dos Feirantes", "Manter", "Fechar agora é abandonar quem produz", VILA),
     ], "lados": [_lado("Fecha.", ["Cooperativa Raízes do Campo"], [VILA], "Fechar"),
                  _lado("Mantém.", ["Associação dos Feirantes"], [VILA], "Manter")]}
+    # a questão aberta leva ao lado neutro, sem ressalvas e sem nova tentativa, com qualquer número de lados
+    alerta = _lado("A feira pode fechar de vez.", [], [VILA], grupos=["economistas"], trecho="A feira sustenta duzentas famílias")
     for aberta in ("Qual deve ser o destino da feira?", "O que fazer com a feira?", "Como fica a feira de domingo?", "quem decide?"):
-        analise = analise_da_resposta({**feira, "questao": aberta}, FEIRA)
-        assert analise.problemas == [
-            f'questão que não é de sim ou não ("{aberta}"): a questão em disputa é uma pergunta de sim ou não, que os atores '
-            'respondem de formas opostas (ex.: "A empresa descumpriu o contrato?"); planos ou prioridades diferentes sem '
-            "respostas opostas são um lado só"], aberta
-        assert analise.lados == lado_unico([VILA])
-    assert analise_da_resposta({**feira, "questao": "A feira deve fechar?"}, FEIRA).problemas == []
-    # com um lado só a questão sai, e a forma dela não importa
+        analise = analise_da_resposta({**feira, "questao": aberta, "lados": [*feira["lados"], alerta]}, FEIRA)
+        assert analise.problemas == [] and analise.lados == lado_unico([VILA]) and analise.ressalvas == [], aberta
+        assert analise.ajustes == [f'questão que não é de sim ou não ("{aberta}"): a pauta fica com o lado neutro, sem ressalvas']
+        assert [motivo for _, motivo in analise.descartadas] == ["a questão não é de sim ou não"]
+    assert analise_da_resposta({**feira, "questao": "A feira deve fechar?"}, FEIRA).lados[0].atores == ("Cooperativa Raízes do Campo",)
+    # como no N27 de 24/10/2026: a conferência tirou um dos dois atores, e o lado único ficaria só com o outro
     um = {**feira, "questao": "Qual deve ser o destino da feira?", "lados": feira["lados"][:1]}
-    assert analise_da_resposta(um, FEIRA).problemas == [] and analise_da_resposta(um, FEIRA).questao == ""
-    # a questão aberta ganha a nova tentativa, com o erro anexado
-    chamada = Chamada({**feira, "questao": "Qual deve ser o destino da feira?"}, {**feira, "questao": "A feira deve fechar?"})
-    assert analisar_lados(chamada, FEIRA).questao == "A feira deve fechar?" and len(chamada.recebido) == 2
-    assert "questão que não é de sim ou não" in chamada.recebido[1][1]
+    assert analise_da_resposta(um, FEIRA).lados == lado_unico([VILA])
+    chamada = Chamada({**feira, "questao": "Qual deve ser o destino da feira?"})
+    assert analisar_lados(chamada, FEIRA).lados == lado_unico([VILA]) and len(chamada.recebido) == 1
 
 
 def test_com_um_lado_so_o_trecho_basta_estar_no_texto():
@@ -892,28 +922,37 @@ def test_bloco_diz_a_questao_os_lados_o_elenco_exato_e_o_alvo_de_palavras():
         "posição do seu lado, numa frase que nomeia um ator do lado, cita um veículo do lado e usa um verbo de posição, "
         'como em "segundo <veículo>, <ator> afirma que...". Lado fino tem pouco material nas fontes: o analista dele não '
         "amplia além do que as fontes trazem. Alvo de palavras: Helena, 380; analista do lado 1, 180; analista do lado 2, "
-        "430; total, 990. Roteiro de 13 turnos, com falas de 70 a 80 palavras."
+        "430; total, 990. Plano das falas: Helena, 6 falas de uns 65 palavras; analista do lado 1, 2 falas de uns 90; "
+        "analista do lado 2, 5 falas de uns 85. Ordem dos 13 turnos: Helena, lado 1, lado 2, Helena, lado 1, lado 2, Helena, "
+        "lado 2, Helena, lado 2, Helena, lado 2, Helena."
     )   # sem as palavras do texto, o total é o de antes, e os analistas dividem pelas menções (1 contra 3)
     sem_fino = [Lado("A campanha acusa.", ("PT",), ("G1",), "Sim", ("um trecho", "outro trecho")), Lado("A Meta nega.", ("Meta",), ("G1",), "Não")]
     assert "lado fino" not in bloco_dos_lados(sem_fino, "Q?")
-    assert bloco_dos_lados(sem_fino, "Q?").endswith("Alvo de palavras: Helena, 380; analista do lado 1, 350; analista do lado 2, "
-                                                   "350; total, 1080. Roteiro de 14 turnos, com falas de 70 a 80 palavras.")
+    assert bloco_dos_lados(sem_fino, "Q?").endswith(
+        "Alvo de palavras: Helena, 380; analista do lado 1, 350; analista do lado 2, 350; total, 1080. Plano das falas: Helena, "
+        "5 falas de uns 75 palavras; analista do lado 1, 4 falas de uns 90; analista do lado 2, 4 falas de uns 90. Ordem dos 13 "
+        "turnos: Helena, lado 1, lado 2, Helena, lado 1, lado 2, Helena, lado 1, lado 2, Helena, lado 1, lado 2, Helena.")
     um = analise_da_resposta(UM_LADO, TEXTOS)
     assert reserva_do_bloco(um.lados) >= len(bloco_dos_lados(um.lados))  # a reserva cobre o orçamento com os números mais compridos
     assert bloco_dos_lados(um.lados, um.questao) == (
         "\nLADOS DA PAUTA: 1 lado.\n"
         "Lado 1: Uma posição. Atores: Meta. Veículos: Agência Brasil, CartaCapital.\n"
         'ELENCO: Helena e exatamente 1 analista, que explica o tema com ela, sem advogar; "houve_divergencia": false. '
-        "Alvo de palavras: Helena, 350; analista, 430; total, 780. Roteiro de 10 turnos, com falas de 70 a 80 palavras."
+        "Alvo de palavras: Helena, 350; analista, 430; total, 780. Plano das falas: Helena, 6 falas de uns 60 palavras; "
+        "analista, 5 falas de uns 85. Ordem dos 11 turnos: Helena, analista, Helena, analista, Helena, analista, Helena, "
+        "analista, Helena, analista, Helena."
     )
     # com o orçamento da pauta, o bloco pede menos e avisa que o material é pouco
     curto = bloco_dos_lados(um.lados, um.questao, (), orcamento(um.lados, 201))
-    assert curto.endswith("Alvo de palavras: Helena, 160; analista, 190; total, 350. Roteiro de 5 turnos, com falas de 70 a 80 "
-                          "palavras. Os textos trazem pouco material, e o alvo já é menor: cumpra-o com o que as fontes trazem, sem "
-                          "argumento novo.")
-    # quando a estrutura pede mais turnos do que o total comporta com falas de 70 a 80 palavras, o bloco diz a média
+    assert curto.endswith("Alvo de palavras: Helena, 160; analista, 190; total, 350. Plano das falas: Helena, 4 falas de uns 40 "
+                          "palavras; analista, 3 falas de uns 65. Ordem dos 7 turnos: Helena, analista, Helena, analista, Helena, "
+                          "analista, Helena. Os textos trazem pouco material, e o alvo já é menor: cumpra-o com o que as fontes "
+                          "trazem, sem argumento novo.")
+    # o lado fino fica com o mínimo de falas, e o plano diz o tamanho de cada personagem
     dois = [Lado("p", ("Ator A",), ("G1",), "Sim", (), 1), Lado("p", ("Ator B",), ("G1",), "Não", (), 6)]
-    assert "Roteiro de 7 turnos, com falas de uns 60 palavras." in bloco_dos_lados(dois, "Q?", (), orcamento(dois, 239))
+    assert ("Plano das falas: Helena, 3 falas de uns 50 palavras; analista do lado 1, 2 falas de uns 60; analista do lado 2, 2 "
+            "falas de uns 75. Ordem dos 7 turnos: Helena, lado 1, lado 2, Helena, lado 1, lado 2, Helena.") in bloco_dos_lados(
+        dois, "Q?", (), orcamento(dois, 239))
     assert reserva_do_bloco(um.lados) >= len(curto)
     tres = [Lado("p", (f"Ator {i}",), ("G1",), f"Resposta {i}") for i in range(3)]
     assert "exatamente 3 analistas, um por lado" in bloco_dos_lados(tres, "Q?") and "analista do lado 3, 250; total, 1150" in bloco_dos_lados(tres, "Q?")
@@ -931,7 +970,9 @@ def test_bloco_traz_as_ressalvas_logo_depois_dos_lados():
         'sem tomar partido; "houve_divergencia": false. Ressalva não é lado nem ganha analista: Helena traz cada uma como '
         "pergunta atribuída, sem avaliá-la nem reformulá-la, numa frase com o veículo, o grupo e um verbo de posição, "
         'seguida de uma pergunta aberta, como em "Segundo <veículo>, <grupo> alertam que... Como você vê isso?". '
-        "Alvo de palavras: Helena, 350; analista, 430; total, 780. Roteiro de 10 turnos, com falas de 70 a 80 palavras."
+        "Alvo de palavras: Helena, 350; analista, 430; total, 780. Plano das falas: Helena, 6 falas de uns 60 palavras; "
+        "analista, 5 falas de uns 85. Ordem dos 11 turnos: Helena, analista, Helena, analista, Helena, analista, Helena, "
+        "analista, Helena, analista, Helena."
     )
     dois = analisar_lados(Chamada(DOIS_LADOS), TEXTOS)
     com_ressalva = bloco_dos_lados(dois.lados, dois.questao, ressalvas[:1])
@@ -944,7 +985,9 @@ def test_bloco_do_lado_neutro_leva_a_posicao_e_os_veiculos():
         "\nLADOS DA PAUTA: 1 lado.\n"
         "Lado 1: relato dos fatos, sem lados definidos. Veículos: Agência Brasil, CartaCapital.\n"
         'ELENCO: Helena e exatamente 1 analista, que explica o tema com ela, sem advogar; "houve_divergencia": false. '
-        "Alvo de palavras: Helena, 350; analista, 430; total, 780. Roteiro de 10 turnos, com falas de 70 a 80 palavras."
+        "Alvo de palavras: Helena, 350; analista, 430; total, 780. Plano das falas: Helena, 6 falas de uns 60 palavras; "
+        "analista, 5 falas de uns 85. Ordem dos 11 turnos: Helena, analista, Helena, analista, Helena, analista, Helena, "
+        "analista, Helena, analista, Helena."
     )
 
 
@@ -952,7 +995,8 @@ def test_bloco_nunca_passa_do_espaco_reservado():
     longos = [Lado("Posição muito comprida. " * 40, ("Ator Um", "Ator Dois", "Ator Três"), ("O GLOBO", "G1", "Agência Brasil"),
                    "Uma resposta comprida demais para caber inteira no bloco de lados da pauta. " * 3) for _ in range(3)]
     bloco = bloco_dos_lados(longos, "Uma questão comprida demais? " * 20)
-    assert len(bloco) <= modulo.MAX_BLOCO and bloco.count("…") == 7 and bloco.endswith("70 a 80 palavras.")   # questão, 3 respostas e 3 posições
+    # as posições encolhem até o mínimo; o que ainda não cabe sai do fim da última linha, e o elenco, com o plano, fica
+    assert len(bloco) == modulo.MAX_BLOCO and "Ordem dos 13 turnos: Helena, lado 1, lado 2, lado 3, Helena" in bloco
     assert reserva_do_bloco(longos, "Uma questão comprida demais? " * 20) == modulo.MAX_BLOCO                        # a reserva nunca passa do teto do bloco
     assert all(f"Lado {i} (resposta: Uma resposta comprida" in bloco and "): Posição muito comprida." in bloco for i in (1, 2, 3))
 

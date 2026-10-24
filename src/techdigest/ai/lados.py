@@ -12,7 +12,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field, replace
 
-from techdigest.ai.orcamento import Orcamento, orcamento
+from techdigest.ai.orcamento import MAX_ALVO, Orcamento, orcamento
 from techdigest.ai.prompt import PROMPT_LADOS
 from techdigest.ai.qa import (
     QUANTIFICADORES, ator_citado, atores_exclusivos, frases, mesmo_ator, mesmo_veiculo, palavras_do_ator, termo_do_grupo,
@@ -69,8 +69,25 @@ COLETIVOS_DE_PESSOAS = frozenset({
     "empresarios", "militantes", "ativistas", "autoridades", "fontes", "membros", "integrantes", "ministros", "setores",
 })
 # A questão que não é de sim ou não: começa por pronome ou advérbio interrogativo ("Qual deve ser a prioridade...?").
-# A questão em disputa é respondida de formas opostas; com dois lados ou mais, a questão aberta invalida a resposta.
+# A questão em disputa é respondida de formas opostas; com qualquer número de lados, a questão aberta leva ao lado
+# neutro: planos ou prioridades diferentes não são disputa, e um lado só com um dos atores desequilibraria a pauta.
 _QUESTAO_ABERTA = re.compile(r"^\s*(?:qual|quais|como|quem|o que|por que|porque|onde|quando)\b", re.IGNORECASE)
+# A contagem de menções aceita o sobrenome sozinho de quem é nome de pessoa (ver `sobrenome` e `mencoes`).
+_PARTICULAS_DO_NOME = frozenset({"da", "de", "do", "das", "dos", "e", "van", "von", "der", "del", "di", "du"})
+_PALAVRA = re.compile(r"[^\W\d_]+(?:-[^\W\d_]+)*")
+# Palavras com maiúscula que, antes de um sobrenome, não são o prenome de outra pessoa (sem acento, em minúsculas):
+# as que começam frase e os cargos ("Segundo Góes", "Para Góes", "Ministro Góes").
+_ANTES_DO_SOBRENOME = frozenset({
+    "a", "o", "as", "os", "um", "uma", "e", "mas", "ja", "ainda", "tambem", "segundo", "conforme", "para", "por", "pelo",
+    "pela", "com", "sem", "sobre", "entre", "contra", "ate", "desde", "apos", "antes", "depois", "durante", "quando", "se",
+    "como", "em", "no", "na", "nos", "nas", "ao", "aos", "do", "da", "dos", "das", "de", "ontem", "hoje", "agora", "entao",
+    "ele", "ela", "isso", "esse", "essa", "este", "esta", "so", "nem", "ou", "que", "porque", "embora", "enquanto",
+    "presidente", "presidenta", "ministro", "ministra", "senador", "senadora", "deputado", "deputada", "governador",
+    "governadora", "prefeito", "prefeita", "vereador", "vereadora", "candidato", "candidata", "juiz", "juiza",
+    "desembargador", "desembargadora", "general", "coronel", "comandante", "secretario", "secretaria", "diretor",
+    "diretora", "doutor", "doutora", "dr", "dra", "sr", "sra", "professor", "professora", "padre", "pastor", "papa",
+    "dom", "ex", "governo", "gestao", "campanha", "familia",
+})
 # Marcadores de que a frase atribui o que diz a alguém já nomeado, sem verbo de posição (sem acento).
 _MARCADOR_DE_ATRIBUICAO = re.compile(
     r"\b(?:segundo (?:ele|ela|eles|elas)|de acordo com (?:ele|ela|eles|elas)|na (?:avaliacao|visao|opiniao) (?:dele|dela|deles|delas))\b"
@@ -540,15 +557,69 @@ def trechos_de_evidencia(lados, ressalvas=()) -> list[tuple[str, str]]:
     return [fila[k] for k in range(max(map(len, filas), default=0)) for fila in filas if k < len(fila)]
 
 
-def mencoes(atores, textos) -> int:
+def sobrenome(ator) -> str:
+    """O sobrenome de um ator que é nome de pessoa: a última palavra, quando todas as palavras do nome começam com
+    maiúscula (fora as partículas) e a penúltima não é partícula; vazio nos outros casos.
+
+    "Waldez Góes" dá "Góes"; "Lula", "campanha de Lula" e "Corpo de Bombeiros do Amazonas" não dão nada.
+    """
+    palavras = str(ator).split()
+    if len(palavras) < 2 or palavras[-2].lower() in _PARTICULAS_DO_NOME:
+        return ""
+    if not all(p[:1].isupper() for p in palavras if p.lower() not in _PARTICULAS_DO_NOME):
+        return ""
+    ultimo = palavras[-1]
+    return ultimo if len(ultimo) >= 3 and ultimo.isalpha() else ""
+
+
+def _frases_dos_textos(textos) -> list[str]:
+    return [frase for texto in textos for frase in (texto["titulo"], *frases(texto["texto"]))]
+
+
+def outro_com_o_sobrenome(ator, textos, alheios=()) -> str:
+    """Quem mais tem o sobrenome do ator: um ator de outro lado ou uma pessoa citada nos textos; vazio se ninguém.
+
+    A pessoa citada é o sobrenome logo depois de uma palavra com maiúscula, só com espaço ou partícula entre as
+    duas, que não é do nome do ator nem começo de frase ou cargo (`_ANTES_DO_SOBRENOME`): "Jair Bolsonaro" para
+    "Flávio Bolsonaro", "Lula da Silva" para "Bruno Silva". Volta "Jair Bolsonaro", "Lula Silva"... Em "Lula,
+    Janones e Sidônio", a vírgula separa duas pessoas, e "Lula" não é prenome de Janones.
+    """
+    alvo = sobrenome(ator)
+    if not alvo:
+        return ""
+    for outro in alheios:
+        if not mesmo_ator(outro, ator) and alvo in str(outro).split():
+            return str(outro)
+    proprias = set(str(ator).split())
+    particulas = "|".join(sorted(_PARTICULAS_DO_NOME))
+    colado = re.compile(rf"(?<![^\W\d_])([^\W\d_]+(?:-[^\W\d_]+)*)\s+(?:(?:{particulas})\s+)*{re.escape(alvo)}(?![^\W\d_])")
+    for frase in _frases_dos_textos(textos):
+        for achado in colado.finditer(frase):
+            antes = achado.group(1)
+            if antes[:1].isupper() and antes not in proprias and _sem_acento(antes) not in _ANTES_DO_SOBRENOME:
+                return f"{antes} {alvo}"
+    return ""
+
+
+def sobrenomes_que_contam(atores, textos, alheios=()) -> list[str]:
+    """Os sobrenomes dos atores que contam sozinhos na contagem de menções: os que ninguém mais tem (ver
+    `outro_com_o_sobrenome`)."""
+    return [sobrenome(ator) for ator in atores if sobrenome(ator) and not outro_com_o_sobrenome(ator, textos, alheios)]
+
+
+def mencoes(atores, textos, alheios=()) -> int:
     """Em quantas frases dos textos (o título e as frases do texto de cada um) aparece algum dos atores.
 
-    Conta o nome, pela regra de `qa.ator_citado`: "o ministro" não vale por "Waldez Góes". É a
-    medida de quanto material as fontes trazem sobre quem sustenta um lado.
+    Conta o nome, pela regra de `qa.ator_citado`, e o sobrenome sozinho de quem é nome de pessoa ("Góes" por
+    "Waldez Góes"), a não ser que outra pessoa citada nos textos ou um ator de outro lado (`alheios`) tenha o
+    mesmo sobrenome (ver `outro_com_o_sobrenome`). O cargo não conta: "o ministro" não vale por "Waldez Góes".
+    É a medida de quanto material as fontes trazem sobre quem sustenta um lado. O sobrenome sozinho vale só aqui,
+    e não na regra do QA.
     """
+    padroes = [re.compile(rf"(?<![^\W\d_]){re.escape(s)}(?![^\W\d_])") for s in sobrenomes_que_contam(atores, textos, alheios)]
     return sum(
-        any(ator_citado(ator, frase) for ator in atores)
-        for texto in textos for frase in (texto["titulo"], *frases(texto["texto"]))
+        any(ator_citado(ator, frase) for ator in atores) or any(p.search(frase) for p in padroes)
+        for frase in _frases_dos_textos(textos)
     )
 
 
@@ -557,7 +628,11 @@ def com_mencoes(lados, textos) -> list[Lado]:
 
     `textos` são os que a geração recebe: é neles que se vê se um lado é fino. O lado sem atores não é contado.
     """
-    return [replace(lado, mencoes=mencoes(lado.atores, textos)) if lado.atores else lado for lado in lados]
+    return [
+        replace(lado, mencoes=mencoes(lado.atores, textos, [a for outro in lados if outro is not lado for a in outro.atores]))
+        if lado.atores else lado
+        for lado in lados
+    ]
 
 
 def lados_finos(lados) -> list[bool]:
@@ -600,10 +675,13 @@ def analise_da_resposta(resposta, textos) -> Analise:
     na lista fica em `faltam`. O lado que perde todos os atores nomeados é descartado. Sem questão,
     os atores ficam como vieram.
 
-    Dos lados com ator nomeado, vale até 3, cada um com um ator que nenhum outro tem. A questão só
-    fica com 2 lados ou mais, e aí ela é de sim ou não (não começa com "qual", "como", "quem"...) e
-    cada lado tem a sua resposta, diferente das outras; com um lado só, a questão sai. Sem nenhum lado com ator nomeado, a pauta fica com o lado neutro e as
-    ressalvas são descartadas. Os lados saem sem a contagem das menções (ver `com_mencoes`).
+    A questão que não é de sim ou não (começa com "qual", "como", "quem"...) leva ao lado neutro, sem
+    ressalvas, com qualquer número de lados: planos ou prioridades diferentes não são disputa, e um
+    lado só com um dos atores, quando a conferência tira o outro, desequilibra a pauta. Dos lados com
+    ator nomeado, vale até 3, cada um com um ator que nenhum outro tem. A questão só fica com 2 lados
+    ou mais, e cada lado tem a sua resposta, diferente das outras; com um lado só, a questão sai. Sem
+    nenhum lado com ator nomeado, a pauta fica com o lado neutro e as ressalvas são descartadas. Os
+    lados saem sem a contagem das menções (ver `com_mencoes`).
 
     Resposta que não cumpre isso vira o lado neutro, sem ressalvas, com o motivo em `problemas`.
     """
@@ -628,6 +706,11 @@ def analise_da_resposta(resposta, textos) -> Analise:
         return Analise(lado_unico(da_pauta), motivo=motivo, ajustes=ajustes, resposta=resposta)
     if vazios:
         return invalida(*(f"lado {i} sem ator nem grupo (a ressalva tem de nomear o grupo que a sustenta)" for i in vazios))
+    if questao and _QUESTAO_ABERTA.search(questao):   # com qualquer número de lados: planos ou prioridades não são disputa
+        _, ressalvas, descartadas, _ = _separar(rascunhos, textos)
+        ajustes.append(f'questão que não é de sim ou não ("{questao}"): a pauta fica com o lado neutro, sem ressalvas')
+        descartadas += [(ressalva, "a questão não é de sim ou não") for ressalva in ressalvas]
+        return Analise(lado_unico(da_pauta), motivo=motivo, ajustes=ajustes, descartadas=descartadas, resposta=resposta)
     sem_lado = [v for v in da_pauta if not any(v in r.veiculos for r in rascunhos)]
     respostas, faltam, recusados = [], [], []
     if questao:
@@ -651,10 +734,6 @@ def analise_da_resposta(resposta, textos) -> Analise:
         if not questao:
             return invalida(f"questão vazia com {len(nomeados)} lados (questão vazia exige exatamente 1 lado)")
         probs = _problemas_das_respostas(nomeados)
-        if _QUESTAO_ABERTA.search(questao):
-            probs.append(f'questão que não é de sim ou não ("{questao}"): a questão em disputa é uma pergunta de sim ou não, '
-                         f'que os atores respondem de formas opostas (ex.: "A empresa descumpriu o contrato?"); planos ou '
-                         f"prioridades diferentes sem respostas opostas são um lado só")
         probs += [
             f"lado {i} sem ator que não esteja em outro lado"
             for i, proprios in zip(nomeados, atores_exclusivos(list(nomeados.values()))) if not proprios
@@ -796,18 +875,22 @@ def _frase(texto: str) -> str:
 
 
 def _alvo_do_elenco(orc: Orcamento) -> str:
-    """O alvo de palavras de cada personagem e do total, os turnos e o tamanho das falas, como o bloco os diz.
+    """O alvo de palavras de cada personagem e do total e o plano das falas, como o bloco os diz.
 
-    Cada alvo é um número só: o QA cobra uma fração dele, e a diferença fica como margem.
+    Cada alvo é um número só: o QA cobra uma fração dele, e a diferença fica como margem. O plano diz
+    quantas falas cada personagem tem, de que tamanho e em que ordem (ver `orcamento.Orcamento.plano`).
     """
-    if len(orc.analistas) == 1:
-        analistas = f"analista, {orc.analistas[0]}"
-    else:
-        analistas = "; ".join(f"analista do lado {i}, {alvo}" for i, alvo in enumerate(orc.analistas, 1))
-    menor, maior = orc.por_fala
-    falas = f"de {menor} a {maior}" if menor != maior else f"de uns {menor}"
-    texto = (f" Alvo de palavras: Helena, {orc.helena}; {analistas}; total, {orc.total}. Roteiro de {orc.turnos} turnos, "
-             f"com falas {falas} palavras.")
+    um = len(orc.analistas) == 1
+    nomes = ["Helena"] + (["analista"] if um else [f"analista do lado {i}" for i in range(1, len(orc.analistas) + 1)])
+    na_ordem = ["Helena"] + (["analista"] if um else [f"lado {i}" for i in range(1, len(orc.analistas) + 1)])
+    plano = orc.plano
+    alvos = "; ".join(f"{nome}, {alvo}" for nome, alvo in zip(nomes, (orc.helena, *orc.analistas)))
+    falas = "; ".join(
+        f"{nome}, {n} falas de uns {tamanho}" + (" palavras" if k == 0 else "")
+        for k, (nome, n, tamanho) in enumerate(zip(nomes, plano.falas, plano.tamanhos))
+    )
+    texto = (f" Alvo de palavras: {alvos}; total, {orc.total}. Plano das falas: {falas}. Ordem dos {plano.turnos} turnos: "
+             f"{', '.join(na_ordem[i] for i in plano.ordem)}.")
     if orc.reduzido:
         texto += " Os textos trazem pouco material, e o alvo já é menor: cumpra-o com o que as fontes trazem, sem argumento novo."
     return texto
@@ -893,9 +976,9 @@ def reserva_do_bloco(lados, questao: str = "", ressalvas=()) -> int:
     O lado fino só é contado depois do recorte dos textos, e o orçamento de palavras vem das
     palavras do recorte, que depende do espaço que o bloco ocupa. Por isso a reserva é o tamanho do
     bloco com todos os lados finos (em pauta de 2 lados ou mais) e o orçamento com os números mais
-    compridos e o aviso de pouco material, sem encolher as posições e até MAX_BLOCO: o bloco de
-    verdade nunca passa disso.
+    compridos, o plano mais longo (cada analista no alvo máximo) e o aviso de pouco material, sem
+    encolher as posições e até MAX_BLOCO: o bloco de verdade nunca passa disso.
     """
     todos = [len(lados) >= 2] * len(lados)
-    maior = Orcamento(9990, (9990,) * max(len(lados), 1), 0, reduzido=True)
+    maior = Orcamento(9990, (MAX_ALVO,) * max(len(lados), 1), 0, reduzido=True)
     return min(MAX_BLOCO, len("\n".join(_linhas_do_bloco(lados, questao, ressalvas, todos, MAX_POSICAO, maior))))
