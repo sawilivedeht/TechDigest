@@ -68,6 +68,9 @@ COLETIVOS_DE_PESSOAS = frozenset({
     "jogadores", "leitor", "leitores", "cidadaos", "trabalhadores", "servidores", "profissionais", "investidores",
     "empresarios", "militantes", "ativistas", "autoridades", "fontes", "membros", "integrantes", "ministros", "setores",
 })
+# A questão que não é de sim ou não: começa por pronome ou advérbio interrogativo ("Qual deve ser a prioridade...?").
+# A questão em disputa é respondida de formas opostas; com dois lados ou mais, a questão aberta invalida a resposta.
+_QUESTAO_ABERTA = re.compile(r"^\s*(?:qual|quais|como|quem|o que|por que|porque|onde|quando)\b", re.IGNORECASE)
 # Marcadores de que a frase atribui o que diz a alguém já nomeado, sem verbo de posição (sem acento).
 _MARCADOR_DE_ATRIBUICAO = re.compile(
     r"\b(?:segundo (?:ele|ela|eles|elas)|de acordo com (?:ele|ela|eles|elas)|na (?:avaliacao|visao|opiniao) (?:dele|dela|deles|delas))\b"
@@ -299,9 +302,16 @@ def _linhas_do_veiculo(textos, veiculo: str) -> list[str]:
     return [linha for t in textos if mesmo_veiculo(t["fonte"], veiculo) for linha in (t["titulo"], *t["texto"].splitlines())]
 
 
+def _partes(frase: str) -> list[str]:
+    """A frase separada também no ponto e vírgula, que junta duas orações de atores diferentes num título."""
+    return [parte for parte in re.split(r"(?<=;)\s+", frase) if parte]
+
+
 def frase_do_trecho(trecho: str, textos, veiculo: str) -> str:
     """A frase (ou as frases) do texto do veículo em que o trecho está, pela comparação de `recorte.literal`.
 
+    A frase é separada também no ponto e vírgula: no título "Cooperativa quer fechar a feira;
+    associação defende a praça", o trecho da cooperativa fica com a parte dela, sem o verbo da associação.
     Vazio se o trecho não está, ao pé da letra, num parágrafo do título ou do texto desse veículo.
     """
     alvo = procurado(trecho)
@@ -311,7 +321,7 @@ def frase_do_trecho(trecho: str, textos, veiculo: str) -> str:
         if inicio < 0:
             continue
         fim, pos, envolvem = inicio + len(alvo), 0, []
-        for frase in frases(paragrafo):
+        for frase in (parte for frase in frases(paragrafo) for parte in _partes(frase)):
             i = paragrafo.find(frase, pos)
             if i < 0:
                 continue
@@ -411,15 +421,18 @@ def _responde(resposta_do_ator: str, resposta_do_lado: str) -> bool:
     return bool(a) and b[:len(a)] == a
 
 
-def _conferir_atores(rascunhos: list[_Rascunho], evidencias: list[Evidencia]) -> tuple[list[str], list[str], list[Recusado]]:
+def _conferir_atores(rascunhos: list[_Rascunho], evidencias: list[Evidencia],
+                     exigir_resposta: bool = True) -> tuple[list[str], list[str], list[Recusado]]:
     """Deixa em cada lado só os atores cuja resposta, comprovada por um trecho, é a do lado.
 
     Um ator pode ter mais de uma entrada, uma por trecho. O ator sem resposta listada sai, e o
-    ator sem trecho que valha (que esteja no texto e traga a resposta dele, ver `Evidencia.vale`)
-    também. O ator que está num lado de resposta diferente da dele vai para o lado da resposta
-    dele, se existir, ou sai. Cada lado fica com os trechos que valem dos atores que ficaram nele.
-    Devolve o que mudou, os atores que saíram por não terem entrada na lista e os que saíram
-    porque nenhum trecho deles valeu, com o trecho e o motivo.
+    ator sem trecho que valha também: o trecho tem de estar no texto e, com `exigir_resposta`,
+    trazer a resposta dele (ver `Evidencia.vale`). Sem `exigir_resposta` (a resposta tem um lado
+    só com ator nomeado, e não há disputa a inventar), basta o trecho estar no texto. O ator que
+    está num lado de resposta diferente da dele vai para o lado da resposta dele, se existir, ou
+    sai. Cada lado fica com os trechos que valem dos atores que ficaram nele. Devolve o que mudou,
+    os atores que saíram por não terem entrada na lista e os que saíram porque nenhum trecho deles
+    valeu, com o trecho e o motivo.
     """
     def evidencias_de(ator: str) -> list[Evidencia]:
         iguais = [e for e in evidencias if palavras_do_ator(e.ator) == palavras_do_ator(ator)]
@@ -429,7 +442,10 @@ def _conferir_atores(rascunhos: list[_Rascunho], evidencias: list[Evidencia]) ->
     for r in rascunhos:
         for ator in r.atores:
             listadas = evidencias_de(ator)
-            comprovadas = [e for e in listadas if e.vale]
+            comprovadas = [e for e in listadas if (e.vale if exigir_resposta else e.comprovada)]
+            if comprovadas and not exigir_resposta and not any(e.vale for e in comprovadas):
+                ajustes.append(f"trecho de {ator} vale sem trazer a resposta: com um lado só com ator nomeado, não há "
+                               f"disputa a conferir")
             if not listadas:
                 ajustes.append(f"ator do lado {r.numero} saiu: não está em respostas_por_ator ({ator})")
                 faltam.append(ator)
@@ -577,15 +593,16 @@ def analise_da_resposta(resposta, textos) -> Analise:
     lado sem ator nem grupo não vale; se ele é o único da resposta, a pauta fica com o lado neutro.
 
     Com questão, a resposta traz também "respostas_por_ator": a resposta de cada ator e um trecho
-    literal de um texto da pauta que a comprova. O ator sem trecho que valha (no texto e com a
-    resposta dele, ver `traz_a_resposta`) sai e fica em `recusados`, e o ator que está num lado de
-    resposta diferente da dele vai para o lado certo, ou sai (ver `_conferir_atores`); o que não
-    tem entrada na lista fica em `faltam`. O lado que perde todos os atores nomeados é descartado.
-    Sem questão, os atores ficam como vieram.
+    literal de um texto da pauta que a comprova. O ator sem trecho que valha sai e fica em
+    `recusados`: o trecho tem de estar no texto e, quando a resposta tem dois lados ou mais com ator
+    nomeado, trazer a resposta dele (ver `traz_a_resposta`). O ator que está num lado de resposta
+    diferente da dele vai para o lado certo, ou sai (ver `_conferir_atores`); o que não tem entrada
+    na lista fica em `faltam`. O lado que perde todos os atores nomeados é descartado. Sem questão,
+    os atores ficam como vieram.
 
     Dos lados com ator nomeado, vale até 3, cada um com um ator que nenhum outro tem. A questão só
-    fica com 2 lados ou mais, e aí cada lado tem a sua resposta, diferente das outras; com um lado
-    só, a questão sai. Sem nenhum lado com ator nomeado, a pauta fica com o lado neutro e as
+    fica com 2 lados ou mais, e aí ela é de sim ou não (não começa com "qual", "como", "quem"...) e
+    cada lado tem a sua resposta, diferente das outras; com um lado só, a questão sai. Sem nenhum lado com ator nomeado, a pauta fica com o lado neutro e as
     ressalvas são descartadas. Os lados saem sem a contagem das menções (ver `com_mencoes`).
 
     Resposta que não cumpre isso vira o lado neutro, sem ressalvas, com o motivo em `problemas`.
@@ -622,7 +639,8 @@ def analise_da_resposta(resposta, textos) -> Analise:
             f"trecho de {e.ator} aceito como quase literal ({e.diferencas} palavra(s) diferente(s) do texto de {e.veiculo}): "
             f"vale o do veículo" for e in respostas if e.trecho_do_llm
         ]
-        mudou, faltam, recusados = _conferir_atores(rascunhos, respostas)
+        com_disputa = sum(1 for r in rascunhos if r.atores) >= 2   # antes da conferência: lados com ator nomeado
+        mudou, faltam, recusados = _conferir_atores(rascunhos, respostas, exigir_resposta=com_disputa)
         ajustes += mudou
     nomeados, ressalvas, descartadas, mudou = _separar(rascunhos, textos)
     ajustes += mudou
@@ -633,6 +651,10 @@ def analise_da_resposta(resposta, textos) -> Analise:
         if not questao:
             return invalida(f"questão vazia com {len(nomeados)} lados (questão vazia exige exatamente 1 lado)")
         probs = _problemas_das_respostas(nomeados)
+        if _QUESTAO_ABERTA.search(questao):
+            probs.append(f'questão que não é de sim ou não ("{questao}"): a questão em disputa é uma pergunta de sim ou não, '
+                         f'que os atores respondem de formas opostas (ex.: "A empresa descumpriu o contrato?"); planos ou '
+                         f"prioridades diferentes sem respostas opostas são um lado só")
         probs += [
             f"lado {i} sem ator que não esteja em outro lado"
             for i, proprios in zip(nomeados, atores_exclusivos(list(nomeados.values()))) if not proprios

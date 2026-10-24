@@ -749,6 +749,60 @@ def test_se_a_nova_tentativa_nao_vale_fica_a_primeira_resposta_sem_o_ator(caplog
         assert "a nova tentativa não valeu" in caplog.text and "Fica a primeira resposta, sem o ator." in caplog.text
 
 
+def test_o_verbo_de_outro_ator_depois_do_ponto_e_virgula_nao_vale():
+    # como no N27 de 23/10/2026: o "defende" do Flávio, no mesmo título, valia para o trecho do Lula
+    titulo = [{"fonte": VILA, "titulo": "Cooperativa Raízes do Campo quer fechar a feira; Associação dos Feirantes defende a praça",
+               "texto": "Um texto qualquer sobre a feira de domingo e o bairro."}]
+    assert modulo.frase_do_trecho("Cooperativa Raízes do Campo quer fechar a feira", titulo, VILA) == (
+        "cooperativa raízes do campo quer fechar a feira;")
+    assert modulo.traz_a_resposta("Cooperativa Raízes do Campo", "Cooperativa Raízes do Campo quer fechar a feira", titulo, VILA) == ""
+    assert modulo.traz_a_resposta("Associação dos Feirantes", "Associação dos Feirantes defende a praça", titulo, VILA) == (
+        "verbo de posição no trecho (defende)")
+    # o trecho que atravessa o ponto e vírgula fica com as duas partes
+    assert modulo.frase_do_trecho("a feira; Associação dos Feirantes", titulo, VILA) == (
+        "cooperativa raízes do campo quer fechar a feira; associação dos feirantes defende a praça")
+
+
+def test_a_questao_da_disputa_e_de_sim_ou_nao():
+    feira = {"respostas_por_ator": [
+        _evidencia("Cooperativa Raízes do Campo", "Fechar", "A Cooperativa Raízes do Campo decidiu fechar a feira de domingo", VILA),
+        _evidencia("Associação dos Feirantes", "Manter", "Fechar agora é abandonar quem produz", VILA),
+    ], "lados": [_lado("Fecha.", ["Cooperativa Raízes do Campo"], [VILA], "Fechar"),
+                 _lado("Mantém.", ["Associação dos Feirantes"], [VILA], "Manter")]}
+    for aberta in ("Qual deve ser o destino da feira?", "O que fazer com a feira?", "Como fica a feira de domingo?", "quem decide?"):
+        analise = analise_da_resposta({**feira, "questao": aberta}, FEIRA)
+        assert analise.problemas == [
+            f'questão que não é de sim ou não ("{aberta}"): a questão em disputa é uma pergunta de sim ou não, que os atores '
+            'respondem de formas opostas (ex.: "A empresa descumpriu o contrato?"); planos ou prioridades diferentes sem '
+            "respostas opostas são um lado só"], aberta
+        assert analise.lados == lado_unico([VILA])
+    assert analise_da_resposta({**feira, "questao": "A feira deve fechar?"}, FEIRA).problemas == []
+    # com um lado só a questão sai, e a forma dela não importa
+    um = {**feira, "questao": "Qual deve ser o destino da feira?", "lados": feira["lados"][:1]}
+    assert analise_da_resposta(um, FEIRA).problemas == [] and analise_da_resposta(um, FEIRA).questao == ""
+    # a questão aberta ganha a nova tentativa, com o erro anexado
+    chamada = Chamada({**feira, "questao": "Qual deve ser o destino da feira?"}, {**feira, "questao": "A feira deve fechar?"})
+    assert analisar_lados(chamada, FEIRA).questao == "A feira deve fechar?" and len(chamada.recebido) == 2
+    assert "questão que não é de sim ou não" in chamada.recebido[1][1]
+
+
+def test_com_um_lado_so_o_trecho_basta_estar_no_texto():
+    # como no A14 de 23/10/2026: "a OpenAI admitiu..." não traz resposta, mas não havia disputa a inventar
+    um = {"questao": "A feira deve fechar?", "respostas_por_ator": [
+        _evidencia("Associação dos Feirantes", "Não", PROTESTOU, VILA)],
+        "lados": [_lado("Os feirantes protestam.", ["Associação dos Feirantes"], [VILA], "Não")]}
+    analise = analise_da_resposta(um, FEIRA)
+    assert [lado.atores for lado in analise.lados] == [("Associação dos Feirantes",)] and analise.recusados == []
+    assert analise.ajustes == ["trecho de Associação dos Feirantes vale sem trazer a resposta: com um lado só com ator nomeado, "
+                               "não há disputa a conferir"]
+    assert analisar_lados(Chamada(um), FEIRA).primeira is None                # sem recusado, sem nova tentativa
+    # o trecho que não está no texto continua recusado
+    fora = {**um, "respostas_por_ator": [_evidencia("Associação dos Feirantes", "Não", "Os feirantes ocuparam a prefeitura ontem", VILA)]}
+    assert [r.ator for r in analise_da_resposta(fora, FEIRA).recusados] == ["Associação dos Feirantes"]
+    # com dois lados nomeados, a conferência vale (o caso de test_ator_cujo_trecho_nao_traz_a_resposta_sai...)
+    assert analise_da_resposta(_feira(), FEIRA).recusados
+
+
 # ── Ator cujo trecho não vale: a mesma nova tentativa ─────────────────────────────────────
 
 PROTESTOU = "A Associação dos Feirantes protestou na porta da sede"
