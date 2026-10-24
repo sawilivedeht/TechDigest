@@ -28,7 +28,9 @@ ele está; este arquivo guarda o que foi decidido e o que falta, e é atualizado
    fato distorcido num aprovado). Em 19/10, o plano das correções (ver "Depois da validação: o
    plano de 19/10"). Em 23/10, a regressão depois das correções também não atingiu o aceite: 4 de
    20 aprovados, todos os outros por palavras abaixo do mínimo, e uma disputa inventada nova (N27).
-   O resultado espera a decisão do dono.
+   Em 24/10, as decisões do dono entraram (f1e2713 e 31a2060), e a rodada curta de 8 itens também
+   não atingiu o aceite: 5 de 8 aprovados, os outros por palavras, porque a conta do bloco não
+   fecha, com 9,8 marcas por mil palavras. O resultado espera a decisão do dono.
 5. **Integração do agrupamento** atrás de `AGRUPAMENTO_ATIVO`, com os filtros, o limite de
    tentativas, os excedentes e o registro de cada execução.
 6. **Simulação de ponta a ponta.** A que libera o merge roda com `AGRUPAMENTO_ATIVO=false`, que é o
@@ -670,6 +672,46 @@ Três condições, todas cumpridas:
   (`data/agrupamento/correcoes_20261024/fracao_do_minimo.py`):
   - nos 20 episódios da regressão, 70%, 65% e 60% do alvo aprovariam 6, 11 e 12, contra 4 em 75%;
   - mesmo em 60%, oito ficam reprovados, por algum personagem abaixo do mínimo dele.
+
+**Em 24/10, a rodada curta** (07:33 a 07:52, 21 chamadas, memória disponível sempre acima de 17,2
+GiB; o detalhe em `data/agrupamento/rodada_20261024/resultado.md`):
+
+- **O aceite não foi atingido:**
+
+  | Critério | Meta | Resultado |
+  |---|---|---|
+  | Aprovados | 7 de 8 ou mais | 5 (A79, A104, N86, N27, N84) |
+  | Marcas por mil palavras de roteiro | menos de 10 | 9,8 |
+
+  As marcas passam por uma: com 48, seriam 10,0. Nos mesmos 8 itens, 17/10 teve 14,6 e a regressão,
+  4,8.
+- **Os três reprovados (A63, N92 e N13) têm pouco material e caíram por palavras.** A conta do bloco
+  não fecha:
+  - o modelo segue os turnos e o tamanho da fala: 7 dos 8 saíram com o número exato de turnos, e as
+    falas pedidas de 70 a 80 saíram com 64 a 81 palavras, para a Helena e para os analistas;
+  - a Helena fala em metade dos turnos e fica com 49% das palavras, contra 35% a 45% do alvo. Ela
+    chegou a 108% do alvo, e os analistas, a 76%;
+  - com material cheio, os analistas precisariam de 86 ou 87 palavras por fala. Com pouco material,
+    nem a fala do tamanho pedido leva ao mínimo: a Bia do N92 teve uma fala só;
+  - com um analista, os 10 turnos pedidos não terminam com a Helena: o A104 e o N27 terminam com o
+    analista, e o N84 fez 11 turnos;
+  - a revisão não expande: no A63 e no N13, ela encurtou o roteiro;
+  - o mínimo do QA em 70% ou 65% do alvo daria os mesmos 5 aprovados, e em 60%, 6.
+- **A leitura** (`data/agrupamento/correcoes_20261024/leitura_curta.py`, mesma régua), em marcas por
+  mil palavras do grupo:
+  - resumo e pontos, 2,1; Helena fora do fechamento, 2,3; analistas, 11,7; fechamento, 16,2;
+  - 16 das 27 marcas dos analistas são do A79. O alvo é o mesmo que na regressão deu 3 marcas, mas
+    agora são 14 turnos em vez de 7: cada analista respondeu 4 perguntas, e o lado do comandante tem
+    2 frases no texto;
+  - no fechamento, o "segue em aberto" sem base no texto deu 3 marcas; o "fica claro" caiu de 4 itens
+    para 2; e 4 marcas são do analista que fala depois da Helena.
+- **Análise de lados:** o N27 ficou sem disputa, só com o lado de Flávio, porque o trecho de Lula
+  perdeu o verbo no ";". As quatro disputas ficaram com os dois lados.
+- **À espera do dono** (propostas em `resultado.md`; nada foi mudado):
+  - o bloco dizer as falas de cada personagem, quantas e de que tamanho, numa sequência que termina
+    com a Helena (a recomendada);
+  - só falar do que segue em aberto quando os textos disserem;
+  - contar o sobrenome sozinho nas menções, depois de medir.
 
 ## Números medidos
 
