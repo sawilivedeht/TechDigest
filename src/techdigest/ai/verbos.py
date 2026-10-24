@@ -10,8 +10,10 @@ como um par, o auxiliar seguido do particípio: o particípio sozinho não conta
 Verbo que apresenta a afirmação como verdadeira não entra ("constatar", "revelar", "reconhecer",
 "admitir"): numa pauta com disputa, ele toma partido.
 
-Os verbos de decisão são outra lista, que só a análise de lados usa (ver `lados.traz_a_resposta`):
-quem decide responde a favor da decisão, mas "suspender" e "mandar" não atribuem uma posição.
+Os verbos de decisão são outra lista: quem decide responde a favor da decisão, mas "suspender" e
+"mandar" não atribuem uma posição. A análise de lados aceita a frase que nomeia o ator e tem um deles
+(ver `lados.traz_a_resposta`), e o QA aceita o particípio deles na passiva com o ator como agente
+("a suspensão foi determinada por decisão do presidente do TSE, <ator>"; ver `agentes_da_decisao`).
 """
 import re
 import unicodedata
@@ -75,6 +77,17 @@ FORMAS_DE_DECISAO = frozenset({
     "mandado", "mandada", "mandados", "mandadas",
 })
 
+# O particípio dos verbos de decisão, que faz a passiva ("foi determinada por..."), e o que pode vir no lugar do agente.
+PARTICIPIOS_DE_DECISAO = frozenset(f for f in FORMAS_DE_DECISAO if re.search(r"(?:ad|id|s)[oa]s?$", f) and not f.endswith("ia"))
+_DO_AGENTE = frozenset({"por", "pelo", "pela", "pelos", "pelas"})
+_ATE_O_AGENTE = 3             # palavras, no máximo, entre o particípio e o "por" ("determinada na sexta-feira pelo...")
+# Onde o agente acaba: no próximo verbo (de posição, de decisão ou de ligação), na conjunção que abre outra oração ou
+# no ponto e vírgula. Com dois agentes ("pelo ministro e pelo governador"), fica o primeiro.
+_FIM_DO_AGENTE = FORMAS_DE_POSICAO | FORMAS_DE_DECISAO | frozenset({
+    "foi", "foram", "é", "são", "era", "eram", "será", "serão", "seria", "seriam", "está", "estão", "estava", "estavam",
+    "e", "mas", "porém", "enquanto", "que", ";",
+})
+
 
 def _palavras(texto) -> list[str]:
     return re.findall(r"[^\W\d_]+", unicodedata.normalize("NFC", str(texto)).lower())
@@ -99,3 +112,25 @@ def verbos_de_posicao(texto) -> list[str]:
 def verbos_de_decisao(texto) -> list[str]:
     """As formas de verbo de decisão que aparecem no texto, como palavras inteiras (o acento conta, como acima)."""
     return [palavra for palavra in _palavras(texto) if palavra in FORMAS_DE_DECISAO]
+
+
+def agentes_da_decisao(texto) -> list[str]:
+    """Os agentes da passiva dos verbos de decisão no texto, como estão escritos: o que vem depois do "por" (ou "pelo",
+    "pela"...) que segue o particípio, em até _ATE_O_AGENTE palavras, até o próximo verbo, conjunção ou ponto e vírgula.
+
+    Em "a suspensão foi determinada por decisão do presidente do TSE, Kassio Nunes Marques", o agente é "decisão do
+    presidente do TSE, Kassio Nunes Marques"; em "a medida, determinada pelo TSE, foi criticada por Lula", é "TSE".
+    """
+    texto = unicodedata.normalize("NFC", str(texto))
+    achadas = [(m.group().lower(), m.start(), m.end()) for m in re.finditer(r"[^\W\d_]+|;", texto)]
+    agentes = []
+    for i, (palavra, _, _) in enumerate(achadas):
+        if palavra not in PARTICIPIOS_DE_DECISAO:
+            continue
+        por = next((k for k in range(i + 1, min(i + 2 + _ATE_O_AGENTE, len(achadas))) if achadas[k][0] in _DO_AGENTE), None)
+        if por is None:
+            continue
+        fim = next((k for k in range(por + 1, len(achadas)) if achadas[k][0] in _FIM_DO_AGENTE), len(achadas))
+        if fim > por + 1:
+            agentes.append(texto[achadas[por + 1][1]:achadas[fim - 1][2]])
+    return agentes

@@ -603,6 +603,22 @@ def test_no_fechamento_helena_recapitula_fatos_e_posicoes_atribuidas():
     assert curta in prompt.PROMPT_REVISOR and curta in prompt.PROMPT_ROTEIRO
 
 
+def test_o_numero_fica_com_o_que_o_texto_diz_que_ele_mede():
+    # decisão de 24/10/2026: o N92 pôs os 30 mil exemplares no recolhimento em quatro de cinco rodadas
+    from techdigest.ai import prompt
+    assert ("Um número fica com o que o texto diz que ele mede. Se o texto diz que 4 mil ingressos foram vendidos e que só "
+            "os não usados serão devolvidos, não diga que 4 mil ingressos serão devolvidos.") in prompt.PROMPT_SISTEMA
+
+
+def test_o_analista_nao_tem_o_nome_de_uma_pessoa_citada_e_a_revisao_pode_troca_lo():
+    # decisão de 24/10/2026: o N86 chamou o analista de "Bruno" e "Bruno Silva", o nome do colunista que é a fonte
+    from techdigest.ai import prompt
+    personagens = prompt.PROMPT_SISTEMA.split("### personagens")[1].split("### roteiro_podcast")[0]
+    assert "O analista não tem o nome de uma pessoa citada nos textos, nem o primeiro nome dela." in personagens
+    assert ("Mantenha os personagens, a não ser que o problema aponte analista a mais ou a menos, ou um analista com o nome de "
+            "uma pessoa citada nos textos, que ganha outro nome no elenco e no roteiro") in prompt.PROMPT_REVISOR
+
+
 def test_os_exemplos_dos_prompts_nao_usam_veiculos_que_existem():
     # num prompt sobre atribuição, um veículo real é o nome que o modelo pode pôr num episódio em que ele não é fonte
     from techdigest.ai import prompt

@@ -215,13 +215,20 @@ def test_verbos_novos_o_infinitivo_e_o_preterito_composto():
     assert verbos_de_posicao("Ele considera, justifica, pede e chama.") == []
 
 
-def test_verbos_de_decisao_sao_outra_lista_que_o_qa_nao_usa():
-    from techdigest.ai.verbos import FORMAS_DE_DECISAO, verbos_de_decisao
+def test_verbos_de_decisao_sao_outra_lista_e_o_qa_so_aceita_a_passiva_com_agente():
+    from techdigest.ai.verbos import FORMAS_DE_DECISAO, PARTICIPIOS_DE_DECISAO, agentes_da_decisao, verbos_de_decisao
     assert verbos_de_decisao("O ministro mandou suspender; a feira foi suspensa e a multa, determinada.") == [
         "mandou", "suspensa", "determinada"]
     assert {"suspendeu", "mandou", "suspensa", "mandado"}.isdisjoint(FORMAS_DE_POSICAO)
     assert {"determinou", "decidiu"} <= FORMAS_DE_DECISAO & FORMAS_DE_POSICAO   # determinar e decidir estão nas duas
     assert verbos_de_posicao("O ministro mandou suspender a feira.") == []
+    # o particípio sai da mesma lista da análise de lados; o agente vai do "por" até o próximo verbo
+    assert PARTICIPIOS_DE_DECISAO <= FORMAS_DE_DECISAO and {"determinada", "suspensos", "decidido", "mandadas"} <= PARTICIPIOS_DE_DECISAO
+    assert agentes_da_decisao("A interdição da feira foi determinada por decisão da juíza Marta Quaresma.") == [
+        "decisão da juíza Marta Quaresma"]
+    assert agentes_da_decisao("A interdição, determinada na sexta pela prefeitura, foi criticada por Ivo Brandão.") == ["prefeitura"]
+    assert agentes_da_decisao("A feira foi suspensa; o pedido foi feito por Ivo Brandão.") == []      # o "por" não segue o particípio
+    assert agentes_da_decisao("Marta Quaresma suspendeu a feira.") == []                             # a ativa não é passiva
 
 
 # ── Analistas por lado ────────────────────────────────────────────────────────────────────
@@ -624,6 +631,46 @@ def test_dois_milhoes_e_meio_vale_pelo_valor_inteiro():
 
 # ── Papel dos analistas e lado fino ───────────────────────────────────────────────────────
 
+def test_a_passiva_de_decisao_com_o_ator_como_agente_apresenta_o_lado():
+    # o A63 de 24/10/2026: o texto só traz a decisão do Kassio na passiva, e a analista a apresentou assim
+    lados = [Lado("A suspensão é intromissão.", ("Ivo Brandão",), ("Correio de Serra Quieta",), "Sim"),
+             Lado("A suspensão é legal.", ("Marta Quaresma",), ("Correio de Serra Quieta",), "Não")]
+
+    def debate(fala_da_bia: str) -> dict:
+        return _debate(("Ramos", "Segundo o Correio de Serra Quieta, Ivo Brandão afirma que a suspensão é intromissão."),
+                       ("Bia", fala_da_bia))
+
+    passiva = "Segundo o Correio de Serra Quieta, a suspensão foi determinada por decisão da presidente do tribunal, Marta Quaresma."
+    assert qa.lados_de_cada_analista(debate(passiva), lados) == {"Ramos": [0], "Bia": [1]}
+    assert qa.problemas_dos_analistas(debate(passiva), lados) == []
+    # sem veículo, ou com o ator fora do agente, a frase não apresenta o lado
+    for fala in ("A suspensão foi determinada por decisão da presidente do tribunal, Marta Quaresma.",
+                 "Segundo o Correio de Serra Quieta, a suspensão foi determinada pelo tribunal, e Marta Quaresma comentou o caso.",
+                 "Segundo o Correio de Serra Quieta, a suspensão, determinada pelo tribunal, foi elogiada por Marta Quaresma."):
+        assert qa.lados_de_cada_analista(debate(fala), lados)["Bia"] == []
+
+
+def test_analista_com_o_nome_ou_o_primeiro_nome_de_um_ator_reprova():
+    # o N86 de 17/10 a 24/10/2026: o analista se chamou "Bruno" e "Bruno Silva", o nome do colunista que é a fonte
+    lados = [Lado("O colunista critica o plano.", ("Ivo Brandão",), ("G1",)), Lado("p", ("presidente Marta Quaresma",), ("G1",))]
+    episodio = _episodio(["G1"])
+    for nome, reprova in (("Ivo Brandão", True), ("Ivo", True), ("Dr. Ivo Costa", True), ("Marta", True), ("Dra. Marta Lima", True),
+                          ("Dr. Brandão", False), ("Bia", False), ("Dr. Ramos", False), ("Ivone", False)):
+        episodio["personagens"] = [{"nome": "Helena"}, {"nome": nome}]
+        assert bool(qa.problemas_dos_nomes(episodio, lados)) is reprova, nome
+    episodio["personagens"] = [{"nome": "Helena"}, {"nome": "Ivo"}]
+    assert qa.problemas_dos_nomes(episodio, lados) == [
+        'o analista Ivo tem o primeiro nome de Ivo Brandão, pessoa citada nos textos: troque o nome do analista, em "personagens" '
+        'e no roteiro, por um que nenhuma pessoa citada nos textos tenha']
+    # o ator que não é pessoa nem começa com maiúscula não tem primeiro nome; Helena não conta
+    episodio["personagens"] = [{"nome": "Helena"}, {"nome": "Campanha"}]
+    assert qa.problemas_dos_nomes(episodio, [Lado("p", ("campanha de Lula",), ("G1",)), Lado("p", ("Helena Prado",), ("G1",))]) == []
+    # o problema é do elenco: pede a revisão do episódio inteiro, que pode trocar o nome
+    episodio["personagens"] = [{"nome": "Helena"}, {"nome": "Ivo"}]
+    [problema] = [p for p in qa.problemas_com_campo(episodio, ["G1"], lados[:1], SEM_RESSALVAS, SEM_TEXTOS) if "nome" in p.texto]
+    assert problema.campo == qa.ELENCO
+
+
 def test_papel_de_analista_com_nome_de_ator_dos_lados_reprova():
     episodio = _episodio(["G1"])
     episodio["personagens"] = [{"nome": "Helena", "papel": "apresentadora da Meta"}, {"nome": "Ramos", "papel": "analista da Meta"}]
@@ -701,21 +748,23 @@ def test_com_o_orcamento_da_pauta_o_minimo_vem_do_alvo_de_cada_personagem():
                     {"personagem": "Ramos", "fala": falas(ramos) + ". Já a Agência Brasil registra que a Meta nega."},
                 ]}
 
-    # um texto curto (239 palavras, como o N92): Helena 150, o lado grosso 150, o fino 120
+    # um texto curto (239 palavras, como o N92): Helena 150, o lado grosso 150, o fino 90 (uma frase do lado)
     orc = orcamento([grosso, fino], 239)
-    assert (orc.helena, orc.analistas, orc.total) == (150, (150, 120), 420)
+    assert (orc.helena, orc.analistas, orc.total) == (150, (150, 90), 390)
     curto = debate(130, 140, 100)
     assert qa.limites_de_cada_personagem(curto, [grosso, fino], orc) == {
-        "Helena": (112, qa.MAX_POR_PERSONAGEM), "Bia": (112, qa.MAX_POR_PERSONAGEM), "Ramos": (90, qa.MAX_POR_PERSONAGEM)}
-    assert qa.limites_do_total(orc) == (315, qa.MAX_TOTAL)
+        "Helena": (112, qa.MAX_POR_PERSONAGEM), "Bia": (112, qa.MAX_POR_PERSONAGEM), "Ramos": (67, qa.MAX_POR_PERSONAGEM)}
+    assert qa.limites_do_total(orc) == (292, qa.MAX_TOTAL)
     assert qa.problemas(curto, ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc) == []
     # sem o orçamento, o mesmo roteiro reprova pelos mínimos de antes
     assert len(qa.problemas(curto, ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS)) == 4
-    # abaixo do mínimo, a mensagem diz o que é aceito e o alvo do bloco, para a revisão mirar no alvo
+    # abaixo do mínimo, a mensagem diz o que é aceito, o alvo do bloco e o que falta pelo plano das falas
     assert qa.problemas(debate(130, 100, 100), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc) == [
-        f"Bia com 110 palavras (aceito de 112 a {qa.MAX_POR_PERSONAGEM}; o alvo do bloco é 150)"]
-    assert qa.problemas(debate(90, 100, 100), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc)[-1] == (
-        f"total de 309 palavras (aceito de 315 a {qa.MAX_TOTAL}; o alvo do bloco é 420)")
+        f"Bia com 110 palavras (aceito de 112 a {qa.MAX_POR_PERSONAGEM}; o alvo do bloco é 150): 1 fala de uns 110 palavras; "
+        f"o plano pede 2 falas de uns 75: faltam uns 40 palavras para o alvo; siga o plano e complete as falas com o que os "
+        f"textos trazem"]
+    assert qa.problemas(debate(60, 100, 100), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc)[-1] == (
+        f"total de 279 palavras (aceito de 292 a {qa.MAX_TOTAL}; o alvo do bloco é 390)")
     # os máximos não mudam: com o orçamento, 650 continua passando
     assert qa.problemas(debate(130, qa.MAX_POR_PERSONAGEM - 11, 100), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc) == []
     # o mínimo nunca passa do de antes, mesmo com o alvo cheio
@@ -724,6 +773,27 @@ def test_com_o_orcamento_da_pauta_o_minimo_vem_do_alvo_de_cada_personagem():
         (qa.MIN_HELENA_COM_DEBATE, qa.MAX_POR_PERSONAGEM), (qa.MIN_POR_PERSONAGEM, qa.MAX_POR_PERSONAGEM),
         (qa.MIN_LADO_FINO, qa.MAX_POR_PERSONAGEM)}
     assert qa.limites_do_total(cheio) == (qa.MIN_TOTAL, qa.MAX_TOTAL)
+
+
+def test_abaixo_do_minimo_a_mensagem_diz_o_que_falta_em_cada_fala_pelo_plano():
+    # o N13 de 24/10/2026: o Dr. Ramos fez as 4 falas do plano com 49 palavras, para 4 de 90
+    from techdigest.ai.orcamento import Orcamento
+    orc = Orcamento(260, (360,), None)
+    assert (orc.plano.falas, orc.plano.tamanhos) == ((5, 4), (50, 90))
+    roteiro = []
+    for _ in range(4):
+        roteiro += [{"personagem": "Helena", "fala": " ".join(["palavra"] * 50)}, {"personagem": "Ramos", "fala": " ".join(["palavra"] * 49)}]
+    roteiro.append({"personagem": "Helena", "fala": " ".join(["palavra"] * 50)})
+    episodio = {**_episodio(["G1"]), "roteiro_podcast": roteiro}
+    assert qa.o_que_falta(episodio, UM_LADO, orc, "Ramos") == (
+        "4 falas de uns 49 palavras; o plano pede 4 falas de uns 90: acrescente uns 40 palavras a cada fala, com o que os textos trazem")
+    assert f"Ramos com 196 palavras (aceito de 240 a {qa.MAX_POR_PERSONAGEM}; o alvo do bloco é 360): 4 falas de uns 49" in (
+        qa.problemas(episodio, ["G1"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS, orc)[0])
+    # com outro número de falas, a mensagem diz quanto falta para o alvo
+    episodio["roteiro_podcast"] = roteiro[:5]
+    assert qa.o_que_falta(episodio, UM_LADO, orc, "Ramos") == (
+        "2 falas de uns 49 palavras; o plano pede 4 falas de uns 90: faltam uns 260 palavras para o alvo; siga o plano e "
+        "complete as falas com o que os textos trazem")
 
 
 def test_analista_sem_lado_leva_o_menor_alvo_e_com_um_lado_leva_o_do_lado():

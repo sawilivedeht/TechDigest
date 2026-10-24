@@ -17,8 +17,8 @@ def test_o_total_e_o_fator_vezes_as_palavras_com_piso_e_teto_no_alvo_de_antes():
     assert orcamento(_lados(None), 2000).total == 780         # o teto: Helena e um analista, 390 cada
     assert orcamento(_lados(None)).total == 780               # sem a medida, o alvo de antes
     assert not orcamento(_lados(None), 2000).reduzido and orcamento(_lados(None), 201).reduzido
-    assert orcamento(_lados(3, 3), 5000).total == 3 * 360
-    assert orcamento(_lados(3, 3, 3), 5000).total == 1150     # 4 × 285, com o arredondamento de cada analista à dezena
+    assert orcamento(_lados(None, None), 5000).total == 3 * 360
+    assert orcamento(_lados(4, 4, 4), 5000).total == 1150     # 4 × 285, com o arredondamento de cada analista à dezena
 
 
 def test_a_helena_fica_com_a_parte_de_antes_entre_35_e_45_por_cento():
@@ -28,15 +28,33 @@ def test_a_helena_fica_com_a_parte_de_antes_entre_35_e_45_por_cento():
 
 
 def test_os_analistas_dividem_pelas_mencoes_com_120_no_minimo_e_430_no_maximo():
-    # o lado fino (uma menção) fica com o mínimo; o outro, com o resto, até o máximo
-    assert orcamento(_lados(1, 6), 239).analistas == (120, 150)
-    assert orcamento(_lados(1, 6), 5000).analistas == (120, 430)
-    assert orcamento(_lados(2, 2), 5000).analistas == (350, 350)
-    # lado sem contagem conta como a média dos outros; lado com zero menções, como uma
+    # o lado com menos menções fica com o mínimo; o outro, com o resto, até o máximo
+    assert orcamento(_lados(2, 12), 239).analistas == (120, 150)
+    assert orcamento(_lados(2, 12), 5000).analistas == (120, 430)
+    assert orcamento(_lados(4, 4), 5000).analistas == (350, 350)
+    # lado sem contagem conta como a média dos outros
     assert orcamento(_lados(None, None), 5000).analistas == (350, 350)
-    assert orcamento(_lados(0, 1), 5000).analistas == (350, 350)
+    assert orcamento(_lados(None, 4), 5000).analistas == (350, 350)
     # pouco material e três lados: todos no mínimo, e o total passa do 1,75 × texto
-    assert orcamento(_lados(1, 1, 1), 150).analistas == (120, 120, 120)
+    assert orcamento(_lados(2, 2, 2), 150).analistas == (120, 120, 120)
+
+
+def test_com_dois_lados_o_alvo_do_analista_nao_passa_de_90_palavras_por_frase_do_lado():
+    # decisão de 24/10/2026: com uma frase, o teto prevalece sobre o piso de 120 (o N92)
+    assert orcamento(_lados(1, 6), 239).analistas == (90, 150)
+    assert orcamento(_lados(1, 6), 5000).analistas == (90, 430)
+    # o A79: 4 frases do ministro e 2 do comandante; o que o teto tira sai do total, e a Helena fica com a parte dela
+    a79 = orcamento(_lados(4, 2), 755)
+    assert (a79.helena, a79.analistas, a79.total, a79.reduzido) == (380, (360, 180), 920, False)   # o texto não é curto
+    # lado com zero menções conta como uma, na divisão e no teto; lado sem contagem não tem teto
+    assert orcamento(_lados(0, 1), 5000).analistas == (90, 90)
+    assert orcamento(_lados(None, 1), 5000).analistas == (350, 90)
+    assert orcamento(_lados(1, 1, 1), 150).analistas == (90, 90, 90)
+    # quando o teto corta, a Helena não passa de 45% do total que fica
+    pouco = orcamento(_lados(0, 1), 5000)
+    assert pouco.helena == 150 and pouco.helena / pouco.total <= modulo.MAIOR_PARTE_DA_HELENA + 0.01
+    # com um lado só, o analista explica a história inteira, e o alvo dele não muda
+    assert orcamento(_lados(1), 2000).analistas == (430,)
 
 
 def test_o_plano_diz_quantas_falas_cada_personagem_tem_de_que_tamanho_e_em_que_ordem():

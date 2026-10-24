@@ -282,6 +282,42 @@ confirmados):
   - Se o analista do lado fino inventar para chegar ao alvo, trazer a medida: baixar o piso de 120 é
     decisão do dono.
 
+Em 24/10/2026, terceira leva, ao ler o resultado da segunda rodada curta (a invenção caiu, o fechamento
+foi de 12 marcas para 4, o N27 deixou de favorecer um dos planos; as leituras confirmadas, inclusive a de
+citar o "fica claro que..." no prompt):
+
+- **1. Tamanho das falas, a opção a:** na revisão por palavras, a mensagem do QA diz o que falta em cada
+  fala, com o que os textos trazem. O tamanho em frases fica para depois, se não bastar. O relatório
+  mostra quantas palavras cada revisão acrescentou.
+- **2. Teto do alvo pelo material:** o alvo de cada analista não passa de 90 palavras por frase do lado;
+  com 1 frase, o teto prevalece sobre o piso de 120 e o alvo fica em 90. Só nas pautas com dois lados
+  ou mais: com um lado só, o analista explica a história inteira, e o alvo dele não muda. Antes, medir
+  sem o modelo quais alvos mudam nos 20 itens e nas análises gravadas.
+- **3. Voz passiva na regra dos analistas por lado** (relaxamento): o verbo de decisão na passiva, com o
+  ator como agente ("foi determinada por decisão de <ator>"), apresenta o lado, como na conferência V4 da
+  análise de lados, com a mesma lista de verbos de decisão nas duas. Antes, medir nos episódios gravados.
+- **4. Nome do analista:** o analista não pode ter o nome de uma pessoa citada nos textos, nem o primeiro
+  nome dela. Evitar onde o nome é escolhido (código ou prompt) e pôr a regra no QA, conferindo contra os
+  atores da análise, como na medida (só o N86, nas quatro rodadas).
+- **5. Respostas de sim ou não:** numa disputa de dois lados, as respostas da análise de lados são "Sim"
+  e "Não", opostas; com três, fica a conferência de hoje. Das 10 análises que a regra pegaria, 2 são o
+  A63 com a resposta do Kassio trocada e 8 têm os lados certos com respostas descritivas, que a nova
+  tentativa deve consertar. Diferente da análise inválida (que vira lado neutro se a nova tentativa
+  também falhar): se a primeira só falhou nesta regra e a nova tentativa não valer, por qualquer motivo,
+  fica a primeira. Na rodada, conferir no A63 se as respostas de Lula e do Kassio batem com a questão:
+  a citação de Lula começa com "Não vamos aceitar", e a nova tentativa pode virar um "Não" limpo do lado
+  errado, que a regra não pega.
+- **6. Número ligado à coisa certa:** nas regras de números do `PROMPT_SISTEMA`, com exemplo inventado:
+  "Um número fica com o que o texto diz que ele mede. Se o texto diz que 4 mil ingressos foram vendidos
+  e que só os não usados serão devolvidos, não diga que 4 mil ingressos serão devolvidos." (o N92 pôs os
+  30 mil exemplares no recolhimento em quatro das cinco rodadas, contando a da master).
+- **7. Leitura:** sai. O "Partido dos Trabalhos" do N27 já está marcado como F no R5.
+- **A rodada:** os itens 1 a 6 com testes e commit, com o CLAUDE.md e o roteiro atualizados; a parte de
+  2 a 5 cuja medida mostrar mudança errada fica fora, e a medida vem para o dono. Depois, os mesmos 8
+  itens, com o mesmo critério e o mesmo relatório; se passar, a regressão nos 20, com o critério de
+  23/10, as marcas por mil palavras e as medidas por analista. Se não passar, parar e trazer. Em nenhum
+  caso mudar prompt ou QA por causa do resultado.
+
 Das fases 1 a 3, continuam valendo (o detalhe está no CLAUDE.md e no histórico do git):
 
 - Mesma história é o mesmo acontecimento ou um desdobramento direto dele na janela da coleta; só o
@@ -860,6 +896,56 @@ GiB; o detalhe em `data/agrupamento/rodada_20261024/resultado.md`):
   - um teto do alvo do analista pelo material, de 90 palavras por frase do lado;
   - aceitar na regra dos analistas por lado o verbo de decisão na passiva com o ator como agente;
   - o nome do analista igual ao de um ator, e as respostas trocadas, como regras a decidir.
+
+**Em 24/10, a terceira leva** (as decisões de mesmo nome; medidas em
+`data/agrupamento/correcoes_20261024c/`):
+
+- **Item 2, medido antes** (`medir_teto.py`, `frases_do_teto.py` e `conferir_teto_no_codigo.py`): das 65
+  análises gravadas com dois lados ou mais, 22 mudam de alvo, em quatro pautas; dos 20 itens, 3.
+  - A79: o ministro (4 frases) vai de 430 para 360 e o comandante (2 frases), de 230 para 180; o total,
+    de 1.040 para 920. N13: a campanha de Flávio (1 frase) vai de 120 para 90. N92: o Kassio (1 frase), de
+    120 para 90. Na pauta 86+71, o Flávio (1 frase), de 120 para 90.
+  - As frases contadas são da pessoa certa nas pautas da rodada. Numa análise antiga da pauta 79+105, a
+    contagem do comandante inclui o "Corpo de Bombeiros Militar" (a instituição) e uma frase colada pelo
+    corte do recorte: o teto fica mais folgado (270 em vez de 90 a 180), não mais apertado. É um erro da
+    contagem que já existia, não do teto. Entra na rodada.
+  - Nos 20 itens, todos os planos continuam fechando a conta (`planos.py`, `saida_planos_todos.txt`).
+- **Item 3, medido antes** (`medir_passiva.py`): nos 44 episódios gravados com dois lados ou mais, só uma
+  frase passa a apresentar um lado, a da Beatriz no A63 da segunda rodada curta, e o A63 passa a ter a
+  correspondência um a um. Nas falas de analista dos 96 episódios, só essa frase tem a passiva de um
+  verbo de decisão com agente (`saida_agentes_nos_episodios.txt`). Entra na rodada.
+- **Item 4, medido de novo com a regra** (`medir_nomes.py`): os mesmos 4 casos em 96 episódios, todos do
+  N86 ("Bruno" três vezes e "Bruno Silva" uma, contra o ator "Bruno Silva"). Entra.
+- **Item 5, medido de novo com a regra** (`medir_sim_e_nao.py`): as mesmas 10 análises, agora de 65 com
+  disputa (as 4 da segunda rodada curta já tinham "Sim" e "Não"). Entra.
+- **O `PROMPT_SISTEMA`** foi para 9.878 caracteres (eram 9.604): o recorte da geração encolhe uns 270
+  caracteres.
+- **Leituras minhas, para o dono corrigir:**
+  - teto: lado com 0 frases conta como 1 (como no peso da divisão), e lado sem contagem não tem teto; o
+    que o teto tira sai do total, não vai para o outro lado; a Helena fica com a parte dela do total de
+    antes do teto, mas não passa de 45% do total que fica (a faixa de 35% a 45% que já valia; nas análises
+    gravadas, isso não muda nenhum alvo); o aviso de "pouco material" do bloco continua olhando só o
+    material da pauta. Com o teto, a Helena pode ficar com falas mais longas, porque fala uma vez a mais
+    que o analista que mais fala: no A79, 5 de 75 em vez de 6 de 65;
+  - mensagem das palavras: só para quem está abaixo do mínimo. Com o número de falas do plano, diz quantas
+    palavras acrescentar a cada fala ("acrescente uns 40 palavras a cada fala, com o que os textos
+    trazem"); com outro número, quantas faltam para o alvo e "siga o plano"; o analista sem lado não tem
+    plano, só as palavras que faltam;
+  - passiva: o particípio de determinar, decidir, suspender e mandar, seguido em até 3 palavras de "por",
+    "pelo", "pela", "pelos" ou "pelas"; o agente vai até o próximo verbo, conjunção ("e", "mas", "que"...)
+    ou ponto e vírgula, então com dois agentes só o primeiro conta. A ativa "suspendeu" continua sem
+    contar, e a mensagem do QA continua pedindo o verbo de posição;
+  - nome: sem os títulos e cargos do começo ("Dr.", "presidente"), reprova o nome igual ao do ator ou o
+    primeiro nome igual ao do ator que começa com maiúscula; o sobrenome sozinho passa ("Dr. Silva" com o
+    ator "Bruno Silva"). O problema vai para a revisão completa, que pode trocar o nome; a revisão do
+    roteiro continua sem trocar nomes;
+  - sim ou não: vale "Sim" e "Não" com ou sem ponto final, e não "Sim, mas..."; o `PROMPT_LADOS` não
+    mudou, a regra age pela nova tentativa. A nova só fica se valer e trouxer "Sim" e "Não" em dois lados
+    (um lado só ou três não contam como consertar); quando a primeira já tinha "Sim" e "Não" e só faltava
+    a entrada de um ator, fica a nova se valer, como antes, mesmo sem eles. A nova tentativa pede, se a
+    questão não se responde com sim ou não, que ela seja reescrita sobre o mesmo fato;
+  - número: a frase entrou só no `PROMPT_SISTEMA`, como pedido; as revisões continuam com "Todo número e
+    todo percentual vêm das fontes, com o valor que elas trazem".
 
 ## Números medidos
 

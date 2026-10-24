@@ -897,6 +897,70 @@ def test_resposta_invalida_usa_a_vaga_e_nao_ha_tentativa_pelo_trecho():
     assert len(chamada.recebido) == 2 and analise.recusados and analise.primeira.problemas
 
 
+# ── As respostas de sim ou não ────────────────────────────────────────────────────────────
+
+def _descritiva(do_lado_1="Uma acusação", do_lado_2="Uma defesa") -> dict:
+    """DOIS_LADOS com respostas que não são "Sim" e "Não", como no A63 de 17/10/2026 ("Não vamos aceitar..." × "Sim")."""
+    def resposta(ator):
+        return do_lado_2 if ator == "Meta" else do_lado_1
+    return {**DOIS_LADOS, "respostas_por_ator": [{**e, "resposta": resposta(e["ator"])} for e in DOIS_LADOS["respostas_por_ator"]],
+            "lados": [{**DOIS_LADOS["lados"][0], "resposta": do_lado_1}, {**DOIS_LADOS["lados"][1], "resposta": do_lado_2}]}
+
+
+def test_numa_disputa_de_dois_lados_as_respostas_sao_sim_e_nao():
+    assert analise_da_resposta(DOIS_LADOS, TEXTOS).sem_sim_e_nao == ""     # "Sim" e "Não." valem: caixa e ponto final não contam
+    analise = analise_da_resposta(_descritiva(), TEXTOS)
+    assert analise.problemas == [] and len(analise.lados) == 2            # a análise vale: a regra só pede a nova tentativa
+    assert analise.sem_sim_e_nao == ('as respostas dos lados são "Uma acusação" e "Uma defesa": numa disputa de dois lados, '
+                                     'são "Sim" e "Não", opostas')
+    assert analise_da_resposta(_descritiva("Não vamos aceitar a interferência", "Sim"), TEXTOS).sem_sim_e_nao
+    # com um lado ou com três, a regra não vale
+    assert analise_da_resposta(UM_LADO, TEXTOS).sem_sim_e_nao == ""
+    tres = _disputa(*(_lado(atores=[a], veiculos=VEICULOS) for a in ("Meta", "PT", "Lula")))
+    assert len(analise_da_resposta(tres, TEXTOS).lados) == 3 and analise_da_resposta(tres, TEXTOS).sem_sim_e_nao == ""
+
+
+def test_sem_sim_e_nao_a_nova_tentativa_pede_as_duas_e_fica_se_trouxer():
+    chamada = Chamada(_descritiva(), DOIS_LADOS)
+    analise = analisar_lados(chamada, TEXTOS)
+    assert len(chamada.recebido) == 2 and analise.resposta == DOIS_LADOS and analise.sem_sim_e_nao == ""
+    assert analise.primeira.sem_sim_e_nao and analise.segunda is None
+    pedido = chamada.recebido[1][1]
+    assert 'CORREÇÃO: na sua resposta anterior, as respostas dos lados são "Uma acusação" e "Uma defesa"' in pedido
+    assert pedido.endswith(modulo.LEMBRETE_DO_SIM_E_NAO) and modulo.LEMBRETE_DAS_RESPOSTAS not in pedido
+    assert '"Sim" se o trecho dele afirma o que a questão pergunta, "Não" se o trecho dele nega' in pedido
+
+
+@pytest.mark.parametrize("nova", [
+    {"lados": []},                                       # a nova não vale
+    ValueError("resposta cortada"),                      # a chamada falha
+    "descritiva",                                        # vale, mas continua sem "Sim" e "Não"
+    UM_LADO,                                             # vale, mas sem disputa
+])
+def test_se_a_nova_tentativa_nao_traz_sim_e_nao_em_dois_lados_fica_a_primeira(nova):
+    primeira = _descritiva()
+    chamada = Chamada(primeira, _descritiva("Acusa", "Nega") if nova == "descritiva" else nova)
+    analise = analisar_lados(chamada, TEXTOS)
+    assert len(chamada.recebido) == 2 and analise.resposta == primeira and analise.segunda is not None
+    assert len(analise.lados) == 2 and analise.problemas == [] and analise.sem_sim_e_nao   # a regra não derruba a primeira
+
+
+def test_o_pedido_junta_as_entradas_que_faltam_e_o_sim_e_nao():
+    sem_entrada = _descritiva()
+    sem_entrada = {**sem_entrada, "respostas_por_ator": [e for e in sem_entrada["respostas_por_ator"] if e["ator"] != "PT"]}
+    analise = analise_da_resposta(sem_entrada, TEXTOS)
+    assert analise.faltam == ["PT"] and analise.sem_sim_e_nao
+    pedido = pedido_das_respostas(analise)
+    assert "não têm entrada em \"respostas_por_ator\": PT." in pedido
+    assert 'Além disso: na sua resposta anterior, as respostas dos lados são "Uma acusação" e "Uma defesa"' in pedido
+    assert pedido.endswith(f"{modulo.LEMBRETE_DAS_RESPOSTAS} {modulo.REGRA_DO_SIM_E_NAO}")
+    # com "Sim" e "Não" já na primeira, a nova tentativa pelas entradas fica como antes, mesmo sem "Sim" e "Não"
+    so_falta = {**DOIS_LADOS, "respostas_por_ator": [e for e in DOIS_LADOS["respostas_por_ator"] if e["ator"] != "PT"]}
+    chamada = Chamada(so_falta, _descritiva())
+    analise = analisar_lados(chamada, TEXTOS)
+    assert analise.resposta == _descritiva() and analise.primeira.faltam == ["PT"] and analise.sem_sim_e_nao
+
+
 def test_o_prompt_diz_que_estrategias_diferentes_nao_criam_disputa():
     # como no N69 de 17/10/2026: a decisão de outra empresa sobre o próprio negócio virou o lado "Sim"
     assert "estratégias, planos ou decisões diferentes de atores diferentes, cada um sobre o próprio negócio" in PROMPT_LADOS
@@ -921,11 +985,11 @@ def test_bloco_diz_a_questao_os_lados_o_elenco_exato_e_o_alvo_de_palavras():
         "uma vez, na abertura, com palavras naturais, e não atribui as posições aos atores; cada analista sustenta a "
         "posição do seu lado, numa frase que nomeia um ator do lado, cita um veículo do lado e usa um verbo de posição, "
         'como em "segundo <veículo>, <ator> afirma que...". Lado fino tem pouco material nas fontes: o analista dele não '
-        "amplia além do que as fontes trazem. Alvo de palavras: Helena, 380; analista do lado 1, 180; analista do lado 2, "
-        "430; total, 990. Plano das falas: Helena, 6 falas de uns 65 palavras; analista do lado 1, 2 falas de uns 90; "
-        "analista do lado 2, 5 falas de uns 85. Ordem dos 13 turnos: Helena, lado 1, lado 2, Helena, lado 1, lado 2, Helena, "
-        "lado 2, Helena, lado 2, Helena, lado 2, Helena."
-    )   # sem as palavras do texto, o total é o de antes, e os analistas dividem pelas menções (1 contra 3)
+        "amplia além do que as fontes trazem. Alvo de palavras: Helena, 290; analista do lado 1, 90; analista do lado 2, "
+        "270; total, 650. Plano das falas: Helena, 4 falas de uns 75 palavras; analista do lado 1, 2 falas de uns 45; "
+        "analista do lado 2, 3 falas de uns 90. Ordem dos 9 turnos: Helena, lado 1, lado 2, Helena, lado 1, lado 2, Helena, "
+        "lado 2, Helena."
+    )   # sem as palavras do texto, o total seria o de antes, mas os lados têm 1 e 3 frases: 90 palavras por frase, no máximo
     sem_fino = [Lado("A campanha acusa.", ("PT",), ("G1",), "Sim", ("um trecho", "outro trecho")), Lado("A Meta nega.", ("Meta",), ("G1",), "Não")]
     assert "lado fino" not in bloco_dos_lados(sem_fino, "Q?")
     assert bloco_dos_lados(sem_fino, "Q?").endswith(
@@ -950,7 +1014,7 @@ def test_bloco_diz_a_questao_os_lados_o_elenco_exato_e_o_alvo_de_palavras():
                           "trazem, sem argumento novo.")
     # o lado fino fica com o mínimo de falas, e o plano diz o tamanho de cada personagem
     dois = [Lado("p", ("Ator A",), ("G1",), "Sim", (), 1), Lado("p", ("Ator B",), ("G1",), "Não", (), 6)]
-    assert ("Plano das falas: Helena, 3 falas de uns 50 palavras; analista do lado 1, 2 falas de uns 60; analista do lado 2, 2 "
+    assert ("Plano das falas: Helena, 3 falas de uns 50 palavras; analista do lado 1, 2 falas de uns 45; analista do lado 2, 2 "
             "falas de uns 75. Ordem dos 7 turnos: Helena, lado 1, lado 2, Helena, lado 1, lado 2, Helena.") in bloco_dos_lados(
         dois, "Q?", (), orcamento(dois, 239))
     assert reserva_do_bloco(um.lados) >= len(curto)

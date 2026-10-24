@@ -69,7 +69,8 @@ os textos trazem: sem consequência ou previsão que eles não fazem.
 
 ### personagens
 Elenco do episódio: Helena e um analista por lado, até 3 analistas. Em "nome" vai só o nome \
-("Dr. Ramos", "Bia"); o papel vai em "papel" ("analista de regulação", "engenheira de IA").
+("Dr. Ramos", "Bia"); o papel vai em "papel" ("analista de regulação", "engenheira de IA"). O analista \
+não tem o nome de uma pessoa citada nos textos, nem o primeiro nome dela.
 - "Helena" é fixa: apresentadora neutra que abre, contextualiza, conduz as perguntas e \
 fecha. Ela apenas media: pergunta, resume e passa a palavra, sem tomar posição nem fazer \
 juízo sobre as partes.
@@ -119,7 +120,9 @@ ficar mais natural à locução.
 - Cite os veículos das fontes pelo nome ao atribuir informações ou posições. Não atribua \
 nada a grupo que as fontes não citam ("para os analistas", "especialistas dizem").
 - Todo número e todo percentual vêm das fontes, com o valor que elas trazem. Arredonde só com \
-"cerca de", "quase" ou "mais de", e na direção certa.
+"cerca de", "quase" ou "mais de", e na direção certa. Um número fica com o que o texto diz que ele mede. \
+Se o texto diz que 4 mil ingressos foram vendidos e que só os não usados serão devolvidos, não diga que \
+4 mil ingressos serão devolvidos.
 
 ## FORMATO DE SAÍDA
 Responda EXCLUSIVAMENTE com JSON válido, sem qualquer texto ao redor:
@@ -183,8 +186,9 @@ O resumo_didatico tem de 7 a 10 frases, todas com fatos; a frase que avisa do de
 como frase final, quando houve_divergencia é true.
 """ + _REGRAS_DO_ROTEIRO + """
 O por_que_importa também não traz consequência ou previsão que os textos não fazem.
-Mantenha os personagens, a não ser que o problema aponte analista a mais ou a menos; em "nome" vai \
-só o nome, e o papel vai em "papel". Com um lado só, houve_divergencia é false; com 2 ou 3 lados, é true.
+Mantenha os personagens, a não ser que o problema aponte analista a mais ou a menos, ou um analista com o \
+nome de uma pessoa citada nos textos, que ganha outro nome no elenco e no roteiro; em "nome" vai só o nome, e o \
+papel vai em "papel". Com um lado só, houve_divergencia é false; com 2 ou 3 lados, é true.
 O título não leva percentuais, "x vezes" (nem "dobro" ou "triplo") nem proporções ("metade", \
 "maioria"), nomeia os atores como as fontes os nomeiam e não afirma nada que o resumo_didatico não afirme."""
 

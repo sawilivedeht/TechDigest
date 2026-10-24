@@ -99,6 +99,14 @@ LEMBRETE_DA_CORRECAO = (
     'coletivo sem nome vai em "grupos", nunca em "atores"; com questão, "respostas_por_ator" traz a resposta de cada '
     "ator e um trecho copiado ao pé da letra do texto; a ressalva traz o grupo e o trecho dela."
 )
+# Numa disputa de dois lados, as respostas dos lados são "Sim" e "Não", opostas (decisão de 24/10/2026): o que a nova
+# tentativa pede quando não são.
+REGRA_DO_SIM_E_NAO = (
+    'A resposta de cada lado é "Sim" ou "Não" à questão, e a de cada ator em "respostas_por_ator" é a do lado dele: '
+    '"Sim" se o trecho dele afirma o que a questão pergunta, "Não" se o trecho dele nega. Se a questão não se responde '
+    'com "Sim" ou "Não", reescreva-a como pergunta de sim ou não sobre o mesmo fato.'
+)
+LEMBRETE_DO_SIM_E_NAO = f"Responda de novo, com o JSON completo. {REGRA_DO_SIM_E_NAO} Não mude o resto da resposta."
 # O que a nova tentativa pede quando um ator está num lado e não tem entrada em "respostas_por_ator", ou tem uma
 # cujo trecho não está no texto ou não traz a resposta dele.
 LEMBRETE_DAS_RESPOSTAS = (
@@ -180,6 +188,7 @@ class Analise:
     faltam: list[str] = field(default_factory=list)      # atores que estão num lado e não têm entrada em respostas_por_ator
     recusados: list[Recusado] = field(default_factory=list)   # atores que estão num lado e cujo trecho não vale
     cortes: list[dict] = field(default_factory=list)     # se os textos não couberam inteiros na chamada: fonte, texto e lido
+    sem_sim_e_nao: str = ""                              # numa disputa de dois lados, por que as respostas não são "Sim" e "Não"
     resposta: dict | None = None
     primeira: "Analise | None" = None                    # a primeira tentativa, quando houve outra e a outra ficou valendo
     segunda: "Analise | None" = None                     # a segunda tentativa, quando ela não valeu e a primeira ficou
@@ -651,6 +660,11 @@ def _problemas_das_respostas(ficam: dict[int, Lado]) -> list[str]:
     return probs
 
 
+def sim_e_nao(lados) -> bool:
+    """Se as respostas dos lados são "Sim" e "Não", uma de cada (sem contar caixa, acento nem ponto final)."""
+    return sorted(_sem_acento(lado.resposta).strip().rstrip(".!").strip() for lado in lados) == ["nao", "sim"]
+
+
 def lado_unico(veiculos) -> list[Lado]:
     """O lado neutro: um lado só, sem atores, com todos os veículos da pauta e a posição de emergência."""
     return [Lado(posicao=POSICAO_DE_EMERGENCIA, atores=(), veiculos=tuple(veiculos_distintos(veiculos)))]
@@ -683,7 +697,10 @@ def analise_da_resposta(resposta, textos) -> Analise:
     nenhum lado com ator nomeado, a pauta fica com o lado neutro e as ressalvas são descartadas. Os
     lados saem sem a contagem das menções (ver `com_mencoes`).
 
-    Resposta que não cumpre isso vira o lado neutro, sem ressalvas, com o motivo em `problemas`.
+    Resposta que não cumpre isso vira o lado neutro, sem ressalvas, com o motivo em `problemas`. Numa
+    disputa de dois lados, as respostas dos lados são "Sim" e "Não" (ver `sim_e_nao`); quando não são,
+    a análise vale, com o motivo em `sem_sim_e_nao`, e quem decide a nova tentativa é `analisar_lados`.
+    Com três lados, basta que as respostas sejam diferentes.
     """
     da_pauta = veiculos_distintos(t["fonte"] for t in textos)
 
@@ -755,9 +772,13 @@ def analise_da_resposta(resposta, textos) -> Analise:
         ajustes.append(f"{len(ressalvas) - MAX_RESSALVAS} ressalva(s) a mais: ficam as {MAX_RESSALVAS} primeiras")
         descartadas += [(ressalva, f"a pauta já tem {MAX_RESSALVAS} ressalvas") for ressalva in ressalvas[MAX_RESSALVAS:]]
         ressalvas = ressalvas[:MAX_RESSALVAS]
+    sem_sim_e_nao = ""
+    if len(validos) == 2 and questao and not sim_e_nao(validos):
+        sem_sim_e_nao = (f'as respostas dos lados são "{validos[0].resposta}" e "{validos[1].resposta}": numa disputa de dois '
+                         f'lados, são "Sim" e "Não", opostas')
     return Analise(
         validos, questao, motivo, ressalvas=ressalvas, respostas=respostas, ajustes=ajustes,
-        descartadas=descartadas, faltam=faltam, recusados=recusados, resposta=resposta,
+        descartadas=descartadas, faltam=faltam, recusados=recusados, sem_sim_e_nao=sem_sim_e_nao, resposta=resposta,
     )
 
 
@@ -777,7 +798,8 @@ def pedido_de_correcao(recusada: Analise) -> str:
 
 def pedido_das_respostas(incompleta: Analise) -> str:
     """O que a nova tentativa acrescenta à entrada quando um ator de um lado não tem entrada em "respostas_por_ator"
-    ou tem uma cujo trecho não vale: cada ator recusado vai com o trecho e o motivo."""
+    ou tem uma cujo trecho não vale (cada ator recusado vai com o trecho e o motivo), ou quando, numa disputa de dois
+    lados, as respostas dos lados não são "Sim" e "Não"."""
     linhas = []
     if incompleta.faltam:
         linhas.append(f'CORREÇÃO: na sua resposta anterior, estes atores estão num lado e não têm entrada em '
@@ -786,7 +808,13 @@ def pedido_das_respostas(incompleta: Analise) -> str:
         linhas.append(f"{'Além disso' if linhas else 'CORREÇÃO'}: na sua resposta anterior, o trecho destes atores não "
                       f"comprova a resposta deles:")
         linhas += [f'- {r.ator}: "{r.trecho}" ({r.motivo}).' for r in incompleta.recusados]
-    return "\n".join([*linhas, *_anterior(incompleta), LEMBRETE_DAS_RESPOSTAS])
+    if incompleta.sem_sim_e_nao:
+        linhas.append(f"{'Além disso' if linhas else 'CORREÇÃO'}: na sua resposta anterior, {incompleta.sem_sim_e_nao}.")
+    if incompleta.faltam or incompleta.recusados:
+        lembrete = LEMBRETE_DAS_RESPOSTAS + (f" {REGRA_DO_SIM_E_NAO}" if incompleta.sem_sim_e_nao else "")
+    else:
+        lembrete = LEMBRETE_DO_SIM_E_NAO
+    return "\n".join([*linhas, *_anterior(incompleta), lembrete])
 
 
 def _tentar(chamar, entrada: str, textos) -> Analise:
@@ -812,6 +840,10 @@ def analisar_lados(chamar, textos, limite: int | None = None) -> Analise:
     "respostas_por_ator", ou com entrada cujo trecho não vale, também ganha uma, que pede a entrada
     de cada um, com o trecho recusado e o motivo: se a nova resposta valer, é ela que fica (e o
     ator que continuar sem entrada ou sem trecho que valha sai); se não valer, fica a primeira, sem o ator.
+    A resposta válida de dois lados cujas respostas não são "Sim" e "Não" (`Analise.sem_sim_e_nao`)
+    também ganha uma, que pede as duas, na mesma tentativa do pedido das entradas se for o caso: a
+    nova só fica se valer e trouxer "Sim" e "Não" em dois lados; senão, por qualquer motivo, fica a
+    primeira (a regra não derruba a análise).
     `chamar(system, user, **opções)` é o chat_json do provider (ou o `_chamar` do Summarizer).
     """
     def entrada(pedido: str = "") -> tuple[str, list[dict]]:
@@ -829,18 +861,25 @@ def analisar_lados(chamar, textos, limite: int | None = None) -> Analise:
         logger.warning("Análise de lados: a resposta não valeu (%s). Nova tentativa, com o erro anexado.", "; ".join(analise.problemas))
         mensagem, cortes = entrada(pedido_de_correcao(analise))
         analise = replace(_tentar(chamar, mensagem, textos), cortes=cortes, primeira=analise)
-    elif analise.faltam or analise.recusados:
+    elif analise.faltam or analise.recusados or analise.sem_sim_e_nao:
         if analise.faltam:
             logger.warning('Análise de lados: ator sem entrada em "respostas_por_ator" (%s). Nova tentativa, pedindo a entrada.',
                            "; ".join(analise.faltam))
         if analise.recusados:
             logger.warning("Análise de lados: ator com trecho que não vale (%s). Nova tentativa, pedindo o trecho.",
                            "; ".join(f"{r.ator}: {r.motivo}" for r in analise.recusados))
+        if analise.sem_sim_e_nao:
+            logger.warning('Análise de lados: %s. Nova tentativa, pedindo "Sim" e "Não".', analise.sem_sim_e_nao)
         mensagem, cortes = entrada(pedido_das_respostas(analise))
         nova = replace(_tentar(chamar, mensagem, textos), cortes=cortes)
+        sem_disputa_de_sim_e_nao = analise.sem_sim_e_nao and (len(nova.lados) != 2 or bool(nova.sem_sim_e_nao))
         if nova.problemas:
-            logger.warning("Análise de lados: a nova tentativa não valeu (%s). Fica a primeira resposta, sem o ator.",
-                           "; ".join(nova.problemas))
+            logger.warning("Análise de lados: a nova tentativa não valeu (%s). Fica a primeira resposta%s.",
+                           "; ".join(nova.problemas), ", sem o ator" if analise.faltam or analise.recusados else "")
+            analise = replace(analise, segunda=nova)
+        elif sem_disputa_de_sim_e_nao:
+            logger.warning('Análise de lados: a nova tentativa não trouxe "Sim" e "Não" em dois lados (%s). Fica a primeira resposta%s.',
+                           nova.sem_sim_e_nao or f"{len(nova.lados)} lado(s)", ", sem o ator" if analise.faltam or analise.recusados else "")
             analise = replace(analise, segunda=nova)
         else:
             analise = replace(nova, primeira=analise)

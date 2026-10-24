@@ -4,7 +4,9 @@ O alvo total é FATOR vezes as palavras dos textos que a geração recebe (os re
 PISO_TOTAL e teto no alvo de antes para o tamanho do elenco (ALVO_DE_ANTES por personagem). A
 Helena fica com uma parte do total (`parte_da_helena`); os analistas dividem o resto na proporção
 das frases dos textos com os atores do lado de cada um (`Lado.mencoes`), cada um com MIN_ANALISTA
-palavras ou mais, e nenhum personagem passa de MAX_ALVO. O alvo de cada personagem e o do total vão
+palavras ou mais, e nenhum personagem passa de MAX_ALVO. Com dois lados ou mais, o alvo de cada analista
+também não passa de MAX_POR_FRASE_DO_LADO palavras por frase do lado (decisão de 24/10/2026): com uma
+frase, esse teto prevalece sobre o piso, e o que ele tira sai do total. O alvo de cada personagem e o do total vão
 ao bloco LADOS DA PAUTA como um número só, com o plano das falas (`Plano`, decisão de 24/10/2026):
 quantas falas cada personagem tem, de que tamanho e em que ordem, começando e terminando com a
 Helena. O plano fecha a conta do alvo: a Helena fala entre as rodadas dos analistas, e cada um tem
@@ -24,6 +26,9 @@ ALVO_DE_ANTES = {1: 390, 2: 360, 3: 285}
 MENOR_PARTE_DA_HELENA, MAIOR_PARTE_DA_HELENA = 0.35, 0.45
 MIN_ANALISTA = 120            # o alvo de cada analista, no mínimo (o que se pedia ao de lado fino)
 MAX_ALVO = 430                # o alvo de cada personagem, no máximo: abaixo dos 480 que o prompt pedia
+# Com dois lados ou mais, o alvo do analista não passa disto por frase do lado: acima de umas 90 palavras por frase
+# de material, a invenção dos analistas salta (medida de 24/10/2026). Prevalece sobre MIN_ANALISTA.
+MAX_POR_FRASE_DO_LADO = 90
 FRACAO_DO_MINIMO = 0.75       # o QA cobra esta fração do alvo como mínimo (nunca acima do mínimo de antes)
 MAX_FALA_DO_ANALISTA = 90     # palavras: cada analista tem as falas que o alvo dele pede com no máximo este tamanho
 MIN_FALAS_DO_ANALISTA = 2     # a Helena passa a palavra a cada analista pelo menos duas vezes
@@ -39,7 +44,7 @@ def _dezena(valor: float) -> int:
     return _metade_para_cima(valor / 10) * 10
 
 
-def _cinco(valor: float) -> int:
+def cinco(valor: float) -> int:
     """O múltiplo de 5 mais próximo, com a metade para cima: o tamanho de fala que o bloco diz ("uns 85 palavras")."""
     return _metade_para_cima(valor / 5) * 5
 
@@ -115,7 +120,7 @@ class Orcamento:
         for rodada in range(max(falas)):
             ordem += [i for i, n in enumerate(falas, 1) if n > rodada] + [0]
         da_helena = max(falas) + 1
-        tamanhos = [_cinco(self.helena / da_helena)] + [_cinco(alvo / n) for alvo, n in zip(self.analistas, falas)]
+        tamanhos = [cinco(self.helena / da_helena)] + [cinco(alvo / n) for alvo, n in zip(self.analistas, falas)]
         return Plano((da_helena, *falas), tuple(tamanhos), tuple(ordem))
 
     @property
@@ -129,7 +134,10 @@ def orcamento(lados, palavras_do_texto: int | None = None) -> Orcamento:
 
     Sem as palavras, o total é o alvo de antes para o tamanho do elenco. Com um lado só, o analista
     leva tudo o que não é da Helena; com dois ou mais, os analistas dividem pela proporção das
-    menções de cada lado (lado sem contagem conta como os outros; com zero, como uma).
+    menções de cada lado (lado sem contagem conta como os outros; com zero, como uma), e o alvo de
+    cada um fica em até MAX_POR_FRASE_DO_LADO vezes as menções do lado (zero conta como uma; lado sem
+    contagem não tem esse teto). A Helena fica com a parte dela do total de antes do teto, até
+    MAIOR_PARTE_DA_HELENA do total que fica depois dele.
     """
     n = max(len(lados), 1)
     teto = (n + 1) * ALVO_DE_ANTES[min(n, 3)]
@@ -141,8 +149,12 @@ def orcamento(lados, palavras_do_texto: int | None = None) -> Orcamento:
         contadas = [lado.mencoes for lado in lados]
         pesos = [max(m, 1) if m is not None else None for m in contadas]
         media = sum(p for p in pesos if p is not None) / max(sum(p is not None for p in pesos), 1) or 1
-        analistas = _repartir(total - helena, [p if p is not None else media for p in pesos], MIN_ANALISTA)
-    return Orcamento(helena, tuple(min(_dezena(a), MAX_ALVO) for a in analistas), palavras_do_texto, reduzido=total < teto)
+        repartidos = _repartir(total - helena, [p if p is not None else media for p in pesos], MIN_ANALISTA)
+        analistas = [a if m is None else min(a, MAX_POR_FRASE_DO_LADO * max(m, 1)) for a, m in zip(repartidos, contadas)]
+        if analistas != repartidos:   # o teto cortou: a Helena não passa da maior parte dela no total que fica
+            helena = min(helena, _dezena(sum(map(_dezena, analistas)) * MAIOR_PARTE_DA_HELENA / (1 - MAIOR_PARTE_DA_HELENA)))
+    analistas = tuple(min(_dezena(a), MAX_ALVO) for a in analistas)
+    return Orcamento(helena, analistas, palavras_do_texto, reduzido=total < teto)
 
 
 def palavras(textos) -> int:

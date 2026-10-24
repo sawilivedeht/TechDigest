@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from techdigest.ai.atribuicoes import atribuicoes_a_grupos, grupo_na_pauta, plano
 from techdigest.ai.numeros import dobrar as _dobrar
 from techdigest.ai.numeros import formatar, mais_proximo, numeros, pede_fonte, qualificador, tem_fonte, valores_dos_textos
-from techdigest.ai.orcamento import Orcamento, minimo_do_qa
-from techdigest.ai.verbos import FORMAS_DE_POSICAO, INFINITIVOS, verbos_de_posicao
+from techdigest.ai.orcamento import Orcamento, cinco, minimo_do_qa
+from techdigest.ai.verbos import FORMAS_DE_POSICAO, INFINITIVOS, agentes_da_decisao, verbos_de_posicao
 from techdigest.config import Settings
 
 logger = logging.getLogger("techdigest.ai.qa")
@@ -45,6 +45,13 @@ _SEM_PESO = _ARTIGOS | _PREPOSICOES | {"e", "em", "no", "na", "nos", "nas"}
 QUANTIFICADORES = frozenset({
     "um", "uma", "uns", "umas", "algum", "alguma", "alguns", "algumas", "varios", "varias", "outro", "outra",
     "outros", "outras", "muitos", "muitas", "diversos", "diversas",
+})
+# Títulos e cargos que vêm antes de um nome ("Dr. Ramos", "presidente Lula"), sem acento: não contam no nome do
+# analista nem no do ator, na regra do nome do analista (ver `problemas_dos_nomes`).
+_TITULOS = frozenset({
+    "dr", "dra", "doutor", "doutora", "prof", "profa", "professor", "professora", "sr", "sra", "senhor", "senhora",
+    "presidente", "presidenta", "ministro", "ministra", "senador", "senadora", "deputado", "deputada", "governador",
+    "governadora", "prefeito", "prefeita", "general", "coronel", "comandante", "juiz", "juiza", "padre", "pastor", "papa",
 })
 _ABREVIATURA = re.compile(r"(?:^|[\s(\"'“‘])(?:dr|dra|sr|sra|prof|profa|sen|dep|min|gov|pres|gen|cel|[^\W\d_])\.$", re.IGNORECASE)
 
@@ -199,8 +206,10 @@ def atores_exclusivos(lados) -> list[list[str]]:
 def frases_que_apresentam(result: dict, lados) -> list[list[tuple[str, str]]]:
     """Para cada lado (pela posição na lista), as frases dos analistas que o apresentam: (personagem, frase).
 
-    Apresentar um lado é ter uma frase que cita um veículo do lado, usa um verbo de posição e
-    nomeia um ator que só aquele lado tem.
+    Apresentar um lado é ter uma frase que cita um veículo do lado e usa um verbo de posição e
+    nomeia um ator que só aquele lado tem; ou que cita um veículo do lado e traz um verbo de decisão
+    na passiva com esse ator como agente ("foi determinada por decisão de <ator>"; ver
+    `verbos.agentes_da_decisao`), como a análise de lados aceita a decisão de quem decidiu.
     """
     exclusivos = atores_exclusivos(lados)
     alheios = [[a for j, outro in enumerate(lados) if j != i for a in outro.atores] for i in range(len(lados))]
@@ -209,10 +218,14 @@ def frases_que_apresentam(result: dict, lados) -> list[list[tuple[str, str]]]:
         if _palavras_do_nome(turno["personagem"]) == [HELENA]:
             continue
         for frase in frases(turno["fala"]):
-            if not verbos_de_posicao(frase):
+            posicao, agentes = verbos_de_posicao(frase), agentes_da_decisao(frase)
+            if not posicao and not agentes:
                 continue
             for i, lado in enumerate(lados):
-                if any(veiculo_citado(v, frase) for v in lado.veiculos) and any(ator_citado(a, frase, alheios[i]) for a in exclusivos[i]):
+                if not any(veiculo_citado(v, frase) for v in lado.veiculos):
+                    continue
+                if (posicao and any(ator_citado(a, frase, alheios[i]) for a in exclusivos[i])
+                        or any(ator_citado(a, agente, alheios[i]) for a in exclusivos[i] for agente in agentes)):
                     achadas[i].append((turno["personagem"], frase))
     return achadas
 
@@ -250,6 +263,12 @@ def analistas_de_lado_fino(result: dict, lados) -> set[str]:
     return {nome for nome, lado in (lado_de_cada_analista(result, lados) if finos else {}).items() if lado in finos}
 
 
+def _lado_no_orcamento(result: dict, lados) -> dict[str, int]:
+    """O lado de cada analista que se liga a um: com um lado só e um analista, o lado; senão, a correspondência um a um."""
+    analistas = [nome for nome in palavras_por_personagem(result["roteiro_podcast"]) if _palavras_do_nome(nome) != [HELENA]]
+    return {analistas[0]: 0} if len(lados) <= 1 and len(analistas) == 1 else lado_de_cada_analista(result, lados)
+
+
 def alvo_de_cada_personagem(result: dict, lados, orc: Orcamento) -> dict[str, int]:
     """O alvo de palavras de cada personagem que fala, pelo orçamento da pauta (ver `ai/orcamento.py`).
 
@@ -259,8 +278,7 @@ def alvo_de_cada_personagem(result: dict, lados, orc: Orcamento) -> dict[str, in
     analista da pauta.
     """
     por_pers = palavras_por_personagem(result["roteiro_podcast"])
-    analistas = [nome for nome in por_pers if _palavras_do_nome(nome) != [HELENA]]
-    do_lado = {analistas[0]: 0} if len(lados) <= 1 and len(analistas) == 1 else lado_de_cada_analista(result, lados)
+    do_lado = _lado_no_orcamento(result, lados)
 
     def alvo(nome: str) -> int:
         if _palavras_do_nome(nome) == [HELENA]:
@@ -298,6 +316,27 @@ def limites_de_cada_personagem(result: dict, lados, orc: Orcamento | None = None
     return {nome: (minimo(nome), MAX_POR_PERSONAGEM) for nome in por_pers}
 
 
+def o_que_falta(result: dict, lados, orc: Orcamento, nome: str) -> str:
+    """O que falta nas falas de um personagem abaixo do mínimo, pelo plano das falas do bloco (ver `orcamento.Orcamento.plano`).
+
+    Com o número de falas do plano, diz quantas palavras acrescentar a cada fala; com outro número, quantas palavras
+    faltam para o alvo. O analista que não se liga a um lado não tem plano: só as palavras que faltam.
+    """
+    falas = [contar_palavras(t["fala"]) for t in result["roteiro_podcast"] if t["personagem"] == nome]
+    palavras, media = sum(falas), round(sum(falas) / len(falas))
+    alvo = alvo_de_cada_personagem(result, lados, orc)[nome]
+    do_lado = _lado_no_orcamento(result, lados)
+    i = 0 if _palavras_do_nome(nome) == [HELENA] else (do_lado[nome] + 1 if nome in do_lado else None)
+    faltam = f"faltam uns {cinco(alvo - palavras)} palavras para o alvo"
+    if i is None or i >= len(orc.plano.falas):
+        return f"{faltam}, com o que os textos trazem"
+    n, tamanho = orc.plano.falas[i], orc.plano.tamanhos[i]
+    feito = f"{len(falas)} fala{'s' if len(falas) > 1 else ''} de uns {media} palavras; o plano pede {n} falas de uns {tamanho}"
+    if len(falas) == n and cinco(tamanho - media) > 0:
+        return f"{feito}: acrescente uns {cinco(tamanho - media)} palavras a cada fala, com o que os textos trazem"
+    return f"{feito}: {faltam}; siga o plano e complete as falas com o que os textos trazem"
+
+
 def limites_do_total(orc: Orcamento | None = None) -> tuple[int, int]:
     """O mínimo e o máximo de palavras do roteiro inteiro: com o orçamento, o mínimo é uma fração do alvo total."""
     return (minimo_do_qa(orc.total, MIN_TOTAL) if orc else MIN_TOTAL), MAX_TOTAL
@@ -315,6 +354,46 @@ def problemas_dos_papeis(result: dict, lados) -> list[str]:
                 f"papel de {personagem['nome']} com o nome de um ator dos lados (\"{papel}\"): o papel diz a especialidade "
                 f"do analista (\"analista de regulação\"), sem ligá-lo a {', '.join(citados)}"
             )
+    return probs
+
+
+def _nome_sem_titulos(nome) -> list[tuple[str, str]]:
+    """As palavras de um nome, como estão escritas e sem acento nem caixa, sem os títulos e cargos do começo (_TITULOS)."""
+    escritas = re.findall(r"[^\W\d_]+", unicodedata.normalize("NFC", str(nome)))
+    palavras = list(zip(escritas, (_palavras_do_nome(p)[0] if _palavras_do_nome(p) else "" for p in escritas)))
+    while palavras and palavras[0][1] in _TITULOS:
+        palavras.pop(0)
+    return palavras
+
+
+def problemas_dos_nomes(result: dict, lados) -> list[str]:
+    """O analista não tem o nome de um ator dos lados, nem o primeiro nome dele; lista vazia = aprovado.
+
+    Sem os títulos e cargos do começo ("Dr.", "presidente"), reprova o analista cujo nome é o do ator (as mesmas
+    palavras, sem acento nem caixa) ou cujo primeiro nome é o primeiro nome do ator, quando este começa com
+    maiúscula: com o ator "Bruno Silva", reprovam "Bruno" e "Bruno Costa", e "Dr. Silva" passa.
+    """
+    atores = [ator for lado in lados for ator in lado.atores]
+    probs = []
+    for personagem in result["personagens"]:
+        nome = _nome_sem_titulos(personagem.get("nome"))
+        if not nome or nome[0][1] == HELENA:
+            continue
+        for ator in atores:
+            dele = _nome_sem_titulos(ator)
+            if not dele:
+                continue
+            if [p for _, p in nome] == [p for _, p in dele]:
+                igual = "o nome"
+            elif dele[0][0][:1].isupper() and nome[0][1] == dele[0][1]:
+                igual = "o primeiro nome"
+            else:
+                continue
+            probs.append(
+                f"o analista {personagem['nome']} tem {igual} de {ator}, pessoa citada nos textos: troque o nome do analista, "
+                f"em \"personagens\" e no roteiro, por um que nenhuma pessoa citada nos textos tenha"
+            )
+            break
     return probs
 
 
@@ -512,7 +591,9 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos, orc: O
     `problemas_das_atribuicoes` e `problemas_dos_numeros`). Todos são obrigatórios: quem monta as
     listas é o Summarizer, para toda pauta. `orc` é o orçamento de palavras da pauta (ver
     `ai/orcamento.py`): com ele, os mínimos de palavras vêm do alvo de cada personagem e do total, e
-    a mensagem diz o alvo; sem ele, valem os mínimos de antes.
+    a mensagem diz o alvo e, para quem está abaixo do mínimo, o que falta em cada fala pelo plano (ver
+    `o_que_falta`); sem ele, valem os mínimos de antes. O analista não tem o nome de um ator dos
+    lados (ver `problemas_dos_nomes`).
     """
     probs = []
 
@@ -535,7 +616,8 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos, orc: O
         if not (minimo <= por_pers[nome] <= maximo):
             fino = ": é o analista de um lado fino, que não amplia além do que as fontes trazem" if nome in finos else ""
             limites = f"aceito de {minimo} a {maximo}; o alvo do bloco é {alvos[nome]}" if orc else f"alvo {minimo}-{maximo}"
-            probs.append(Problema(ROTEIRO, f"{nome} com {por_pers[nome]} palavras ({limites}{fino})"))
+            falta = f": {o_que_falta(result, lados, orc, nome)}" if orc and por_pers[nome] < minimo else ""
+            probs.append(Problema(ROTEIRO, f"{nome} com {por_pers[nome]} palavras ({limites}{fino}){falta}"))
 
     total = sum(por_pers.values())
     minimo_total, maximo_total = limites_do_total(orc)
@@ -559,6 +641,7 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos, orc: O
             )))
 
     probs += _dos_analistas(result, lados)
+    probs += [Problema(ELENCO, texto) for texto in problemas_dos_nomes(result, lados)]
     probs += [Problema(PAPEL, texto) for texto in problemas_dos_papeis(result, lados)]
     probs += [Problema(ROTEIRO, texto) for texto in problemas_das_ressalvas(result, ressalvas)]
     probs += problemas_das_atribuicoes(result, textos)

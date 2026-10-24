@@ -306,6 +306,7 @@ def _lados(analise, chamadas: list[dict]) -> dict:
         "quantos": len(analise.lados), "questao": analise.questao, "motivo": analise.motivo,
         "tentativas": len(feitas), "lado_de_emergencia": bool(analise.problemas), "invalida_porque": analise.problemas,
         "ajustes": analise.ajustes, "atores_sem_entrada": analise.faltam, "textos_cortados_na_analise": analise.cortes,
+        "sem_sim_e_nao": analise.sem_sim_e_nao,
         "atores_recusados": [{"ator": r.ator, "trecho": r.trecho, "motivo": r.motivo} for r in analise.recusados],
         "ressalvas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos), "trecho": r.trecho}
                       for r in analise.ressalvas],
@@ -322,10 +323,11 @@ def _lados(analise, chamadas: list[dict]) -> dict:
         "primeira_tentativa": None if analise.primeira is None else {
             "invalida_porque": analise.primeira.problemas, "atores_sem_entrada": analise.primeira.faltam,
             "atores_recusados": [{"ator": r.ator, "trecho": r.trecho, "motivo": r.motivo} for r in analise.primeira.recusados],
-            "resposta_do_llm": analise.primeira.resposta,
+            "sem_sim_e_nao": analise.primeira.sem_sim_e_nao, "resposta_do_llm": analise.primeira.resposta,
         },
         "segunda_tentativa_recusada": None if analise.segunda is None else {
-            "invalida_porque": analise.segunda.problemas, "resposta_do_llm": analise.segunda.resposta,
+            "invalida_porque": analise.segunda.problemas, "sem_sim_e_nao": analise.segunda.sem_sim_e_nao,
+            "lados": len(analise.segunda.lados), "resposta_do_llm": analise.segunda.resposta,
         },
         "segundos": round(sum(ch.get("segundos", 0.0) for ch in feitas), 1),
         "segundos_por_tentativa": [round(ch.get("segundos", 0.0), 1) for ch in feitas],
@@ -364,11 +366,16 @@ def _lados(analise, chamadas: list[dict]) -> dict:
             print(f"    PRIMEIRA TENTATIVA SEM A ENTRADA DE: {'; '.join(analise.primeira.faltam)} (a nova tentativa pediu a entrada)")
         for r in analise.primeira.recusados:
             print(f"    PRIMEIRA TENTATIVA COM TRECHO RECUSADO: {r.ator}: \"{r.trecho}\" ({r.motivo}; a nova tentativa pediu o trecho)")
+        if analise.primeira.sem_sim_e_nao:
+            print(f"    PRIMEIRA TENTATIVA SEM \"SIM\" E \"NÃO\": {analise.primeira.sem_sim_e_nao} (a nova tentativa pediu as duas)")
         print(f"    primeira resposta: {json.dumps(analise.primeira.resposta, ensure_ascii=False)}")
     if analise.segunda is not None:
         sem = "; ".join([*analise.faltam, *(r.ator for r in analise.recusados)])
-        print(f"    NOVA TENTATIVA RECUSADA (fica a primeira, sem {sem}): {'; '.join(analise.segunda.problemas)}")
+        motivo = "; ".join(analise.segunda.problemas) or analise.segunda.sem_sim_e_nao or f"{len(analise.segunda.lados)} lado(s)"
+        print(f"    NOVA TENTATIVA RECUSADA (fica a primeira{f', sem {sem}' if sem else ''}): {motivo}")
         print(f"    resposta recusada: {json.dumps(analise.segunda.resposta, ensure_ascii=False)}")
+    if analise.sem_sim_e_nao:
+        print(f"    FICOU SEM \"SIM\" E \"NÃO\" (a regra não derruba a análise): {analise.sem_sim_e_nao}")
     elif analise.faltam:
         print(f"    A ENTRADA NÃO VEIO NA NOVA TENTATIVA, o ator saiu: {'; '.join(analise.faltam)}")
     for r in analise.recusados if analise.segunda is None else ():
@@ -557,6 +564,13 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
         relatorio["primeira_versao"] = {
             "titulo": primeira_versao.get("titulo_reescrito"), "resumo_didatico": primeira_versao.get("resumo_didatico"),
         }
+        try:   # para medir quanto a correção acrescentou a cada personagem (só diagnóstico)
+            roteiro = primeira_versao["roteiro_podcast"]
+            relatorio["primeira_versao"]["palavras_por_personagem"] = qa.palavras_por_personagem(roteiro)
+            relatorio["primeira_versao"]["falas_por_personagem"] = {
+                nome: sum(1 for t in roteiro if t["personagem"] == nome) for nome in qa.palavras_por_personagem(roteiro)}
+        except (KeyError, TypeError, AttributeError):   # roteiro fora do formato
+            pass
     if diagnostico.get("lados") is not None:
         relatorio["lados"] = _lados(diagnostico["lados"], chamadas)
     for nome, entrada in (("cortes_na_geracao", diagnostico.get("entrada")), ("cortes_na_revisao", diagnostico.get("revisao"))):
@@ -609,6 +623,11 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
                                       "tamanhos": list(orc.plano.tamanhos), "ordem": list(orc.plano.ordem)}
         try:
             relatorio["palavras_por_personagem"] = qa.palavras_por_personagem(episodio["roteiro_podcast"])
+            antes = (relatorio.get("primeira_versao") or {}).get("palavras_por_personagem")
+            if antes is not None:   # quanto a correção acrescentou (ou tirou) de cada personagem e do total
+                relatorio["acrescimo_da_correcao"] = {
+                    **{nome: n - antes.get(nome, 0) for nome, n in relatorio["palavras_por_personagem"].items()},
+                    "total": sum(relatorio["palavras_por_personagem"].values()) - sum(antes.values())}
             relatorio["limites_por_personagem"] = qa.limites_de_cada_personagem(episodio, analise.lados, orc) if analise else None
             if analise and orc is not None:   # quanto cada personagem fica do alvo que o bloco pediu: só diagnóstico
                 def medida(palavras: int, alvo: int) -> dict:
@@ -629,6 +648,9 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
             pass
         print(f"  turnos: {relatorio['turnos']} · palavras: {relatorio.get('palavras_por_personagem')} · "
               f"limites: {relatorio.get('limites_por_personagem')}")
+        if relatorio.get("acrescimo_da_correcao") is not None:
+            print(f"  a correção acrescentou: {relatorio['acrescimo_da_correcao']} (primeira versão: "
+                  f"{relatorio['primeira_versao']['palavras_por_personagem']}, falas {relatorio['primeira_versao']['falas_por_personagem']})")
         if "orcamento" in relatorio:
             o = relatorio["orcamento"]
             print(f"  orçamento: {o['palavras_do_texto']} palavras de texto → Helena {o['helena']}, analistas {o['analistas']}, "
