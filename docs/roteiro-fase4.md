@@ -205,6 +205,35 @@ Em 23/10/2026, ao ler o relatório das medidas (`data/agrupamento/medidas_202610
   cada lado, são ruído.
 - **Terceira amostra:** a coleta 2 em 23/10; a 3 quando o dono pedir, a partir de 26/10.
 
+Em 24/10/2026, ao ler o resultado da regressão (a fidelidade resolvida, o tamanho reprovando):
+
+- **Tamanho do roteiro: as saídas a e b, com acréscimos.**
+  - O número que o bloco diz para cada personagem é o alvo, não o mínimo do QA. O QA continua em 75%
+    do alvo, e a diferença fica como margem, como nas frases do resumo.
+  - O número de turnos também é um número só, calculado com falas de 70 a 80 palavras.
+  - A volta do "expanda as falas" diz com o quê: com o que os textos trazem, sem argumento novo.
+  - O "com pouco material, fale menos" do item 4 muda, porque contradiz o "expanda até o alvo". Entra:
+    "o alvo do bloco já é menor quando há pouco material; cumpra-o com o que os textos trazem, sem
+    argumento novo".
+  - O fechamento deixa de pedir que a Helena resuma "o que ficou claro". Ela recapitula os fatos e as
+    posições, cada uma atribuída, e o que os textos dizem que segue em aberto. O "fica claro que..."
+    é a marca mais comum nos itens de um lado.
+- **Análise de lados:**
+  - N27: as saídas (a) e (b), juntas: separar a frase também no ";" e recusar a questão que não é de
+    sim ou não;
+  - A14: a saída (c), a conferência do trecho só com dois lados ou mais com ator nomeado;
+  - A72: só medida, sem regra, de quanto da posição de cada lado e ressalva não está no trecho dela.
+- **Para a integração do agrupamento:** com vários veículos, o prompt maior tira texto da geração (ver
+  o estado de 24/10).
+- **Rodada curta antes da regressão:** 8 itens (N86, A63, N92, N13, A79, A104, N27 e N84), lidos frase a
+  frase com o mesmo critério e com as marcas separadas por personagem e pelo fechamento.
+  - Passa com pelo menos 7 de 8 aprovados e menos de 10 marcas por mil palavras (17/10 teve 12,6, e a
+    regressão, 6,9).
+  - Junto, sem o modelo: quantos dos 20 episódios da regressão passariam com o mínimo do QA em 60%,
+    65% e 70% do alvo, a alternativa de aceitar episódios mais curtos.
+  - Prompt e QA não mudam por causa do resultado: ele vem primeiro.
+- **Terceira amostra:** a coleta 3 a partir de 26/10, quando o dono pedir.
+
 Das fases 1 a 3, continuam valendo (o detalhe está no CLAUDE.md e no histórico do git):
 
 - Mesma história é o mesmo acontecimento ou um desdobramento direto dele na janela da coleta; só o
@@ -595,6 +624,52 @@ Três condições, todas cumpridas:
   - o N27: recusar a questão que não é de sim ou não, ou separar a frase no ";". Cada uma pega só o
     N27 nas 147 análises gravadas;
   - o A14: a conferência do trecho só com dois lados nomeados ou mais, que é relaxamento.
+
+**Em 24/10, as decisões do dia** (ver as decisões dessa data):
+
+- **Commits:** o tamanho do roteiro (f1e2713) e a análise de lados (31a2060), com 435 testes passando.
+- **O bloco, como ficou:** "Alvo de palavras: Helena, 350; analista, 430; total, 780. Roteiro de 10
+  turnos, com falas de 70 a 80 palavras."
+  - Os turnos são o total dividido por 75, nunca abaixo da estrutura (5, 7 ou 9) nem acima de 20.
+  - Quando a estrutura pede mais turnos do que o total comporta, o bloco diz a média ("falas de uns 60
+    palavras").
+  - A mensagem do QA diz o alvo como número só.
+- **A análise de lados, conferida nas 147 análises gravadas** (as 127 de antes e as 20 da regressão):
+  - o N27 deixa de ser disputa inventada;
+  - a primeira resposta do A14 fica com a OpenAI;
+  - duas análises da pauta 1 recuperam o Milei, que o gabarito lista;
+  - nada piora.
+- **Leituras minhas, para o dono corrigir:**
+  - o bloco diz o alvo como número, sem "pelo menos": é o "expanda até o alvo" do `PROMPT_SISTEMA` que
+    faz o alvo funcionar como o tamanho a cumprir;
+  - quando a estrutura pede mais turnos do que o total comporta com falas de 70, o bloco diz a média
+    que sobra, em vez de 70 a 80;
+  - o aviso de pouco material do bloco passou a dizer o mesmo que a frase nova do item 4 ("o alvo já
+    é menor: cumpra-o com o que as fontes trazem, sem argumento novo"), em vez de "não preencha o
+    tempo com argumento";
+  - o fechamento novo entrou também em `_REGRAS_DO_ROTEIRO`, porque as duas revisões reescrevem o
+    roteiro inteiro;
+  - o "sem argumento novo" entrou também no "EXPANDA" das duas revisões;
+  - a questão aberta usa a lista de palavras que foi medida (qual, quais, como, quem, o que, por
+    que, onde, quando).
+- **O custo do prompt para a integração do agrupamento:**
+  - o `PROMPT_SISTEMA` passou de 7.843 para 9.329 caracteres (1.437 a mais depois de 23/10, e 1.486
+    com as mudanças de 24/10);
+  - na fonte única, o teto de 5.000 caracteres do principal limita antes da janela, e nenhum texto
+    perdeu espaço;
+  - com vários veículos, a janela limita, e a geração perde até 1.486 caracteres de texto;
+  - medir isso na prévia com o agrupamento ligado.
+- **A72, medida sem regra** (`data/agrupamento/correcoes_20261024/posicao_e_trecho.py`):
+  - nos lados, a posição fica longe do trecho (pela mediana, 55% das palavras de conteúdo não estão
+    nele), mas não do texto (11%): ela resume o lado com o que o texto diz em outras partes;
+  - nas ressalvas, a mediana é 0%, mas 5 das 12 têm metade ou mais da posição fora do trecho, quase
+    tudo de outras partes do texto: no A72, nas duas rodadas, a ressalva da comunidade leva a análise
+    do Diolinux;
+  - é o mecanismo por que o grupo recebe palavras que o texto não põe na boca dele.
+- **O mínimo do QA abaixo de 75%, sem o modelo**
+  (`data/agrupamento/correcoes_20261024/fracao_do_minimo.py`):
+  - nos 20 episódios da regressão, 70%, 65% e 60% do alvo aprovariam 6, 11 e 12, contra 4 em 75%;
+  - mesmo em 60%, oito ficam reprovados, por algum personagem abaixo do mínimo dele.
 
 ## Números medidos
 
