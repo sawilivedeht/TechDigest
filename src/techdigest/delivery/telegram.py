@@ -70,14 +70,23 @@ def _post(endpoint: str, data: dict, files: dict | None = None) -> dict:
 
 
 def _render_item(it: dict) -> str:
+    """O texto de um item. Numa pauta de várias fontes vem um link por artigo gerado (`outras_fontes`, depois do
+    principal) e, à parte, as duplicatas e os excedentes (`tambem_noticiaram`), que foram marcados como vistos com a
+    pauta sem entrar na geração. Com uma fonte só, o texto é o de sempre."""
     bullets = "\n".join(f"  • {escape(p)}" for p in it["pontos_chave"])
-    return (
+    links = "\n".join(f'<a href="{escape(f["url"])}">🔗 {escape(f["source"])}</a>'
+                      for f in ({"url": it["url"], "source": it["source"]}, *it.get("outras_fontes", ())))
+    texto = (
         f"<b>📰 {escape(it['titulo_reescrito'])}</b>\n\n"
         f"{escape(it['resumo_didatico'])}\n\n"
         f"<b>🔑 Pontos-chave:</b>\n{bullets}\n\n"
         f"<b>💡 Por que importa:</b> {escape(it['por_que_importa'])}\n\n"
-        f'<a href="{escape(it["url"])}">🔗 {escape(it["source"])}</a>'
+        f"{links}"
     )
+    if it.get("tambem_noticiaram"):
+        texto += "\n\n<b>Também noticiaram:</b>\n" + "\n".join(
+            f'  • <a href="{escape(o["url"])}">{escape(o["source"])}</a>: {escape(o["titulo"])}' for o in it["tambem_noticiaram"])
+    return texto
 
 
 def send_item_telegram(it: dict, audio: str | None) -> None:

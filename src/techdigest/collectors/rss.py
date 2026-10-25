@@ -3,6 +3,7 @@ import html
 import logging
 import re
 import time
+from datetime import datetime, timezone
 
 import feedparser
 import requests
@@ -53,6 +54,12 @@ def _idade_dias(entry) -> float | None:
     return max(0.0, (time.time() - calendar.timegm(t)) / 86400)
 
 
+def _publicacao(entry) -> datetime | None:
+    """A data da notícia no feed (published, senão updated), em UTC: a que a etapa 3 do agrupamento mostra ao LLM."""
+    t = entry.get("published_parsed") or entry.get("updated_parsed")
+    return datetime.fromtimestamp(calendar.timegm(t), tz=timezone.utc) if t else None
+
+
 def _baixar_feed(feed_url: str):
     # feedparser.parse(url) não tem timeout: um servidor mudo travaria a execução inteira.
     resp = requests.get(feed_url, headers=_HEADERS, timeout=settings.feed_timeout_s)
@@ -94,6 +101,7 @@ def collect_rss(feeds: list[str] | None = None) -> list[Article]:
                 url=entry.get("link", ""),
                 summary=_texto_puro(entry.get("summary", "")),
                 source=veiculo,
+                published=_publicacao(entry),
                 feed=feed_url,
                 categorias=_categorias(entry),
             ))

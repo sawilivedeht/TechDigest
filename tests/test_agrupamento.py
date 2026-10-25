@@ -210,6 +210,18 @@ def test_republicacao_e_duplicata_e_nao_conta_como_fonte():
     assert not any(republicado in p.artigos for p in pautas)
 
 
+def test_a_mesma_materia_por_dois_feeds_e_duplicata_mesmo_com_outro_texto():
+    # o link do Google Notícias e o do feed do veículo resolvidos para a mesma URL, com utm_ e barra final
+    pelo_google = ag.Candidato("Lula sanciona isenção do IR até R$ 5 mil", "Agência Brasil", "https://news.google.com/rss/articles/x",
+                               "https://agencia.example/ir?utm_source=gn", IR_AGENCIA.texto)
+    direto = ag.Candidato("Lula sanciona isenção do IR até R$ 5 mil", "Agência Brasil", "https://agencia.example/feed/ir",
+                          "https://agencia.example/ir/", "Menu do site, cadastro e a matéria cortada pela extração.")
+    pares = _pontuar([pelo_google, direto, IR_G1, *OUTRAS])
+    par = pares[frozenset((pelo_google, direto))]
+    assert par.duplicata and par.sim_texto < LIMIAR_DUPLICATA
+    assert not any(p.duplicata for chave, p in pares.items() if chave != frozenset((pelo_google, direto)))
+
+
 def test_pauta_respeita_o_teto_e_guarda_o_par_barrado():
     a, b, c, d, e = (_candidato(f"Notícia {n}", f"Veículo {n}", "x" * n) for n in range(1, 6))
     pares = [_par(a, b, 0.9), _par(b, c, 0.8), _par(c, d, 0.7), _par(a, c, 0.5), _par(a, d, 0.2), _par(d, e, 0.1)]

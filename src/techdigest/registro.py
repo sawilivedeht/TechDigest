@@ -140,6 +140,7 @@ class RegistroDaExecucao:
         self.episodios: list[dict] = []
         self.filtrados: list[dict] = []
         self.abandonados: list[dict] = []
+        self.etapa3: list[dict] | None = None   # com o agrupamento ligado: o veredito de cada pauta provisória
         self.gravar()
 
     def filtrado(self, url: str, titulo: str, motivo: str, depois_da_extracao: bool, url_resolvida: str = "") -> None:
@@ -148,17 +149,24 @@ class RegistroDaExecucao:
                                "depois_da_extracao": depois_da_extracao})
         self.gravar()
 
+    def agrupamento(self, etapa3: list[dict]) -> None:
+        """As pautas provisórias de 2 artigos ou mais e o que a etapa 3 fez de cada uma (com o agrupamento ligado)."""
+        self.etapa3 = etapa3
+        self.gravar()
+
     def abandonado(self, url: str, titulo: str, motivo: str) -> None:
         """Um item que chegou ao limite de tentativas nesta execução."""
         self.abandonados.append({"url": url, "titulo": titulo, "motivo": motivo})
         self.gravar()
 
     def item(self, artigos: list[dict], situacao: str, diagnostico: dict, episodio: dict | None, segundos: float,
-             nomes_do_bloco: list[str] | None = None, vozes: dict[str, str] | None = None) -> dict:
+             nomes_do_bloco: list[str] | None = None, vozes: dict[str, str] | None = None,
+             outros: dict[str, list[dict]] | None = None) -> dict:
         """Registra um item que passou pela geração e devolve a entrada dele no relatório (para `entregue`).
 
         Cada artigo é um dict com "veiculo", "titulo", "url", "url_resolvida", "texto" e, se houver, "data" (com fuso),
-        "feed", "categorias" e "relacao". `diagnostico` é o `Summarizer.ultimo_diagnostico` do item.
+        "feed", "categorias" e "relacao". `diagnostico` é o `Summarizer.ultimo_diagnostico` do item. `outros` são os
+        artigos da pauta que não foram gerados ({"duplicatas": [...], "excedentes": [...]}, com veículo, título e link).
         """
         ids = []
         for artigo in artigos:
@@ -181,6 +189,9 @@ class RegistroDaExecucao:
             "problemas_depois_da_revisao": diagnostico.get("problemas_da_revisao"),
             "nomes_do_bloco": nomes_do_bloco, "vozes": vozes,
         }
+        for chave, lista in (outros or {}).items():
+            if lista:
+                entrada[chave] = [{"veiculo": a["veiculo"], "titulo": a["titulo"], "url": a["url"]} for a in lista]
         if diagnostico.get("lados") is not None:
             entrada["lados"] = lados_para_registro(diagnostico["lados"])
         for nome, montada in (("cortes_na_geracao", diagnostico.get("entrada")), ("cortes_na_revisao", diagnostico.get("revisao"))):
@@ -209,5 +220,6 @@ class RegistroDaExecucao:
              "candidatos": self.candidatos}, ensure_ascii=False, indent=1), encoding="utf-8")
         self.relatorio.write_text(json.dumps(
             {"amostra": str(self.amostra), "limiar": None, "num_ctx": self.num_ctx, "episodios": self.episodios,
-             "filtrados": self.filtrados, "abandonados": self.abandonados},
+             "filtrados": self.filtrados, "abandonados": self.abandonados,
+             **({} if self.etapa3 is None else {"etapa3": self.etapa3})},
             ensure_ascii=False, indent=1, default=str), encoding="utf-8")

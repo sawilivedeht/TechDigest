@@ -37,6 +37,12 @@ class SeenStore:
         self.conn.execute("INSERT OR IGNORE INTO seen (hash) VALUES (?)", (_hash(url),))
         self.conn.commit()
 
+    def marcar_vistos(self, urls) -> None:
+        """Marca vários links como entregues numa transação só: a pauta inteira (os artigos gerados, as duplicatas e os
+        excedentes) entra junta, ou nada entra."""
+        with self.conn:
+            self.conn.executemany("INSERT OR IGNORE INTO seen (hash) VALUES (?)", [(_hash(url),) for url in dict.fromkeys(urls)])
+
     def reprovacoes(self, url: str) -> int:
         """Em quantas execuções o QA reprovou o item (0 se nunca)."""
         row = self.conn.execute("SELECT vezes FROM reprovacoes WHERE hash = ?", (_hash(url),)).fetchone()

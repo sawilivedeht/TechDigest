@@ -1,7 +1,8 @@
 """O pipeline com a trava do modelo e as travas da máquina: o que para a execução inteira, e o que fica registrado.
 
 E as partes da fase 4 que valem com o agrupamento desligado: o filtro, o limite de tentativas, o registro de cada
-execução, a voz de cada personagem e o aviso de parada."""
+execução, a voz de cada personagem e o aviso de parada. E, com o agrupamento ligado, a pauta gerada junta, na vaga do
+seu primeiro artigo, e marcada como vista de uma vez, com as duplicatas e os excedentes."""
 import json
 import logging
 import sqlite3
@@ -11,8 +12,11 @@ import pytest
 from techdigest import main as entrada
 from techdigest import pipeline, simulacao, trava
 from techdigest.ai import maquina
+from techdigest.ai.prompt import PROMPT_AGRUPADOR
+from techdigest.delivery import arquivo
 from techdigest.ai.summarizer import QAReprovado
 from techdigest.models import Article
+from techdigest.processing import agrupamento as ag
 from techdigest.processing.extractor import Extracao
 from techdigest.storage.dedup import SeenStore
 
@@ -39,12 +43,14 @@ class SummarizerFalso:
     """
     reprovar: set = set()
     quebrar: set = set()
+    chamadas: list = []     # (título do principal, títulos dos relacionados), na ordem em que foram gerados
 
     def __init__(self, provider):
         self.provider = provider
         self.ultimo_diagnostico = {}
 
-    def process(self, principal):
+    def process(self, principal, relacionados=None):
+        self.chamadas.append((principal["title"], [r["title"] for r in relacionados or []]))
         self.provider.chat_json("sistema", principal["text"])
         self.ultimo_diagnostico = {"episodio": dict(EPISODIO, titulo_reescrito=principal["title"]), "problemas": ["curto"]}
         if principal["title"] in self.reprovar:
@@ -77,6 +83,7 @@ def execucao(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline, "Summarizer", SummarizerFalso)
     monkeypatch.setattr(SummarizerFalso, "reprovar", set())
     monkeypatch.setattr(SummarizerFalso, "quebrar", set())
+    monkeypatch.setattr(SummarizerFalso, "chamadas", [])
     monkeypatch.setenv(simulacao.VARIAVEL, str(tmp_path))                 # o aviso de parada vai para tmp_path/AVISO.txt
     return {"artigos": artigos, "coletas": coletas, "extraidos": extraidos, "resolvidas": resolvidas,
             "banco": tmp_path / "digest.db", "pasta": tmp_path}
@@ -255,3 +262,150 @@ def test_main_recusa_as_opcoes_da_simulacao_sem_simular(capsys):
     with pytest.raises(SystemExit) as saida:
         entrada.main(["--sem-audio"])
     assert saida.value.code == 2 and "só valem com --simular" in capsys.readouterr().err
+
+
+# ── Com o agrupamento ligado ──────────────────────────────────────────────────────────────
+
+FEIRA, PONTE, LITORAL, GAZETA, CORREIO = (
+    "https://jornaldovale.example/feira", "https://jornaldovale.example/ponte", "https://diariodolitoral.example/ponte",
+    "https://gazeta.example/ponte", "https://correio.example/ponte",
+)
+# A ponte em três veículos e uma republicação; o texto mais longo é o do Jornal do Vale, que fica como principal.
+TEXTOS = {FEIRA: "feira " * 300, PONTE: "ponte " * 400, LITORAL: "ponte " * 350, GAZETA: "ponte " * 400, CORREIO: "ponte " * 300}
+# O veredito da etapa 3 sobre a provisória [ponte, litoral, correio]: os três no mesmo acontecimento.
+VEREDITO = {"tipos": {"1": "fato_unico", "2": "fato_unico", "3": "fato_unico"},
+            "grupos": [{"principal": 1, "membros": [{"id": 2, "relacao": "mesmo_acontecimento"},
+                                                     {"id": 3, "relacao": "mesmo_acontecimento"}]}],
+            "isolados": [], "motivo": "A mesma ponte."}
+
+
+class ProviderDoAgrupamento(ProviderFalso):
+    """Responde à etapa 3 com `veredito` (ou levanta, se for uma exceção) e a todo o resto com {}."""
+
+    def __init__(self, veredito):
+        self.veredito, self.etapa3 = veredito, []
+
+    def chat_json(self, system, user, **opcoes):
+        if system != PROMPT_AGRUPADOR:
+            return {}
+        self.etapa3.append(opcoes)
+        if isinstance(self.veredito, Exception):
+            raise self.veredito
+        return self.veredito
+
+
+@pytest.fixture
+def agrupando(execucao, monkeypatch, tmp_path):
+    """O agrupamento ligado, com três textos por pauta no máximo menos um (para haver excedente): a feira sozinha, na
+    primeira posição da coleta, e a pauta da ponte, com a republicação da Gazeta. As etapas 1 e 2 dão essas provisórias."""
+    monkeypatch.setattr(pipeline.settings, "agrupamento_ativo", True)
+    monkeypatch.setattr(pipeline.settings, "agrup_max_artigos", 2)
+    monkeypatch.setattr(arquivo.settings, "arquivo_dir", str(tmp_path / "entregas"))
+    execucao["artigos"][:] = [
+        Article(title="Feira do livro abre no sábado", url=FEIRA, source="Jornal do Vale"),
+        Article(title="Ponte de Serra Quieta é entregue", url=PONTE, source="Jornal do Vale"),
+        Article(title="Serra Quieta ganha a ponte", url=LITORAL, source="Diário do Litoral"),
+        Article(title="Ponte de Serra Quieta é entregue", url=GAZETA, source="Gazeta"),
+        Article(title="A ponte nova de Serra Quieta", url=CORREIO, source="Correio"),
+    ]
+    lotes, tetos = [], []
+
+    def extrair_em_lote(itens):
+        lotes.append([url for url, _ in itens])
+        return [Extracao(TEXTOS[url], url, True) for url, _ in itens]
+
+    def formar_pautas(candidatos, pares, limiar, max_artigos):
+        tetos.append(max_artigos)
+        c = {c.url: c for c in candidatos}
+        feira = [ag.Pauta(principal=c[FEIRA])] if FEIRA in c else []   # na segunda execução, a feira já foi entregue
+        return feira + [ag.Pauta(principal=c[PONTE], relacionados=(c[LITORAL], c[CORREIO]), duplicatas=(c[GAZETA],),
+                                 original_de={c[GAZETA]: c[PONTE]})], []
+
+    provider = ProviderDoAgrupamento(VEREDITO)
+    monkeypatch.setattr(pipeline, "extrair_em_lote", extrair_em_lote)
+    monkeypatch.setattr(pipeline.ag, "formar_pautas", formar_pautas)
+    monkeypatch.setattr(pipeline, "get_provider", lambda settings: provider)
+    return {**execucao, "lotes": lotes, "tetos": tetos, "provider": provider, "entregas": tmp_path / "entregas"}
+
+
+def test_desligado_o_pipeline_nao_extrai_em_lote_nem_agrupa(execucao, monkeypatch):
+    def proibido(*args, **kwargs):
+        raise AssertionError("o agrupamento desligado não extrai em lote")
+    monkeypatch.setattr(pipeline, "extrair_em_lote", proibido)
+    pipeline.run(sem_audio=True)
+    assert SummarizerFalso.chamadas == [("Artigo 1", []), ("Artigo 2", []), ("Artigo 3", [])]
+
+
+def test_com_o_agrupamento_a_pauta_vai_junta_para_a_geracao_e_e_marcada_de_uma_vez(agrupando, caplog):
+    caplog.set_level(logging.INFO, logger="techdigest")
+    pipeline.run(sem_audio=True)
+    assert agrupando["lotes"] == [[FEIRA, PONTE, LITORAL, GAZETA, CORREIO]]   # todos extraídos de uma vez
+    assert agrupando["tetos"] == [6]                                           # a provisória com AGRUP_MAX_PROVISORIA
+    assert agrupando["provider"].etapa3[0]["temperatura"] == ag.TEMPERATURA_ETAPA3
+    # a feira na primeira vaga; a ponte com o Diário do Litoral, e o Correio como excedente (2 textos no máximo)
+    assert SummarizerFalso.chamadas == [("Feira do livro abre no sábado", []),
+                                        ("Ponte de Serra Quieta é entregue", ["Serra Quieta ganha a ponte"])]
+    vistos = SeenStore(str(agrupando["banco"]))
+    assert not any(vistos.is_new(url) for url in (FEIRA, PONTE, LITORAL, GAZETA, CORREIO))
+    texto = (agrupando["entregas"] / "02_ponte-de-serra-quieta-é-entregue.html").read_text(encoding="utf-8")
+    assert f'<a href="{PONTE}">🔗 Jornal do Vale</a>\n<a href="{LITORAL}">🔗 Diário do Litoral</a>' in texto
+    assert (f'<b>Também noticiaram:</b>\n  • <a href="{GAZETA}">Gazeta</a>: Ponte de Serra Quieta é entregue\n'
+            f'  • <a href="{CORREIO}">Correio</a>: A ponte nova de Serra Quieta') in texto
+    assert texto.count("Também noticiaram") == 1
+    sozinho = (agrupando["entregas"] / "01_feira-do-livro-abre-no-sábado.html").read_text(encoding="utf-8")
+    assert sozinho.endswith(f'<a href="{FEIRA}">🔗 Jornal do Vale</a>')   # com uma fonte só, o texto de sempre
+    [relatorio] = _relatorios(agrupando)
+    pauta = relatorio["episodios"][1]
+    assert [(a["veiculo"], a["relacao"]) for a in pauta["artigos"]] == [("Jornal do Vale", "principal"),
+                                                                        ("Diário do Litoral", "mesmo_acontecimento")]
+    assert [a["url"] for a in pauta["duplicatas"]] == [GAZETA] and [a["url"] for a in pauta["excedentes"]] == [CORREIO]
+    assert relatorio["etapa3"] == [{
+        "artigos": [{"veiculo": "Jornal do Vale", "titulo": "Ponte de Serra Quieta é entregue", "url": PONTE},
+                    {"veiculo": "Diário do Litoral", "titulo": "Serra Quieta ganha a ponte", "url": LITORAL},
+                    {"veiculo": "Correio", "titulo": "A ponte nova de Serra Quieta", "url": CORREIO}],
+        "duplicatas": [GAZETA], "erro": "", "motivo": "A mesma ponte.",
+        "finais": [{"principal": PONTE, "relacionados": [LITORAL], "excedentes": [CORREIO], "duplicatas": [GAZETA]}],
+    }]
+    assert "Pauta de 2 textos (Jornal do Vale, Diário do Litoral): 'Ponte de Serra Quieta é entregue'" in [
+        r.getMessage() for r in caplog.records]
+
+
+def test_a_etapa_3_que_falha_deixa_os_artigos_separados_e_a_duplicata_com_o_seu_original(agrupando):
+    agrupando["provider"].veredito = ConnectionError("o Ollama caiu")
+    pipeline.run(sem_audio=True)
+    assert SummarizerFalso.chamadas == [("Feira do livro abre no sábado", []), ("Ponte de Serra Quieta é entregue", []),
+                                        ("Serra Quieta ganha a ponte", []), ("A ponte nova de Serra Quieta", [])]
+    vistos = SeenStore(str(agrupando["banco"]))
+    assert not any(vistos.is_new(url) for url in (FEIRA, PONTE, LITORAL, GAZETA, CORREIO))
+    [relatorio] = _relatorios(agrupando)
+    assert relatorio["etapa3"][0]["erro"].startswith("a chamada falhou (ConnectionError")
+
+
+def test_a_pauta_que_nao_cabe_em_max_news_nao_e_marcada_e_volta_na_proxima(agrupando, monkeypatch):
+    monkeypatch.setattr(pipeline.settings, "max_news", 1)
+    pipeline.run(sem_audio=True)
+    vistos = SeenStore(str(agrupando["banco"]))
+    assert not vistos.is_new(FEIRA) and all(vistos.is_new(url) for url in (PONTE, LITORAL, GAZETA, CORREIO))
+    pipeline.run(sem_audio=True)
+    assert SummarizerFalso.chamadas[-1] == ("Ponte de Serra Quieta é entregue", ["Serra Quieta ganha a ponte"])
+    assert not any(vistos.is_new(url) for url in (PONTE, LITORAL, GAZETA, CORREIO))
+
+
+def test_a_reprovacao_da_pauta_conta_para_os_textos_gerados_e_as_duplicatas(agrupando):
+    SummarizerFalso.reprovar = {"Ponte de Serra Quieta é entregue"}
+    pipeline.run(sem_audio=True)
+    vistos = SeenStore(str(agrupando["banco"]))
+    assert [vistos.reprovacoes(url) for url in (PONTE, LITORAL, GAZETA, CORREIO)] == [1, 1, 1, 0]
+    assert all(vistos.is_new(url) for url in (PONTE, LITORAL, GAZETA, CORREIO))
+
+
+def test_o_agrupamento_que_quebra_deixa_os_candidatos_um_por_um(agrupando, monkeypatch, caplog):
+    def quebrado(*args, **kwargs):
+        raise ValueError("erro de programação")
+    monkeypatch.setattr(pipeline.ag, "formar_pautas", quebrado)
+    caplog.set_level(logging.INFO, logger="techdigest")
+    pipeline.run(sem_audio=True)
+    assert [titulo for titulo, _ in SummarizerFalso.chamadas] == [
+        "Feira do livro abre no sábado", "Ponte de Serra Quieta é entregue", "Serra Quieta ganha a ponte",
+        "Ponte de Serra Quieta é entregue", "A ponte nova de Serra Quieta"]
+    assert any(r.getMessage() == "Agrupamento falhou: os 5 candidato(s) seguem um por um" for r in caplog.records)

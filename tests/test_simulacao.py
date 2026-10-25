@@ -149,6 +149,7 @@ from techdigest.processing.extractor import Extracao
 extracao = types.ModuleType("techdigest.processing.extractor")
 extracao.Extracao = Extracao
 extracao.extrair = lambda url, fallback="": Extracao("texto " * 400, url, True)
+extracao.extrair_em_lote = lambda itens: [Extracao("texto " * 400, url, True) for url, _ in itens]
 sys.modules["techdigest.processing.extractor"] = extracao
 geracao = types.ModuleType("techdigest.ai.summarizer")
 class QAReprovado(Exception):

@@ -39,7 +39,6 @@ from pathlib import Path
 from techdigest import trava
 from techdigest.ai import maquina
 from techdigest.ai.llm import get_provider
-from techdigest.ai.prompt import PROMPT_AGRUPADOR
 from techdigest.collectors import rss
 from techdigest.config import Settings
 from techdigest.processing import agrupamento as ag
@@ -54,8 +53,7 @@ QUASE_PAUTAS = 10      # pares logo abaixo do limiar mostrados no console
 COLUNAS = ("par", "veiculo_a", "titulo_a", "url_a", "veiculo_b", "titulo_b", "url_b",
            "sim_trigramas", "sim_entidades", "sim_texto", "score", "termos_comuns", "duplicata", "mesmo_fato")
 
-TEMPERATURA_ETAPA3 = 0.1   # baixa, para o veredito variar pouco entre execuções
-MAX_SAIDA_ETAPA3 = 512     # tokens: a resposta é um JSON curto
+TEMPERATURA_ETAPA3, MAX_SAIDA_ETAPA3 = ag.TEMPERATURA_ETAPA3, ag.MAX_SAIDA_ETAPA3   # os da chamada do pipeline
 # Como cada rótulo entra na conta: quais pares a pauta deve manter juntos e quais deve separar.
 ROTULOS_JUNTOS = ("mesmo_acontecimento", "desdobramento")
 ROTULOS_SEPARADOS = ("mesmo_tema", "diferente", "sobreposicao_parcial")
@@ -311,7 +309,7 @@ def _mostrar_pautas(pautas: list[ag.Pauta], args: argparse.Namespace) -> None:
     com_varios = [p for p in pautas if p.relacionados]
     print(f"\n== Pautas provisórias com 2 ou mais artigos: {len(com_varios)} "
           f"(limiar {args.limiar:.2f} · peso do título {args.peso_titulo:.2f} · "
-          f"até {settings.agrup_max_artigos} artigos) ==")
+          f"até {settings.agrup_max_provisoria} artigos) ==")
     for n, pauta in enumerate(com_varios, 1):
         numero = {c: i for i, c in enumerate(pauta.artigos, 1)}
         print(f"\nPauta {n} · {len(pauta.artigos)} artigos · {len(pauta.veiculos)} veículo(s) distinto(s)")
@@ -397,22 +395,14 @@ def _consultar_llm(provider, pauta: ag.Pauta, repeticao: int) -> Chamada:
     """Pede ao LLM o veredito sobre uma pauta provisória e compõe as pautas finais."""
     provider.ultimo_uso = {}
     inicio = time.perf_counter()
-    try:
-        resposta = provider.chat_json(
-            PROMPT_AGRUPADOR, ag.entrada_agrupador(pauta, settings.agrup_chars_etapa3), chaves=ag.CHAVES_AGRUPADOR,
-            temperatura=TEMPERATURA_ETAPA3, max_saida=MAX_SAIDA_ETAPA3,
-        )
-    except Exception as e:  # resposta vazia, cortada, sem as chaves, servidor fora do ar...
-        segundos = time.perf_counter() - inicio
-        erro = f"a chamada falhou ({type(e).__name__}: {str(e)[:160]})"
-        return Chamada(repeticao, pauta, segundos, dict(provider.ultimo_uso), "", erro, {}, ag.pautas_isoladas(pauta))
+    veredito = ag.confirmar_pauta(provider.chat_json, pauta, settings.agrup_chars_etapa3, settings.agrup_max_artigos)
     segundos = time.perf_counter() - inicio
-    problemas = ag.problemas_do_veredito(resposta, len(pauta.artigos))
+    resposta = veredito.resposta
+    if resposta is None:   # a chamada falhou
+        return Chamada(repeticao, pauta, segundos, dict(provider.ultimo_uso), "", veredito.erro, {}, veredito.finais)
     motivo = resposta.get("motivo") if isinstance(resposta.get("motivo"), str) else ""
-    erro = f"veredito descartado ({'; '.join(problemas)})" if problemas else ""
     tipos = {pauta.artigos[n - 1]: tipo for n, tipo in ag.tipos_do_veredito(resposta, len(pauta.artigos)).items()}
-    finais = ag.compor_pautas(pauta, resposta, settings.agrup_max_artigos)
-    return Chamada(repeticao, pauta, segundos, dict(provider.ultimo_uso), motivo, erro, tipos, finais)
+    return Chamada(repeticao, pauta, segundos, dict(provider.ultimo_uso), motivo, veredito.erro, tipos, veredito.finais)
 
 
 def _resumo_do_veredito(chamada: Chamada, ids: dict[ag.Candidato, int]) -> str:
@@ -674,7 +664,7 @@ def main() -> None:
     _linha("etapa 2 (texto)", len(textos), "pares", segundos)
 
     pares = ag.pontuar_pares(candidatos, titulos, textos, args.peso_titulo, settings.agrup_limiar_duplicata)
-    pautas, barrados = ag.formar_pautas(candidatos, pares, args.limiar, settings.agrup_max_artigos)
+    pautas, barrados = ag.formar_pautas(candidatos, pares, args.limiar, settings.agrup_max_provisoria)
     duplicatas = [p for p in pares if p.duplicata]
     perto = [p for p in pares if CSV_SCORE_MIN <= p.score < args.limiar and not p.duplicata]
     _linha("pares no limiar", sum(p.score >= args.limiar for p in pares), f"score ≥ {args.limiar:.2f}")
@@ -682,7 +672,7 @@ def main() -> None:
     _linha("pautas provisórias", len(pautas), f"{sum(1 for p in pautas if p.relacionados)} com 2 ou mais artigos")
 
     _mostrar_pautas(pautas, args)
-    _mostrar_pares(f"Pares no limiar barrados pelo teto de {settings.agrup_max_artigos} artigos: {len(barrados)}", barrados)
+    _mostrar_pares(f"Pares no limiar barrados pelo teto de {settings.agrup_max_provisoria} artigos: {len(barrados)}", barrados)
     _mostrar_pares(f"Republicações (similaridade de texto ≥ {settings.agrup_limiar_duplicata:.2f}): {len(duplicatas)}",
                    duplicatas)
     _mostrar_pares(f"Pares de maior score abaixo do limiar (até {QUASE_PAUTAS}, a partir de {CSV_SCORE_MIN:.2f})",

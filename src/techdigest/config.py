@@ -74,13 +74,18 @@ class Settings(BaseSettings):
     extracao_workers: int = 6          # itens extraídos em paralelo
     extracao_workers_gnews: int = 2    # no máximo N resolvendo links do Google Notícias ao mesmo tempo (evita bloqueio)
 
-    # Agrupamento de notícias em pautas. Só scripts/testar_agrupamento.py usa; o pipeline ainda não agrupa
+    # Agrupamento de notícias em pautas (processing/agrupamento.py). Desligado, o pipeline gera um episódio por artigo;
+    # ligado, agrupa os candidatos da execução em pautas antes de gerar (decisões de 16, 17 e 25/10/2026). Os scripts de
+    # diagnóstico usam os mesmos AGRUP_*
+    agrupamento_ativo: bool = False
     agrup_chars_texto: int = 1500      # caracteres iniciais do texto extraído que entram no TF-IDF
     agrup_peso_titulo: float = 0.4     # score = peso × título + (1 − peso) × texto
     agrup_limiar: float = 0.18         # score mínimo da pauta provisória; quem confirma é o LLM. Mantido depois de uma segunda
                                        # amostra (12/10/2026): entre 0,15 e 0,18 só havia pares de fatos diferentes
     agrup_limiar_duplicata: float = 0.95   # similaridade de texto a partir da qual é republicação, não outra fonte
-    agrup_max_artigos: int = 3         # artigos por pauta (principal + 2 relacionados, o limite do _montar_entrada)
+    agrup_max_artigos: int = 3         # textos por pauta final (principal + 2 relacionados, o limite do _montar_entrada)
+    agrup_max_provisoria: int = 6      # artigos por pauta provisória (etapas 1 e 2); o que a etapa 3 confirma além de
+                                       # AGRUP_MAX_ARTIGOS fica em excedentes. Foi 3 até a condição do teto passar (25/10/2026)
     agrup_chars_etapa3: int = 900      # caracteres iniciais de cada texto que o LLM recebe para confirmar a pauta
 
     # QA editorial (regras 2, 3 e 6). Os padrões são os valores em vigor; ajuste no .env (QA_*)

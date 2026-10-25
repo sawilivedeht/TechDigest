@@ -1,9 +1,9 @@
 """Agrupamento de notícias em pautas: similaridade de título e de texto, e o veredito do LLM.
 
 Uma pauta junta os artigos que contam a MESMA HISTÓRIA (o mesmo acontecimento ou um
-desdobramento direto dele, não só o mesmo tema) e vira um único episódio. Este módulo só tem
-funções puras: sem rede, banco ou LLM. Limiares e pesos chegam por parâmetro; quem lê Settings
-e quem chama o LLM é o chamador.
+desdobramento direto dele, não só o mesmo tema) e vira um único episódio. Este módulo não tem
+rede, banco nem Settings: limiares e pesos chegam por parâmetro, e a etapa 3 (`confirmar_pauta`)
+recebe do chamador a função que chama o LLM (no pipeline, a do provider com as travas da máquina).
 
     Etapa 1 (título): trigramas de caracteres + entidades (nomes próprios, siglas, números).
     Etapa 2 (texto):  TF-IDF de palavras e bigramas sobre o início do texto extraído.
@@ -11,7 +11,7 @@ e quem chama o LLM é o chamador.
     Etapa 3 (LLM):    confirma a pauta provisória. Aqui ficam o texto que o LLM recebe, a
                       validação da resposta e a composição das pautas finais.
 
-A integração no pipeline é das fases seguintes.
+O pipeline usa o módulo com AGRUPAMENTO_ATIVO (ver `pipeline._pautas_da_execucao`).
 """
 import logging
 import math
@@ -24,6 +24,8 @@ from datetime import datetime, timedelta, timezone
 from itertools import combinations
 from typing import NamedTuple
 from urllib.parse import urlsplit, urlunsplit
+
+from techdigest.ai.prompt import PROMPT_AGRUPADOR
 
 logger = logging.getLogger("techdigest.processing.agrupamento")
 
@@ -405,6 +407,11 @@ def comparar_textos(
     return resultado
 
 
+def _mesma_materia(a: Candidato, b: Candidato) -> bool:
+    """A mesma matéria por dois links do feed (o do Google Notícias e o do veículo): a mesma URL canônica."""
+    return url_canonica(a.url_veiculo) == url_canonica(b.url_veiculo)
+
+
 def pontuar_pares(
     candidatos: Sequence[Candidato],
     titulos: Mapping[tuple[int, int], SimTitulo],
@@ -412,7 +419,11 @@ def pontuar_pares(
     peso_titulo: float,
     limiar_duplicata: float,
 ) -> list[ParPontuado]:
-    """Junta as duas etapas no score de cada par e devolve os pares do maior score para o menor."""
+    """Junta as duas etapas no score de cada par e devolve os pares do maior score para o menor.
+
+    É duplicata (republicação, ver `formar_pautas`) o par com similaridade de texto a partir de `limiar_duplicata`
+    e o par com a mesma URL canônica do veículo: a mesma matéria vinda por dois feeds vai com a pauta.
+    """
     pares = []
     for (i, j), t in titulos.items():
         x = textos[i, j]
@@ -421,7 +432,7 @@ def pontuar_pares(
             sim_trigramas=t.trigramas, sim_entidades=t.entidades, sim_titulo=t.titulo, sim_texto=x.texto,
             score=peso_titulo * t.titulo + (1 - peso_titulo) * x.texto,
             entidades_comuns=t.entidades_comuns, termos_comuns=x.termos_comuns,
-            duplicata=x.texto >= limiar_duplicata,
+            duplicata=x.texto >= limiar_duplicata or _mesma_materia(candidatos[i], candidatos[j]),
         ))
     pares.sort(key=lambda p: -p.score)  # ordenação estável: no empate vale a ordem da coleta
     return pares
@@ -734,3 +745,37 @@ def compor_pautas(pauta: Pauta, resposta, max_artigos: int) -> list[Pauta]:
         finais.append(_pauta_final(pauta, principal, relacionados, excedentes, relacoes, motivo))
     finais.extend(_pauta_final(pauta, artigos[ident - 1], motivo=motivo) for ident in sorted(isolados))
     return finais
+
+
+# ── Etapa 3: a chamada ────────────────────────────────────────────────────────────────────
+
+TEMPERATURA_ETAPA3 = 0.1   # baixa, para o veredito variar pouco entre execuções
+MAX_SAIDA_ETAPA3 = 512     # tokens: a resposta é um JSON curto
+
+
+@dataclass(frozen=True)
+class Veredito:
+    """O que a etapa 3 deu para uma pauta provisória: as pautas finais, a resposta do LLM e o erro, se houve."""
+    finais: list[Pauta]
+    resposta: object = None   # o JSON do LLM; None se a chamada falhou
+    erro: str = ""            # "a chamada falhou (...)" ou "veredito descartado (...)"; vazio quando o veredito valeu
+
+
+def confirmar_pauta(chamar, pauta: Pauta, chars: int, max_artigos: int) -> Veredito:
+    """Etapa 3 de uma pauta provisória: o LLM dá o veredito (PROMPT_AGRUPADOR) e `compor_pautas` monta as finais.
+
+    `chamar` é o chat_json do provider, com as chaves, a temperatura e a saída da chamada. A chamada que falha deixa os
+    artigos separados, como o veredito descartado: na dúvida, não juntar. A trava da máquina (`ExecucaoInterrompida`,
+    um SystemExit) não é pega aqui e para a execução inteira.
+    """
+    try:
+        resposta = chamar(PROMPT_AGRUPADOR, entrada_agrupador(pauta, chars), chaves=CHAVES_AGRUPADOR,
+                          temperatura=TEMPERATURA_ETAPA3, max_saida=MAX_SAIDA_ETAPA3)
+    except Exception as e:   # resposta vazia, cortada, sem as chaves, servidor fora do ar...
+        erro = f"a chamada falhou ({type(e).__name__}: {str(e)[:160]})"
+        logger.warning("Etapa 3: %s: os %d artigos da pauta ficam separados — %r", erro, len(pauta.artigos),
+                       pauta.principal.titulo[:80])
+        return Veredito(pautas_isoladas(pauta), None, erro)
+    problemas = problemas_do_veredito(resposta, len(pauta.artigos))
+    erro = f"veredito descartado ({'; '.join(problemas)})" if problemas else ""
+    return Veredito(compor_pautas(pauta, resposta, max_artigos), resposta, erro)

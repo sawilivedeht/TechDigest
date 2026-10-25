@@ -43,7 +43,8 @@ ele está; este arquivo guarda o que foi decidido e o que falta, e é atualizado
    aceitou o resultado e mandou seguir para o item 5.
 5. **Integração do agrupamento** atrás de `AGRUPAMENTO_ATIVO`, com os filtros, o limite de
    tentativas, os excedentes e o registro de cada execução. Plano aprovado em 25/10 (ver "Integração
-   do agrupamento: o plano de 25/10").
+   do agrupamento: o plano de 25/10"). Implementada em 25/10, desligada por padrão, com
+   `AGRUP_MAX_PROVISORIA` em 6; faltam as simulações de trabalho.
 6. **Simulação de ponta a ponta.** A que libera o merge roda com `AGRUPAMENTO_ATIVO=false`, que é o
    que vai para produção, e com áudio. A rodada com o agrupamento ligado é uma prévia.
 7. **Merge** das fases 1 a 4 na `master`, com `AGRUPAMENTO_ATIVO=false`. A fonte única muda já no
@@ -562,6 +563,14 @@ Três condições, todas cumpridas:
 2. A etapa 3 mantém o acerto na terceira amostra, com o gabarito do dono.
 3. A regra estrita de atribuição passa por essa amostra e, se confirmada, entra no QA pelo caminho
    de sempre (diagnóstico, `refazer_qa.py`, `qa.py`).
+
+Ponto a estudar antes de ligar, junto com a regra estrita (decisão de 25/10/2026): **a janela dos
+outros veículos.** Nas duas pautas da prévia de 25/10 com veículo errado, os relacionados entraram na
+geração com 872 a 1.374 caracteres (G1 com 919 e Agência Brasil com 872 no 92+97+63; Gazeta com 1.374
+e Valor com 1.258 no 64+13+42), e o prompt de hoje tira de 1.393 a 2.078 caracteres de texto por pauta
+em relação ao de 17/10. O 90+79+43 também teve relacionados curtos (1.214 e 1.426) e nenhuma frase com
+veículo errado, então a ligação não está provada. Nada muda agora, porque o merge vai com o
+agrupamento desligado.
 
 ## Validação da fonte única (etapa 4)
 
@@ -1212,6 +1221,75 @@ proposta de mudança se apoia na terceira amostra.
   proposta do ajuste 6 (uns 0,6 MB por execução de 20 itens: com duas execuções por dia, uns 36 MB por mês).
 - **Aviso de parada**, também no erro inesperado (decisão 1).
 - **Nomes e vozes:** a escolha do nome evita as pessoas citadas (decisão 3); a voz de cada personagem no log e no episódio.
+
+**Em 25/10, à noite, as decisões do dono sobre a prévia** ("A prévia libera a integração. Suas leituras estão
+certas."):
+
+1. **Lista de partidos** aprovada como está, com os 30 partidos; o pcb.org.br e o pv.org.br ficam, mesmo sem a
+   conferência do conteúdo. Lideranças, fundações e federações ficam de fora por enquanto: entram quando aparecerem no
+   registro de alguma execução. Sem o "RASCUNHO" no cabeçalho (98d7289).
+2. **Os dois falsos positivos do QA,** corrigidos antes das simulações; os dois são relaxamento (98d7289):
+   - **Números:** o número que faz parte do nome de um veículo da pauta não conta ("Poder360", "Poder 360", "Brasil
+     247"; `numeros.numeros_fora_dos_nomes`, comparando parte a parte, sem acento nem caixa, antes de um slogan). Nos
+     158 episódios gravados, só o 86+71 da prévia tinha um ("360", 7 vezes); ele segue reprovado pelas 6 frases do resumo
+     e pela analista do lado fino. O `checar_fidelidade.py` não muda: a referência dele já inclui o nome do veículo.
+   - **Frases do resumo:** o ".", "!" ou "?" colado a uma letra ou a um algarismo não fecha frase. A contagem continua a
+     da `master` com essa exceção (abreviatura e reticências contam como antes). Nos 158 episódios, 17 resumos contam
+     menos frases: 11 pelo "Hardware.com.br" e 6 pelo ponto de milhar ("6.901", "1.564", que também contava); nenhum fica
+     abaixo de 7, e só o 26+69 da prévia muda de situação (12 frases para 8, reprovado → aprovado; o
+     `checar_fidelidade.py` não acha nada nele que o QA deixe passar). Medida:
+     `data/agrupamento/correcoes_20261025/medir_falsos_positivos.py` e `saida_falsos_positivos.txt`.
+   - **A contagem de menções e os números de frase das leituras não mudam:** os dois usam `qa.frases()`, que já não
+     separava dentro de uma palavra (pede espaço depois do sinal) e não foi mexida. A contagem nova e `qa.frases()`
+     diferem em 2 dos 158 resumos, por abreviatura: "Matt J. Robb" (o `frases()` acerta) e "cinco G. Smartphones" (o
+     `frases()` junta duas frases por engano, tomando o "G." por abreviatura). É uma falha do `frases()` sem relação com a
+     mudança; fica registrada, sem correção.
+3. **A integração do agrupamento:** implementar, com testes e commit, e atualizar o CLAUDE.md e o roteiro, com:
+   - `AGRUP_MAX_PROVISORIA` em 6 por padrão (a condição do teto passou); com o agrupamento desligado, nada muda;
+   - **o veículo fora de todos os lados** (o 90+79+43): proposta e medida antes de entrar (8ff8f57). Com um lado só, o
+     veículo que ficou de fora entra nele (sem lado com ator nomeado, fica no lado neutro, que já tem todos); com dois
+     lados ou mais, o veículo cujo texto não cita ator de nenhum lado (pela contagem de `mencoes`) entra como contexto
+     (`Analise.contexto`, `veiculos_de_contexto` no registro), fora dos lados e do bloco, sem invalidar a análise; o que
+     cita um ator continua invalidando ("veículo da pauta em nenhum lado, com ator de um lado no texto"), porque a
+     resposta o deixou fora do lado desse ator. Medido nas 243 respostas gravadas da análise de lados (a que valeu, as
+     primeiras tentativas e as segundas recusadas; 115 de pautas com vários veículos,
+     `data/agrupamento/correcoes_20261025/medir_veiculo_fora.py`): só as duas tentativas do 90+79+43 tinham veículo de
+     fora, e as duas passam a dar o lado único do Zuckerberg com os três veículos, sem disputa como o gabarito (que diz
+     "Meta"); nenhuma outra análise muda, e o caso do contexto não aconteceu em nenhuma;
+   - **a janela** fica como ponto a estudar antes de ligar o agrupamento, junto com a regra estrita (ver "Quando o
+     agrupamento liga").
+4. **As simulações de trabalho,** depois da implementação, cada uma numa cópia do banco: a desligada, contando os itens
+   filtrados depois da extração (ajuste 5), e a ligada, com a provisória em 6 e uma segunda execução na mesma pasta. O
+   resultado vem antes da terceira amostra. O registro com 30 dias está aprovado; a coleta 3 fica para quando o dono
+   pedir, a partir de 26/10.
+
+**A integração, como ficou** (com `AGRUPAMENTO_ATIVO=false` por padrão; o detalhe no CLAUDE.md, "Architecture"):
+
+- **Ligado,** o pipeline tira os entregues, os abandonados e os filtrados pelo link e pela categoria do feed, extrai
+  todos os candidatos em lote, aplica o filtro na URL resolvida, descarta os textos curtos e agrupa: provisórias de até
+  `AGRUP_MAX_PROVISORIA` (6) artigos, a etapa 3 no pacote (`agrupamento.confirmar_pauta`, a mesma chamada dos dois
+  scripts, pelas travas da máquina) e até `AGRUP_MAX_ARTIGOS` (3) textos por pauta final; o resto são excedentes.
+- **As vagas (ajuste 7):** cada pauta na posição do primeiro dos seus artigos na lista intercalada, contando principal,
+  relacionados, duplicatas e excedentes; geradas nessa ordem até `MAX_NEWS` entregues ou o fim do tempo; o que não cabe
+  não é marcado e volta.
+- **A entrega:** o texto leva um link por artigo gerado (o do feed) e lista as duplicatas e os excedentes em "Também
+  noticiaram"; com uma fonte só, o texto é o de sempre. Depois da entrega, todos os links da pauta (gerados, duplicatas e
+  excedentes) entram em `seen` numa transação só (`SeenStore.marcar_vistos`).
+- **A reprovação** de uma pauta conta para os textos gerados e as duplicatas, não para os excedentes (que não entraram
+  na geração e podem formar outra pauta depois).
+- **A mesma matéria por dois links do feed** (o do Google Notícias e o do veículo) é duplicata quando os dois resolvem
+  para a mesma URL canônica, mesmo com textos extraídos diferentes (`agrupamento._mesma_materia`); a etapa 3 que falha,
+  ou o veredito descartado, deixa os artigos separados, e um erro inesperado no agrupamento deixa cada candidato sozinho
+  ("Agrupamento falhou: ..."), sem parar a execução.
+- **O registro** guarda também cada provisória e o que a etapa 3 fez dela (`etapa3`) e, por item, as `duplicatas` e os
+  `excedentes`; o `resumo_lotes.py` mostra a linha "Agrupamento: N candidato(s) em M pauta(s), K com várias fontes"
+  nas observações.
+- **Desligado,** o laço é o de um artigo por vez, como antes. A única diferença é a data de cada artigo no registro: a
+  coleta passou a preencher `Article.published` com a data do feed, que a etapa 3 mostra ao modelo (nas amostras, a data
+  vinha do mesmo lugar).
+- **Os scripts** usam o teto novo: `testar_agrupamento.py` e `testar_episodio.py` formam as provisórias com
+  `AGRUP_MAX_PROVISORIA`. Na amostra nova, sem o modelo, saem as mesmas 8 provisórias da condição do teto (uma de 5
+  artigos).
 
 ## Números medidos
 

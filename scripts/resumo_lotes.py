@@ -27,6 +27,7 @@ RE_SWAP = re.compile(r"swap usado=([\d.]+) GB")
 RE_CPU = re.compile(r"CPU=(\d+)°C")
 RE_GPU = re.compile(r"GPU=(\d+)°C/(\d+) MHz")
 RE_FIM = re.compile(r"Execução concluída: (\d+) notícia")
+RE_AGRUPAMENTO = re.compile(r"Agrupamento: \d+ candidato\(s\) em (\d+) pauta\(s\), (\d+) com várias fontes")
 
 
 def _arquivos_de_log(log: str | None = None) -> list[Path]:
@@ -37,7 +38,7 @@ def _arquivos_de_log(log: str | None = None) -> list[Path]:
 
 def _novo_lote(hora: str) -> dict:
     return {"inicio": hora, "fim": None, "entregues": None, "qa": 0, "descartados": 0, "filtrados": 0, "abandonados": 0,
-            "erros": 0, "falhas_entrega": 0, "orcamento": False, "fatal": False, "interrompida": "", "aviso": "",
+            "erros": 0, "falhas_entrega": 0, "orcamento": False, "fatal": False, "interrompida": "", "aviso": "", "pautas": "",
             "toks": [], "ram": [], "swap": [], "cpu": [], "gpu": [], "gpu_mhz": []}
 
 
@@ -73,6 +74,8 @@ def ler_lotes(dia: str, log: str | None = None, nao_comecaram: list | None = Non
                 atual["fim"], atual["entregues"] = hora, int(f.group(1))
             elif "Nenhuma notícia entregue" in msg:
                 atual["fim"], atual["entregues"] = hora, 0
+            elif (a := RE_AGRUPAMENTO.search(msg)):
+                atual["pautas"] = f"agrupamento: {a.group(1)} pautas, {a.group(2)} com várias fontes"
             elif "Orçamento de tempo" in msg:
                 atual["orcamento"] = True
             elif "Falha fatal" in msg:
@@ -144,7 +147,7 @@ def main() -> None:
            "tok/s méd", "tok/s mín", "RAM mín GB", "swap máx GB", "CPU máx °C", "GPU máx °C", "GPU mín MHz", "Obs.")
     linhas = []
     for l in lotes:
-        obs = []
+        obs = [l["pautas"]] if l["pautas"] else []
         if l["orcamento"]:
             obs.append("orçamento esgotado")
         if l["fatal"]:

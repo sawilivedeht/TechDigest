@@ -16,6 +16,7 @@ LOG = (
     "16/10 09:20:01 │ WARNING  │ techdigest.pipeline │ Aviso de parada: TechDigest parou às 09:20: memória disponível em "
     "3.1 GiB, abaixo do mínimo de 4.0 GiB. Entregues: 7 de 20; o resto volta na próxima execução.\n"
     "16/10 10:00:00 │ INFO     │ techdigest.pipeline │ === TechDigest iniciando ===\n"
+    "16/10 10:02:00 │ INFO     │ techdigest.pipeline │ Agrupamento: 96 candidato(s) em 88 pauta(s), 5 com várias fontes\n"
     "16/10 11:10:00 │ INFO     │ techdigest.pipeline │ Execução concluída: 20 notícia(s) entregue(s) em 70 min.\n"
 )
 
@@ -36,3 +37,4 @@ def test_o_resumo_mostra_a_execucao_interrompida_e_a_que_nao_comecou(tmp_path, c
     saida = capsys.readouterr().out
     assert "interrompida: memória disponível em 3.1 GiB, abaixo do mínimo de 4.0 GiB, aviso enviado" in saida
     assert "Não começaram (a trava do modelo estava ocupada):\n  08:00:00: o modelo está em uso" in saida
+    assert concluida["pautas"] == "agrupamento: 88 pautas, 5 com várias fontes" and concluida["pautas"] in saida

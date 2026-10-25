@@ -238,7 +238,7 @@ def _pautas_finais(args: argparse.Namespace, provider, candidatos: list[ag.Candi
     titulos = ag.comparar_titulos(candidatos, settings.agrup_chars_texto)
     textos = ag.comparar_textos(candidatos, settings.agrup_chars_texto)
     pares = ag.pontuar_pares(candidatos, titulos, textos, settings.agrup_peso_titulo, settings.agrup_limiar_duplicata)
-    provisorias, _ = ag.formar_pautas(candidatos, pares, args.limiar, settings.agrup_max_artigos)
+    provisorias, _ = ag.formar_pautas(candidatos, pares, args.limiar, settings.agrup_max_provisoria)
     com_varios = [p for p in provisorias if p.relacionados]
     finais = [p for p in provisorias if not p.relacionados]
     print(f"\n== Etapa 3: o LLM confirma {len(com_varios)} pauta(s) provisória(s) (limiar {args.limiar:.2f}) ==", flush=True)
