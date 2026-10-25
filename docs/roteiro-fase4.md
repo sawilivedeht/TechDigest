@@ -39,9 +39,11 @@ ele está; este arquivo guarda o que foi decidido e o que falta, e é atualizado
    nomes dos analistas pelo código e as aspas na contagem de menções entraram (8d1a2d2), e a
    regressão nos 20, direto, sem outra rodada curta, atingiu o aceite de 23/10: 19 de 20 aprovados,
    nenhuma disputa inventada, 10% de frases marcadas e 16 atribuídos (7 nas disputas), com 7,3 marcas
-   por mil palavras. O resultado espera a decisão do dono sobre o próximo passo.
+   por mil palavras (7,4 com a correção da leitura do A14 que o dono fez em 25/10). Em 25/10 o dono
+   aceitou o resultado e mandou seguir para o item 5.
 5. **Integração do agrupamento** atrás de `AGRUPAMENTO_ATIVO`, com os filtros, o limite de
-   tentativas, os excedentes e o registro de cada execução.
+   tentativas, os excedentes e o registro de cada execução. Plano aprovado em 25/10 (ver "Integração
+   do agrupamento: o plano de 25/10").
 6. **Simulação de ponta a ponta.** A que libera o merge roda com `AGRUPAMENTO_ATIVO=false`, que é o
    que vai para produção, e com áudio. A rodada com o agrupamento ligado é uma prévia.
 7. **Merge** das fases 1 a 4 na `master`, com `AGRUPAMENTO_ATIVO=false`. A fonte única muda já no
@@ -348,6 +350,17 @@ leituras certas, menos o "queimadas causadas pelo El Niño" do A79, que conta co
   rodada curta, com o critério de 23/10, as mesmas medidas das rodadas curtas e a leitura frase a frase, acompanhando as
   marcas da Helena fora do fechamento (de 4 para 12 na terceira rodada curta). Não mudar prompt nem QA por causa do
   resultado.
+
+Em 25/10/2026, ao ler o resultado da regressão da quarta leva (as leituras certas, menos a do A14):
+
+- **A regressão passou** nos quatro critérios de 23/10. O "lançou o GPT-5 para corrigir a falha" do A14 (R3) conta como
+  A: o texto diz que o GPT-5 foi ajustado para reduzir o problema, não que foi lançado para corrigi-lo. Com isso, 79
+  marcas em 785 frases (10%) e 7,4 por mil palavras de roteiro; o resumo, os pontos e o "por que importa" vão de 3,5 para
+  3,8 por mil (`data/agrupamento/correcoes_20261024d/leitura_regressao2.py` e as tabelas refeitas).
+- **Ficam como diagnóstico para a terceira amostra, sem mudança agora:** os 30 mil do N92 e a revisão que encurtou a
+  analista; a Helena fora do fechamento (3,9 por mil); o resumo, os pontos e o "por que importa".
+- **O próximo passo é o item 5,** com o plano da seção "Integração do agrupamento: o plano de 25/10", aprovado com três
+  decisões e sete ajustes (lá).
 
 Das fases 1 a 3, continuam valendo (o detalhe está no CLAUDE.md e no histórico do git):
 
@@ -1090,6 +1103,83 @@ acima de 18,1 GiB; o detalhe em `data/agrupamento/rodada_20261024d/resultado.md`
 - **Leituras minhas, para o dono corrigir** (o detalhe em `resultado.md`): o "devido ao El Niño" do A79 também como
   A; os pontos-chave "A necessidade de..." como opinião como fato (O), como no N86 da segunda rodada; a análise do
   veículo atribuída a outro grupo como F, como em 17/10.
+
+## Integração do agrupamento: o plano de 25/10
+
+Aprovado em 25/10/2026, com as leituras confirmadas. Valem as decisões de 16 e 17/10 (`AGRUPAMENTO_ATIVO` desligado por
+padrão; mark_seen da pauta inteira de uma vez; os excedentes vistos com a pauta e listados no texto; cada pauta na vaga do
+seu primeiro artigo, com o boletim duplo; o filtro com o agrupamento ligado ou desligado; duas execuções por item, só
+`QAReprovado` contando, com mudança aditiva no banco).
+
+**O que muda na fonte única com o agrupamento desligado.** Além do filtro e do limite de tentativas, cinco coisas, todas
+na simulação final:
+
+1. o filtro depois da extração lê a URL final, então o laço passa a usar a extração que devolve a URL resolvida (o mesmo
+   `_extrair` de hoje; conferir nas amostras, item a item e sem o modelo, que o texto é o mesmo);
+2. o registro de cada execução (item 6 da fase 4);
+3. o aviso de parada (ajuste 8);
+4. as vozes registradas: o TTS escreve no log a voz de cada personagem e o episódio a guarda, para a simulação conferir;
+5. o nome do analista evita também as pessoas citadas nos textos (decisão 3 abaixo).
+
+O `resumo_lotes.py` ganha as linhas novas. O laço continua sem extração em lote, e o texto entregue com uma fonte só não
+muda.
+
+**Excedentes: hoje nunca aparecem.** A etapa 2 forma as provisórias com no máximo `AGRUP_MAX_ARTIGOS` artigos, e a etapa 3
+confirma dentro delas com o mesmo teto. Para os excedentes existirem, o teto da provisória fica separado do teto de
+textos da geração (3).
+
+**Decisões:**
+
+1. **Aviso de parada também no erro inesperado.** O processo avisa e sai com status 1, como nas travas, para o
+   `OnFailure=` da futura unit ficar só com o que o processo não consegue avisar (OOM, tempo, sinal). No Telegram, o tipo
+   do erro e quantos itens saíram; o traceback fica no log. Na simulação, o aviso vai para o `AVISO.txt`.
+2. **Sites de partido:** um rascunho da lista a partir dos partidos registrados no TSE, com o domínio oficial de cada um,
+   para o dono ver. A lista fica num arquivo de configuração, e cada domínio vale também para os subdomínios.
+3. **Nome do analista e teto da provisória:** a escolha do nome evita também as pessoas citadas (no elenco, não no QA); o
+   teto da pauta provisória fica separado (`AGRUP_MAX_PROVISORIA`, valendo 3 até a condição do teto passar).
+
+**Ajustes:**
+
+1. **Extração:** conferir nas amostras, item a item e sem o modelo, que a extração que devolve a URL resolvida dá o mesmo
+   texto que a de hoje.
+2. **Prévia:** pelo gabarito de 13/10, a pauta do Muse Wonder é 90+79+43. Na leitura, a atribuição ao veículo errado
+   conta à parte (foi o problema de 4 dos 18 aprovados na fase 3).
+3. **Condição do teto:** conferir que a etapa 3 com 6 artigos cabe na janela de 8192, sem cortar texto.
+4. **Simulação de trabalho com o agrupamento ligado:** se a condição do teto passar, também uma execução com a provisória em
+   6, para os excedentes passarem pelo pipeline de ponta a ponta.
+5. **Filtro:** o item filtrado depois da extração é extraído de novo a cada execução. Contar quantos são por execução na
+   simulação de trabalho; se forem muitos, propor guardá-los numa tabela, sem mexer no significado de `seen`.
+6. **Registro:** propor quantos dias de `data/execucoes/` ficam guardados.
+7. **Simulação final:** separar uns três episódios para o dono ouvir, com pelo menos um de disputa (as duas vozes de
+   analista).
+
+**A ordem:**
+
+1. Este registro.
+2. **Sessão de teste,** sem o código novo: a prévia em 9 pautas de várias fontes das duas amostras (antiga: 79+105,
+   29+104, 2+46, 92+97+63, 86+71; nova: 64+13+42, 71+85, 26+69, 90+79+43; a 52+30+2 é de esporte e o 20 é site de
+   partido), com `testar_episodio.py --pautas`, as medidas das rodadas de fonte única e a leitura frase a frase, sem
+   critério de aceite (as amostras já não são cegas); a medida da janela (os caracteres de cada texto com o prompt e o
+   bloco de hoje contra os de 17/10); e a condição do teto (`testar_agrupamento.py --etapa3 --repeticoes 3` com o teto em 6
+   na amostra nova, e na antiga com `--rotulos`). O resultado vem para o dono.
+3. **Depois da sessão,** as partes que não dependem da prévia: o filtro (a lista de partidos ainda como rascunho), o
+   limite de tentativas, o registro, o aviso de parada, os nomes e as vozes. O agrupamento atrás de `AGRUPAMENTO_ATIVO`
+   espera a leitura da prévia pelo dono.
+4. Simulações de trabalho sem áudio (desligada; ligada com uma segunda execução na mesma pasta; ligada com a provisória
+   em 6, se a condição passar).
+5. Terceira amostra: a coleta 3 quando o dono pedir (a partir de 26/10) e o rascunho do gabarito (pares e pautas para a
+   etapa 3, uns 20 itens de fonte única com e sem disputa, os candidatos de esporte, ofertas e site de partido). Nenhum
+   prompt nem regra se ajusta olhando para ela antes da rodada.
+6. Validação cega na terceira amostra, com o critério que o dono fixar antes.
+7. Simulação final, desligada e com áudio.
+8. Merge, desligado, sem push.
+
+**Leituras confirmadas:** o filtro com as regras de 16/10 e a categoria do feed por lista fechada (Esporte, Esportes,
+Ofertas, Achados, Hardware Indica), sem o título, e o item filtrado sem mark_seen; a contagem das reprovações numa tabela
+nova (`reprovacoes`), fora de `seen`, que continua significando "entregue", com a linha "Item abandonado" no log; o
+registro em `data/execucoes/<data-hora>/`; com o agrupamento ligado, a mesma matéria por dois feeds vai com a pauta como
+duplicata, a chamada da etapa 3 que falha deixa os artigos separados e o link entregue continua o do feed; nenhuma
+proposta de mudança se apoia na terceira amostra.
 
 ## Números medidos
 
