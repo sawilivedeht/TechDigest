@@ -4,6 +4,7 @@ import math
 import pytest
 
 from techdigest.ai import qa
+from techdigest.ai.elenco import nomes_dos_analistas
 from techdigest.ai.lados import Lado, Ressalva, lado_unico
 from techdigest.ai.verbos import FORMAS_DE_POSICAO, VERBOS_DE_POSICAO, verbos_de_posicao
 
@@ -36,8 +37,8 @@ def _episodio(fontes, **extras) -> dict:
     return {
         "titulo_reescrito": "Título sem dados",
         "resumo_didatico": "Uma frase. " * qa.MIN_FRASES_RESUMO,
-        "personagens": [{"nome": "Helena"}, {"nome": "Ramos"}],
-        "roteiro_podcast": [{"personagem": "Helena", "fala": fala}, {"personagem": "Ramos", "fala": fala}],
+        "personagens": [{"nome": "Helena"}, {"nome": "Otávio"}],
+        "roteiro_podcast": [{"personagem": "Helena", "fala": fala}, {"personagem": "Otávio", "fala": fala}],
         "houve_divergencia": False,
         "fontes_citadas": fontes,
         **extras,
@@ -241,26 +242,26 @@ def test_episodios_3_e_5_reprovam_por_terem_um_analista_para_dois_lados():
 
 
 def test_numero_de_analistas_diferente_do_de_lados_reprova():
-    dois = _debate(("Helena", "Vamos ao tema."), ("Bia", "Explico o caso."), ("Dr. Ramos", "E eu completo."), houve_divergencia=False)
+    dois = _debate(("Helena", "Vamos ao tema."), ("Patrícia", "Explico o caso."), ("Otávio", "E eu completo."), houve_divergencia=False)
     [problema] = qa.problemas_dos_analistas(dois, UM_LADO)
-    assert problema.startswith("2 analista(s) (Bia, Dr. Ramos) para 1 lado(s)")
+    assert problema.startswith("2 analista(s) (Patrícia, Otávio) para 1 lado(s)")
 
     so_helena = _debate(("Helena", "Falo sozinha."), houve_divergencia=False)
     assert qa.problemas_dos_analistas(so_helena, UM_LADO)[0].startswith("0 analista(s) (nenhum) para 1 lado(s)")
 
-    um = _debate(("Helena", "Vamos ao tema."), ("Bia", "Explico o caso."), houve_divergencia=False)
+    um = _debate(("Helena", "Vamos ao tema."), ("Patrícia", "Explico o caso."), houve_divergencia=False)
     assert qa.problemas_dos_analistas(um, UM_LADO) == []
 
 
 def test_houve_divergencia_incoerente_com_os_lados_reprova():
-    um = _debate(("Helena", "Vamos ao tema."), ("Bia", "Explico o caso."), houve_divergencia=True)
+    um = _debate(("Helena", "Vamos ao tema."), ("Patrícia", "Explico o caso."), houve_divergencia=True)
     assert qa.problemas_dos_analistas(um, UM_LADO) == [
         "houve_divergencia tem de ser false: a pauta tem 1 lado(s), e o campo é true se e só se houver 2 lados ou mais"
     ]
     debate = _debate(
         ("Helena", "Vamos ao debate."),
-        ("Bia", "Segundo a CartaCapital, a campanha de Lula acusa a empresa de interferir."),
-        ("Dr. Ramos", "Já a Agência Brasil registra que a Meta nega o favorecimento."),
+        ("Patrícia", "Segundo a CartaCapital, a campanha de Lula acusa a empresa de interferir."),
+        ("Otávio", "Já a Agência Brasil registra que a Meta nega o favorecimento."),
         houve_divergencia=False,
     )
     assert qa.problemas_dos_analistas(debate, LADOS_DA_META) == [
@@ -274,22 +275,22 @@ def test_dois_lados_no_mesmo_veiculo_passam_quando_cada_analista_cita_o_seu_ator
     lados = [Lado("O ministro diz que o governo agiu a tempo.", ("Waldez Góes",), ("Agência Brasil",)),
              Lado("O governador cobra mais aeronaves.", ("Wilson Lima",), ("Agência Brasil",))]
     debate = _debate(
-        ("Helena", "A Agência Brasil ouviu os dois. Bia, o que diz o ministro?"),
-        ("Bia", "Pelo que a Agência Brasil publicou, Waldez Góes sustenta que a ajuda saiu no mesmo dia."),
-        ("Dr. Ramos", "Na mesma Agência Brasil, o governador Wilson Lima cobrava mais aeronaves."),
+        ("Helena", "A Agência Brasil ouviu os dois. Patrícia, o que diz o ministro?"),
+        ("Patrícia", "Pelo que a Agência Brasil publicou, Waldez Góes sustenta que a ajuda saiu no mesmo dia."),
+        ("Otávio", "Na mesma Agência Brasil, o governador Wilson Lima cobrava mais aeronaves."),
     )
-    assert qa.lados_de_cada_analista(debate, lados) == {"Bia": [0], "Dr. Ramos": [1]}
+    assert qa.lados_de_cada_analista(debate, lados) == {"Patrícia": [0], "Otávio": [1]}
     assert qa.problemas_dos_analistas(debate, lados) == []
 
 
 def test_dois_analistas_citando_o_mesmo_ator_reprovam():
     debate = _debate(
         ("Helena", "Vamos ao debate."),
-        ("Bia", "Segundo a Agência Brasil, a Meta alega problemas técnicos."),
-        ("Dr. Ramos", "A Agência Brasil mostra que a Meta nega qualquer favorecimento."),
+        ("Patrícia", "Segundo a Agência Brasil, a Meta alega problemas técnicos."),
+        ("Otávio", "A Agência Brasil mostra que a Meta nega qualquer favorecimento."),
     )
     [problema] = qa.problemas_dos_analistas(debate, LADOS_DA_META)
-    assert problema.startswith("os analistas não apresentam os lados um a um (Bia: lado 2; Dr. Ramos: lado 2): cada analista precisa")
+    assert problema.startswith("os analistas não apresentam os lados um a um (Patrícia: lado 2; Otávio: lado 2): cada analista precisa")
     assert "Lado 1: atores campanha de Lula, PT; veículos CartaCapital, Agência Brasil." in problema
     assert "Lado 2: atores Meta; veículos Agência Brasil." in problema
     assert "(afirmar, defender, apontar," in problema
@@ -298,34 +299,34 @@ def test_dois_analistas_citando_o_mesmo_ator_reprovam():
 def test_so_a_mencao_do_veiculo_sem_verbo_de_posicao_reprova():
     debate = _debate(
         ("Helena", "Vamos ao debate."),
-        ("Bia", "A campanha de Lula, conforme reportado pela CartaCapital, apresenta relatórios técnicos."),
-        ("Dr. Ramos", "Segundo a Agência Brasil, a Meta nega o favorecimento."),
+        ("Patrícia", "A campanha de Lula, conforme reportado pela CartaCapital, apresenta relatórios técnicos."),
+        ("Otávio", "Segundo a Agência Brasil, a Meta nega o favorecimento."),
     )
-    assert qa.lados_de_cada_analista(debate, LADOS_DA_META) == {"Bia": [], "Dr. Ramos": [1]}
-    assert "(Bia: nenhum lado; Dr. Ramos: lado 2)" in qa.problemas_dos_analistas(debate, LADOS_DA_META)[0]
+    assert qa.lados_de_cada_analista(debate, LADOS_DA_META) == {"Patrícia": [], "Otávio": [1]}
+    assert "(Patrícia: nenhum lado; Otávio: lado 2)" in qa.problemas_dos_analistas(debate, LADOS_DA_META)[0]
 
 
 def test_negocio_nao_conta_como_nega():
     debate = _debate(
         ("Helena", "Vamos ao debate."),
-        ("Bia", "Segundo a CartaCapital, a campanha de Lula acusa a empresa de interferir."),
-        ("Dr. Ramos", "A Agência Brasil descreve o negócio da Meta e a cobertura das redes."),
+        ("Patrícia", "Segundo a CartaCapital, a campanha de Lula acusa a empresa de interferir."),
+        ("Otávio", "A Agência Brasil descreve o negócio da Meta e a cobertura das redes."),
     )
-    assert qa.lados_de_cada_analista(debate, LADOS_DA_META) == {"Bia": [0], "Dr. Ramos": []}
+    assert qa.lados_de_cada_analista(debate, LADOS_DA_META) == {"Patrícia": [0], "Otávio": []}
     assert len(qa.problemas_dos_analistas(debate, LADOS_DA_META)) == 1
 
 
 def test_veiculo_verbo_e_ator_tem_de_estar_na_mesma_frase_e_o_ator_tem_de_ser_so_do_lado():
     espalhado = _debate(
         ("Helena", "Vamos ao debate."),
-        ("Bia", "A CartaCapital publicou a denúncia. A campanha de Lula acusa a empresa."),          # veículo numa frase, verbo e ator na outra
-        ("Dr. Ramos", "Segundo a Agência Brasil, o Dr. Zuck, da Meta, respondeu às acusações."),     # o ponto de "Dr." não parte a frase
+        ("Patrícia", "A CartaCapital publicou a denúncia. A campanha de Lula acusa a empresa."),          # veículo numa frase, verbo e ator na outra
+        ("Otávio", "Segundo a Agência Brasil, o Dr. Zuck, da Meta, respondeu às acusações."),     # o ponto de "Dr." não parte a frase
     )
-    assert qa.lados_de_cada_analista(espalhado, LADOS_DA_META) == {"Bia": [], "Dr. Ramos": [1]}
+    assert qa.lados_de_cada_analista(espalhado, LADOS_DA_META) == {"Patrícia": [], "Otávio": [1]}
 
     lados = [Lado("O PT acusa.", ("PT", "Lula"), ("G1",)), Lado("O TSE decide.", ("TSE", "PT"), ("G1",))]   # o PT está nos dois lados
     assert qa.atores_exclusivos(lados) == [["Lula"], ["TSE"]]
-    assert qa.lados_de_cada_analista(_debate(("Bia", "Segundo o G1, o PT afirma que vai recorrer.")), lados) == {"Bia": []}
+    assert qa.lados_de_cada_analista(_debate(("Patrícia", "Segundo o G1, o PT afirma que vai recorrer.")), lados) == {"Patrícia": []}
     assert qa.mesmo_ator("Lula", "campanha de Lula") and qa.mesmo_ator("campanha do presidente Lula", "campanha de Lula")
     assert not qa.mesmo_ator("Flávio Bolsonaro", "Jair Bolsonaro") and not qa.mesmo_ator("", "Meta")
     assert qa.ator_citado("campanha de Lula", "a campanha do presidente Lula") and not qa.ator_citado("Meta", "a metade")
@@ -399,32 +400,32 @@ def _conversa(*turnos) -> dict:
 
 
 def test_ressalva_trazida_pela_helena_como_pergunta_atribuida_passa():
-    episodio = _conversa(("Helena", "Vamos ao tema. " + PERGUNTA), ("Ramos", "As fontes dizem que o risco existe."))
+    episodio = _conversa(("Helena", "Vamos ao tema. " + PERGUNTA), ("Otávio", "As fontes dizem que o risco existe."))
     assert qa.problemas_das_ressalvas(episodio, [RESSALVA]) == []
     assert qa.perguntas_das_ressalvas(episodio, [RESSALVA]) == [[
         ("Segundo a Gazeta do Povo, economistas alertam que a mudança pode enfraquecer a tarifa comum.", True),
     ]]
-    assert qa.problemas_das_ressalvas(_conversa(("Helena", "Olá."), ("Ramos", "Olá.")), []) == []      # sem ressalva, nada a cobrar
+    assert qa.problemas_das_ressalvas(_conversa(("Helena", "Olá."), ("Otávio", "Olá.")), []) == []      # sem ressalva, nada a cobrar
 
 
 @pytest.mark.parametrize("turnos, falta", [
     # a ressalva não aparece nas falas da Helena
-    ([("Helena", "Como você vê a proposta?"), ("Ramos", "Ela muda a política externa.")],
+    ([("Helena", "Como você vê a proposta?"), ("Otávio", "Ela muda a política externa.")],
      "não aparece numa frase da Helena com o veículo, o grupo e um verbo de posição"),
     # a frase da Helena tem o grupo e o verbo, mas não o veículo
-    ([("Helena", "Economistas alertam que a mudança pode enfraquecer a tarifa comum. Como você vê isso?"), ("Ramos", "Há risco.")],
+    ([("Helena", "Economistas alertam que a mudança pode enfraquecer a tarifa comum. Como você vê isso?"), ("Otávio", "Há risco.")],
      "não aparece numa frase da Helena com o veículo, o grupo e um verbo de posição"),
     # a ressalva só está na fala do analista
-    ([("Helena", "E os riscos?"), ("Ramos", PERGUNTA)],
+    ([("Helena", "E os riscos?"), ("Otávio", PERGUNTA)],
      "não aparece numa frase da Helena com o veículo, o grupo e um verbo de posição"),
     # veículo, grupo e verbo em frases diferentes
-    ([("Helena", "A Gazeta do Povo ouviu economistas. Eles alertam para o risco. Como você vê isso?"), ("Ramos", "Há risco.")],
+    ([("Helena", "A Gazeta do Povo ouviu economistas. Eles alertam para o risco. Como você vê isso?"), ("Otávio", "Há risco.")],
      "não aparece numa frase da Helena com o veículo, o grupo e um verbo de posição"),
     # a frase está lá, mas a fala da Helena não tem pergunta
-    ([("Helena", "Segundo a Gazeta do Povo, economistas alertam que a mudança pode enfraquecer a tarifa comum."), ("Ramos", "Há risco.")],
+    ([("Helena", "Segundo a Gazeta do Povo, economistas alertam que a mudança pode enfraquecer a tarifa comum."), ("Otávio", "Há risco.")],
      "a fala da Helena que a traz não tem pergunta"),
     # a pergunta está em outra fala da Helena
-    ([("Helena", "Segundo a Gazeta do Povo, economistas alertam para o risco."), ("Ramos", "Há risco."), ("Helena", "E o que vem agora?")],
+    ([("Helena", "Segundo a Gazeta do Povo, economistas alertam para o risco."), ("Otávio", "Há risco."), ("Helena", "E o que vem agora?")],
      "a fala da Helena que a traz não tem pergunta"),
 ])
 def test_ressalva_sem_pergunta_atribuida_da_helena_reprova(turnos, falta):
@@ -435,7 +436,7 @@ def test_ressalva_sem_pergunta_atribuida_da_helena_reprova(turnos, falta):
 
 def test_cada_ressalva_e_cobrada_e_a_regra_entra_em_problemas():
     outra = Ressalva(("especialistas em segurança",), "O plano não reduz o crime.", ("G1",))
-    episodio = _conversa(("Helena", PERGUNTA), ("Ramos", "As fontes dizem que o risco existe."))
+    episodio = _conversa(("Helena", PERGUNTA), ("Otávio", "As fontes dizem que o risco existe."))
     [problema] = qa.problemas_das_ressalvas(episodio, [RESSALVA, outra])
     assert problema.startswith("ressalva 2 (especialistas em segurança; G1): não aparece numa frase da Helena")
 
@@ -460,8 +461,8 @@ def test_termo_do_grupo_vale_em_qualquer_numero_e_genero():
 
 def test_ressalva_sem_grupo_pede_o_veiculo_o_verbo_e_a_pergunta():
     sem_grupo = Ressalva((), "A mudança pode enfraquecer a tarifa comum.", ("Gazeta do Povo",))
-    com = _conversa(("Helena", "A Gazeta do Povo aponta que a mudança pode enfraquecer a tarifa comum. Como você vê isso?"), ("Ramos", "Há risco."))
-    sem = _conversa(("Helena", "A mudança pode enfraquecer a tarifa comum. Como você vê isso?"), ("Ramos", "Há risco."))
+    com = _conversa(("Helena", "A Gazeta do Povo aponta que a mudança pode enfraquecer a tarifa comum. Como você vê isso?"), ("Otávio", "Há risco."))
+    sem = _conversa(("Helena", "A mudança pode enfraquecer a tarifa comum. Como você vê isso?"), ("Otávio", "Há risco."))
     assert qa.problemas_das_ressalvas(com, [sem_grupo]) == []
     assert qa.problemas_das_ressalvas(sem, [sem_grupo])[0].startswith("ressalva 1 (sem grupo; Gazeta do Povo): não aparece")
 
@@ -479,7 +480,7 @@ def test_atribuicao_a_grupo_que_nenhum_texto_da_pauta_cita_reprova():
     episodio["roteiro_podcast"][1]["fala"] += ". " + PARA_OS_ANALISTAS
     [problema] = qa.problemas_com_campo(episodio, ["G1"], UM_LADO, SEM_RESSALVAS, TEXTOS_DA_META)
     assert problema.campo == qa.ROTEIRO
-    assert problema.texto == ('atribuição a um grupo que os textos da pauta não citam, na fala de Ramos ("Para os analistas"): '
+    assert problema.texto == ('atribuição a um grupo que os textos da pauta não citam, na fala de Otávio ("Para os analistas"): '
                               "atribua a informação a quem as fontes nomeiam ou retire a frase")
     # o grupo aparece em algum texto da pauta: passa
     assert qa.problemas(episodio, ["G1"], UM_LADO, SEM_RESSALVAS, [*TEXTOS_DA_META, "Analistas avaliam que o caso segue aberto."]) == []
@@ -501,7 +502,7 @@ def test_atribuicao_a_grupo_e_cobrada_no_titulo_no_resumo_e_nos_pontos_chave():
     "Segundo a CartaCapital, o Grupo Prerrogativas alerta para o risco.",
 ])
 def test_frase_que_nao_atribui_nada_a_um_grupo_sem_nome_passa(fala):
-    assert qa.problemas_das_atribuicoes(_conversa(("Helena", "Olá."), ("Ramos", fala)) | {"titulo_reescrito": "", "resumo_didatico": ""},
+    assert qa.problemas_das_atribuicoes(_conversa(("Helena", "Olá."), ("Otávio", fala)) | {"titulo_reescrito": "", "resumo_didatico": ""},
                                         TEXTOS_DA_META) == []
 
 
@@ -513,7 +514,7 @@ def _so_falas(*turnos) -> dict:
 def test_pergunta_aberta_a_um_grupo_nao_e_atribuicao():
     # como no episódio do Muse Wonder de 14/10/2026: Helena pergunta, e o analista responde citando o veículo
     aberta = "O que os especialistas dizem sobre esse equilíbrio técnico?"
-    assert qa.problemas_das_atribuicoes(_so_falas(("Helena", aberta), ("Ramos", "Segundo o G1, a Meta vai investigar.")), TEXTOS_DA_META) == []
+    assert qa.problemas_das_atribuicoes(_so_falas(("Helena", aberta), ("Otávio", "Segundo o G1, a Meta vai investigar.")), TEXTOS_DA_META) == []
     for pergunta in ("Como os especialistas avaliam o risco?", "E quais críticos questionam a regra?", "Por que os economistas alertam tanto?"):
         assert qa.problemas_das_atribuicoes(_so_falas(("Helena", pergunta)), TEXTOS_DA_META) == [], pergunta
     # a pergunta que carrega uma afirmação continua contando, e a afirmação seguida de uma pergunta também
@@ -539,7 +540,7 @@ def test_cada_problema_tem_o_campo_em_que_esta():
     campos = {p.campo for p in qa.problemas_com_campo(episodio, ["G1", "Folha"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS)}
     assert campos == {qa.TITULO, qa.RESUMO, qa.ROTEIRO, qa.FONTES, qa.DIVERGENCIA}
     dois_analistas = _episodio(["G1"])
-    dois_analistas["roteiro_podcast"].append({"personagem": "Bia", "fala": curto + " palavra"})
+    dois_analistas["roteiro_podcast"].append({"personagem": "Patrícia", "fala": curto + " palavra"})
     assert {p.campo for p in qa.problemas_com_campo(dois_analistas, ["G1"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS)} == {qa.ELENCO}
 
 
@@ -560,7 +561,7 @@ def _com_fala(fala: str) -> dict:
 def test_percentual_que_nenhum_texto_da_pauta_traz_reprova():
     [problema] = qa.problemas_com_campo(_com_fala(FALA_372), ["G1"], UM_LADO, SEM_RESSALVAS, TEXTOS_DA_VIOLENCIA)
     assert problema.campo == qa.ROTEIRO
-    assert problema.texto == ('número que os textos da pauta não trazem, na fala de Ramos ("trezentas e setenta e dois por cento"): '
+    assert problema.texto == ('número que os textos da pauta não trazem, na fala de Otávio ("trezentas e setenta e dois por cento"): '
                               "use o número da fonte ou retire-o")
 
 
@@ -637,65 +638,67 @@ def test_a_passiva_de_decisao_com_o_ator_como_agente_apresenta_o_lado():
              Lado("A suspensão é legal.", ("Marta Quaresma",), ("Correio de Serra Quieta",), "Não")]
 
     def debate(fala_da_bia: str) -> dict:
-        return _debate(("Ramos", "Segundo o Correio de Serra Quieta, Ivo Brandão afirma que a suspensão é intromissão."),
-                       ("Bia", fala_da_bia))
+        return _debate(("Otávio", "Segundo o Correio de Serra Quieta, Ivo Brandão afirma que a suspensão é intromissão."),
+                       ("Patrícia", fala_da_bia))
 
     passiva = "Segundo o Correio de Serra Quieta, a suspensão foi determinada por decisão da presidente do tribunal, Marta Quaresma."
-    assert qa.lados_de_cada_analista(debate(passiva), lados) == {"Ramos": [0], "Bia": [1]}
+    assert qa.lados_de_cada_analista(debate(passiva), lados) == {"Otávio": [0], "Patrícia": [1]}
     assert qa.problemas_dos_analistas(debate(passiva), lados) == []
     # sem veículo, ou com o ator fora do agente, a frase não apresenta o lado
     for fala in ("A suspensão foi determinada por decisão da presidente do tribunal, Marta Quaresma.",
                  "Segundo o Correio de Serra Quieta, a suspensão foi determinada pelo tribunal, e Marta Quaresma comentou o caso.",
                  "Segundo o Correio de Serra Quieta, a suspensão, determinada pelo tribunal, foi elogiada por Marta Quaresma."):
-        assert qa.lados_de_cada_analista(debate(fala), lados)["Bia"] == []
+        assert qa.lados_de_cada_analista(debate(fala), lados)["Patrícia"] == []
 
 
-def test_analista_com_o_nome_ou_o_primeiro_nome_de_um_ator_reprova():
-    # o N86 de 17/10 a 24/10/2026: o analista se chamou "Bruno" e "Bruno Silva", o nome do colunista que é a fonte
-    lados = [Lado("O colunista critica o plano.", ("Ivo Brandão",), ("G1",)), Lado("p", ("presidente Marta Quaresma",), ("G1",))]
-    episodio = _episodio(["G1"])
-    for nome, reprova in (("Ivo Brandão", True), ("Ivo", True), ("Dr. Ivo Costa", True), ("Marta", True), ("Dra. Marta Lima", True),
-                          ("Dr. Brandão", False), ("Bia", False), ("Dr. Ramos", False), ("Ivone", False)):
-        episodio["personagens"] = [{"nome": "Helena"}, {"nome": nome}]
-        assert bool(qa.problemas_dos_nomes(episodio, lados)) is reprova, nome
-    episodio["personagens"] = [{"nome": "Helena"}, {"nome": "Ivo"}]
-    assert qa.problemas_dos_nomes(episodio, lados) == [
-        'o analista Ivo tem o primeiro nome de Ivo Brandão, pessoa citada nos textos: troque o nome do analista, em "personagens" '
-        'e no roteiro, por um que nenhuma pessoa citada nos textos tenha']
-    # o ator que não é pessoa nem começa com maiúscula não tem primeiro nome; Helena não conta
-    episodio["personagens"] = [{"nome": "Helena"}, {"nome": "Campanha"}]
-    assert qa.problemas_dos_nomes(episodio, [Lado("p", ("campanha de Lula",), ("G1",)), Lado("p", ("Helena Prado",), ("G1",))]) == []
+def test_os_analistas_tem_os_nomes_que_o_bloco_da():
+    # decisão de 24/10/2026: o código dá os nomes (ver ai/elenco.py), e o QA confere que o roteiro os usa
+    lados = [Lado("A cooperativa quer fechar a feira.", ("Ivo Brandão",), ("G1",), "Sim"),
+             Lado("A associação defende a praça.", ("Otávio Lins",), ("G1",), "Não")]
+    assert nomes_dos_analistas(lados) == ["Mateus", "Patrícia"]          # "Otávio" é o primeiro nome de um ator
+    debate = {**_episodio(["G1"]), "personagens": [{"nome": "Helena"}, {"nome": "Mateus"}, {"nome": "Patrícia"}],
+              "roteiro_podcast": [{"personagem": "Helena", "fala": "a"}, {"personagem": "Mateus", "fala": "b"},
+                                  {"personagem": "Patrícia", "fala": "c"}]}
+    assert qa.problemas_dos_nomes(debate, lados) == []
+    debate["roteiro_podcast"][1]["personagem"] = "Patrícia"                 # o nome, não o lado: dois "Patrícia" passam aqui
+    assert qa.problemas_dos_nomes(debate, lados) == []
+    for nome in ("Otávio", "Dr. Mateus", "Analista de Política", "Bia"):
+        debate["roteiro_podcast"][1]["personagem"] = nome
+        assert qa.problemas_dos_nomes(debate, lados) == [
+            f'o analista {nome} não tem um dos nomes que o bloco LADOS DA PAUTA dá aos analistas (Mateus, Patrícia): use os nomes '
+            f'do bloco, em "personagens" e no roteiro'], nome
     # o problema é do elenco: pede a revisão do episódio inteiro, que pode trocar o nome
-    episodio["personagens"] = [{"nome": "Helena"}, {"nome": "Ivo"}]
-    [problema] = [p for p in qa.problemas_com_campo(episodio, ["G1"], lados[:1], SEM_RESSALVAS, SEM_TEXTOS) if "nome" in p.texto]
-    assert problema.campo == qa.ELENCO
+    episodio = {**_episodio(["G1"]), "personagens": [{"nome": "Helena"}, {"nome": "Bia"}],
+                "roteiro_podcast": [{"personagem": "Helena", "fala": "a"}, {"personagem": "Bia", "fala": "b"}]}
+    [problema] = [p for p in qa.problemas_com_campo(episodio, ["G1"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS) if "nomes" in p.texto]
+    assert problema.campo == qa.ELENCO and "(Otávio)" in problema.texto
 
 
 def test_papel_de_analista_com_nome_de_ator_dos_lados_reprova():
     episodio = _episodio(["G1"])
-    episodio["personagens"] = [{"nome": "Helena", "papel": "apresentadora da Meta"}, {"nome": "Ramos", "papel": "analista da Meta"}]
+    episodio["personagens"] = [{"nome": "Helena", "papel": "apresentadora da Meta"}, {"nome": "Otávio", "papel": "analista da Meta"}]
     [problema] = qa.problemas_dos_papeis(episodio, LADOS_DA_META)
-    assert problema == ('papel de Ramos com o nome de um ator dos lados ("analista da Meta"): o papel diz a especialidade do analista '
+    assert problema == ('papel de Otávio com o nome de um ator dos lados ("analista da Meta"): o papel diz a especialidade do analista '
                         '("analista de regulação"), sem ligá-lo a Meta')
     for papel, reprova in (("analista da campanha de Lula", True), ("porta-voz do PT", True), ("analista de campanhas eleitorais", False),
                            ("analista de regulação", False), ("", False)):
-        episodio["personagens"][1] = {"nome": "Ramos", "papel": papel}
+        episodio["personagens"][1] = {"nome": "Otávio", "papel": papel}
         assert bool(qa.problemas_dos_papeis(episodio, LADOS_DA_META)) is reprova
     del episodio["personagens"][1]["papel"]                                             # personagem sem papel não quebra a regra
     assert qa.problemas_dos_papeis(episodio, LADOS_DA_META) == []
 
 
 def test_verbo_de_quem_decide_conta_na_frase_do_analista():
-    # os lados e a frase do Dr. Ramos no episódio 5 de v4 (12/10/2026), reprovado porque "entender" não estava na lista
+    # os lados e a frase do Otávio no episódio 5 de v4 (12/10/2026), reprovado porque "entender" não estava na lista
     lados = [Lado("O canal deve ser suspenso.", ("Kassio Nunes Marques",), ("O GLOBO",), "Sim"),
              Lado("A suspensão é tendenciosa.", ("Lula", "André Janones"), ("O GLOBO", "G1", "Agência Brasil"), "Não")]
     debate = _debate(
-        ("Dr. Ramos", "Segundo o O Globo, o ministro Kassio Nunes Marques entendeu que o canal, que saltou de 50 mil para mais de três "
+        ("Otávio", "Segundo o O Globo, o ministro Kassio Nunes Marques entendeu que o canal, que saltou de 50 mil para mais de três "
                       "milhões de seguidores após o primeiro turno, se tornou um vetor de disseminação de conteúdos que a própria Corte "
                       "já reconheceu como desprovidos de lastro mínimo."),
-        ("Bia", "Segundo o G1, o presidente Lula classificou a medida como absurda e afirmou que já percebe decisões tendenciosas."),
+        ("Patrícia", "Segundo o G1, o presidente Lula classificou a medida como absurda e afirmou que já percebe decisões tendenciosas."),
     )
-    assert qa.lados_de_cada_analista(debate, lados) == {"Dr. Ramos": [0], "Bia": [1]}
+    assert qa.lados_de_cada_analista(debate, lados) == {"Otávio": [0], "Patrícia": [1]}
     assert qa.problemas_dos_analistas(debate, lados) == []
 
 
@@ -706,28 +709,28 @@ def test_analista_de_lado_fino_fala_pelo_menos_120_palavras_e_o_total_nao_muda()
     pouco = " ".join(["palavra"] * qa.MIN_LADO_FINO)
 
     def episodio(fala_da_bia: str, fala_do_ramos: str) -> dict:
-        return {**_episodio(["G1"]), "houve_divergencia": True, "personagens": [{"nome": "Helena"}, {"nome": "Bia"}, {"nome": "Ramos"}],
+        return {**_episodio(["G1"]), "houve_divergencia": True, "personagens": [{"nome": "Helena"}, {"nome": "Patrícia"}, {"nome": "Otávio"}],
                 "roteiro_podcast": [
                     {"personagem": "Helena", "fala": cheio},
-                    {"personagem": "Bia", "fala": fala_da_bia + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
-                    {"personagem": "Ramos", "fala": fala_do_ramos + ". Já a Agência Brasil registra que a Meta nega."},
+                    {"personagem": "Patrícia", "fala": fala_da_bia + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
+                    {"personagem": "Otávio", "fala": fala_do_ramos + ". Já a Agência Brasil registra que a Meta nega."},
                 ]}
 
     curto_no_fino = episodio(cheio, pouco)
     de_sempre = (qa.MIN_POR_PERSONAGEM, qa.MAX_POR_PERSONAGEM)
     assert qa.limites_de_cada_personagem(curto_no_fino, [grosso, fino]) == {
-        "Helena": (qa.MIN_HELENA_COM_DEBATE, qa.MAX_POR_PERSONAGEM), "Bia": de_sempre, "Ramos": (qa.MIN_LADO_FINO, qa.MAX_POR_PERSONAGEM)}
-    assert qa.analistas_de_lado_fino(curto_no_fino, [grosso, fino]) == {"Ramos"}
+        "Helena": (qa.MIN_HELENA_COM_DEBATE, qa.MAX_POR_PERSONAGEM), "Patrícia": de_sempre, "Otávio": (qa.MIN_LADO_FINO, qa.MAX_POR_PERSONAGEM)}
+    assert qa.analistas_de_lado_fino(curto_no_fino, [grosso, fino]) == {"Otávio"}
     assert qa.problemas(curto_no_fino, ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS) == []
     # o mesmo tamanho no analista do outro lado reprova, e sem lado fino o mínimo é o de sempre para os analistas
     problemas = qa.problemas(episodio(pouco, cheio), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS)
-    assert problemas[0].startswith(f"Bia com {qa.MIN_LADO_FINO + 10} palavras (alvo {qa.MIN_POR_PERSONAGEM}-")
-    assert qa.limites_de_cada_personagem(curto_no_fino, [grosso, grosso])["Ramos"] == de_sempre
+    assert problemas[0].startswith(f"Patrícia com {qa.MIN_LADO_FINO + 10} palavras (alvo {qa.MIN_POR_PERSONAGEM}-")
+    assert qa.limites_de_cada_personagem(curto_no_fino, [grosso, grosso])["Otávio"] == de_sempre
     # o teto de MAX_LADO_FINO saiu do QA: o analista do lado fino pode falar o que os outros falam
     assert qa.problemas(episodio(cheio, cheio), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS) == []
     # abaixo do mínimo do lado fino reprova, com o mínimo dele na mensagem
     problemas = qa.problemas(episodio(cheio, "palavra"), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS)
-    assert problemas[0] == (f"Ramos com 10 palavras (alvo {qa.MIN_LADO_FINO}-{qa.MAX_POR_PERSONAGEM}: é o analista de um lado fino, "
+    assert problemas[0] == (f"Otávio com 10 palavras (alvo {qa.MIN_LADO_FINO}-{qa.MAX_POR_PERSONAGEM}: é o analista de um lado fino, "
                             "que não amplia além do que as fontes trazem)")
     assert problemas[1].startswith("total de ")                                           # os limites totais não mudam
 
@@ -741,11 +744,11 @@ def test_com_o_orcamento_da_pauta_o_minimo_vem_do_alvo_de_cada_personagem():
         return " ".join(["palavra"] * n)
 
     def debate(helena: int, bia: int, ramos: int) -> dict:
-        return {**_episodio(["G1"]), "houve_divergencia": True, "personagens": [{"nome": "Helena"}, {"nome": "Bia"}, {"nome": "Ramos"}],
+        return {**_episodio(["G1"]), "houve_divergencia": True, "personagens": [{"nome": "Helena"}, {"nome": "Patrícia"}, {"nome": "Otávio"}],
                 "roteiro_podcast": [
                     {"personagem": "Helena", "fala": falas(helena)},
-                    {"personagem": "Bia", "fala": falas(bia) + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
-                    {"personagem": "Ramos", "fala": falas(ramos) + ". Já a Agência Brasil registra que a Meta nega."},
+                    {"personagem": "Patrícia", "fala": falas(bia) + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
+                    {"personagem": "Otávio", "fala": falas(ramos) + ". Já a Agência Brasil registra que a Meta nega."},
                 ]}
 
     # um texto curto (239 palavras, como o N92): Helena 150, o lado grosso 150, o fino 90 (uma frase do lado)
@@ -753,18 +756,18 @@ def test_com_o_orcamento_da_pauta_o_minimo_vem_do_alvo_de_cada_personagem():
     assert (orc.helena, orc.analistas, orc.total) == (150, (150, 90), 390)
     curto = debate(130, 140, 100)
     assert qa.limites_de_cada_personagem(curto, [grosso, fino], orc) == {
-        "Helena": (112, qa.MAX_POR_PERSONAGEM), "Bia": (112, qa.MAX_POR_PERSONAGEM), "Ramos": (67, qa.MAX_POR_PERSONAGEM)}
-    assert qa.limites_do_total(orc) == (292, qa.MAX_TOTAL)
+        "Helena": (90, qa.MAX_POR_PERSONAGEM), "Patrícia": (90, qa.MAX_POR_PERSONAGEM), "Otávio": (54, qa.MAX_POR_PERSONAGEM)}
+    assert qa.limites_do_total(orc) == (234, qa.MAX_TOTAL)
     assert qa.problemas(curto, ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc) == []
     # sem o orçamento, o mesmo roteiro reprova pelos mínimos de antes
     assert len(qa.problemas(curto, ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS)) == 4
     # abaixo do mínimo, a mensagem diz o que é aceito, o alvo do bloco e o que falta pelo plano das falas
-    assert qa.problemas(debate(130, 100, 100), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc) == [
-        f"Bia com 110 palavras (aceito de 112 a {qa.MAX_POR_PERSONAGEM}; o alvo do bloco é 150): 1 fala de uns 110 palavras; "
-        f"o plano pede 2 falas de uns 75: faltam uns 40 palavras para o alvo; siga o plano e complete as falas com o que os "
+    assert qa.problemas(debate(130, 70, 100), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc) == [
+        f"Patrícia com 80 palavras (aceito de 90 a {qa.MAX_POR_PERSONAGEM}; o alvo do bloco é 150): 1 fala de uns 80 palavras; "
+        f"o plano pede 2 falas de uns 75: faltam uns 70 palavras para o alvo; siga o plano e complete as falas com o que os "
         f"textos trazem"]
-    assert qa.problemas(debate(60, 100, 100), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc)[-1] == (
-        f"total de 279 palavras (aceito de 292 a {qa.MAX_TOTAL}; o alvo do bloco é 390)")
+    assert qa.problemas(debate(40, 80, 80), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc)[-1] == (
+        f"total de 219 palavras (aceito de 234 a {qa.MAX_TOTAL}; o alvo do bloco é 390)")
     # os máximos não mudam: com o orçamento, 650 continua passando
     assert qa.problemas(debate(130, qa.MAX_POR_PERSONAGEM - 11, 100), ["G1"], [grosso, fino], SEM_RESSALVAS, SEM_TEXTOS, orc) == []
     # o mínimo nunca passa do de antes, mesmo com o alvo cheio
@@ -776,22 +779,22 @@ def test_com_o_orcamento_da_pauta_o_minimo_vem_do_alvo_de_cada_personagem():
 
 
 def test_abaixo_do_minimo_a_mensagem_diz_o_que_falta_em_cada_fala_pelo_plano():
-    # o N13 de 24/10/2026: o Dr. Ramos fez as 4 falas do plano com 49 palavras, para 4 de 90
+    # o N13 de 24/10/2026: o Otávio fez as 4 falas do plano com 49 palavras, para 4 de 90
     from techdigest.ai.orcamento import Orcamento
     orc = Orcamento(260, (360,), None)
     assert (orc.plano.falas, orc.plano.tamanhos) == ((5, 4), (50, 90))
     roteiro = []
     for _ in range(4):
-        roteiro += [{"personagem": "Helena", "fala": " ".join(["palavra"] * 50)}, {"personagem": "Ramos", "fala": " ".join(["palavra"] * 49)}]
+        roteiro += [{"personagem": "Helena", "fala": " ".join(["palavra"] * 50)}, {"personagem": "Otávio", "fala": " ".join(["palavra"] * 49)}]
     roteiro.append({"personagem": "Helena", "fala": " ".join(["palavra"] * 50)})
     episodio = {**_episodio(["G1"]), "roteiro_podcast": roteiro}
-    assert qa.o_que_falta(episodio, UM_LADO, orc, "Ramos") == (
+    assert qa.o_que_falta(episodio, UM_LADO, orc, "Otávio") == (
         "4 falas de uns 49 palavras; o plano pede 4 falas de uns 90: acrescente uns 40 palavras a cada fala, com o que os textos trazem")
-    assert f"Ramos com 196 palavras (aceito de 240 a {qa.MAX_POR_PERSONAGEM}; o alvo do bloco é 360): 4 falas de uns 49" in (
+    assert f"Otávio com 196 palavras (aceito de 216 a {qa.MAX_POR_PERSONAGEM}; o alvo do bloco é 360): 4 falas de uns 49" in (
         qa.problemas(episodio, ["G1"], UM_LADO, SEM_RESSALVAS, SEM_TEXTOS, orc)[0])
     # com outro número de falas, a mensagem diz quanto falta para o alvo
     episodio["roteiro_podcast"] = roteiro[:5]
-    assert qa.o_que_falta(episodio, UM_LADO, orc, "Ramos") == (
+    assert qa.o_que_falta(episodio, UM_LADO, orc, "Otávio") == (
         "2 falas de uns 49 palavras; o plano pede 4 falas de uns 90: faltam uns 260 palavras para o alvo; siga o plano e "
         "complete as falas com o que os textos trazem")
 
@@ -800,11 +803,11 @@ def test_analista_sem_lado_leva_o_menor_alvo_e_com_um_lado_leva_o_do_lado():
     from techdigest.ai.orcamento import Orcamento
     orc = Orcamento(200, (300, 150), None)
     lados = [Lado("A campanha acusa.", ("campanha de Lula",), ("CartaCapital",), "Sim"), Lado("A Meta nega.", ("Meta",), ("Agência Brasil",), "Não")]
-    sem_lado = {**_episodio(["G1"]), "roteiro_podcast": [{"personagem": "Helena", "fala": "a"}, {"personagem": "Bia", "fala": "b"},
-                                                          {"personagem": "Ramos", "fala": "c"}]}
-    assert qa.alvo_de_cada_personagem(sem_lado, lados, orc) == {"Helena": 200, "Bia": 150, "Ramos": 150}
+    sem_lado = {**_episodio(["G1"]), "roteiro_podcast": [{"personagem": "Helena", "fala": "a"}, {"personagem": "Patrícia", "fala": "b"},
+                                                          {"personagem": "Otávio", "fala": "c"}]}
+    assert qa.alvo_de_cada_personagem(sem_lado, lados, orc) == {"Helena": 200, "Patrícia": 150, "Otávio": 150}
     um = Orcamento(200, (380,), None)
-    assert qa.alvo_de_cada_personagem(_episodio(["G1"]), UM_LADO, um) == {"Helena": 200, "Ramos": 380}
+    assert qa.alvo_de_cada_personagem(_episodio(["G1"]), UM_LADO, um) == {"Helena": 200, "Otávio": 380}
 
 
 def test_com_dois_analistas_helena_pode_falar_menos():
@@ -814,18 +817,18 @@ def test_com_dois_analistas_helena_pode_falar_menos():
     helena = " ".join(["palavra"] * (qa.MIN_HELENA_COM_DEBATE - 1))
 
     def debate(fala_da_helena: str) -> dict:
-        return {**_episodio(["G1"]), "houve_divergencia": True, "personagens": [{"nome": "Helena"}, {"nome": "Bia"}, {"nome": "Ramos"}],
+        return {**_episodio(["G1"]), "houve_divergencia": True, "personagens": [{"nome": "Helena"}, {"nome": "Patrícia"}, {"nome": "Otávio"}],
                 "roteiro_podcast": [
                     {"personagem": "Helena", "fala": fala_da_helena},
-                    {"personagem": "Bia", "fala": cheio + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
-                    {"personagem": "Ramos", "fala": cheio + ". Já a Agência Brasil registra que a Meta nega."},
+                    {"personagem": "Patrícia", "fala": cheio + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
+                    {"personagem": "Otávio", "fala": cheio + ". Já a Agência Brasil registra que a Meta nega."},
                 ]}
 
     assert qa.problemas(debate(helena + " palavra"), ["G1"], lados, SEM_RESSALVAS, SEM_TEXTOS) == []          # 180 palavras passam
     assert qa.problemas(debate(helena), ["G1"], lados, SEM_RESSALVAS, SEM_TEXTOS) == [
         f"Helena com {qa.MIN_HELENA_COM_DEBATE - 1} palavras (alvo {qa.MIN_HELENA_COM_DEBATE}-{qa.MAX_POR_PERSONAGEM})"]
     # com um analista só, Helena continua com o mínimo de sempre
-    um = {**_episodio(["G1"]), "roteiro_podcast": [{"personagem": "Helena", "fala": helena + " palavra"}, {"personagem": "Ramos", "fala": cheio}]}
+    um = {**_episodio(["G1"]), "roteiro_podcast": [{"personagem": "Helena", "fala": helena + " palavra"}, {"personagem": "Otávio", "fala": cheio}]}
     assert qa.limites_de_cada_personagem(um, lados[:1])["Helena"] == (qa.MIN_POR_PERSONAGEM, qa.MAX_POR_PERSONAGEM)
     assert qa.problemas(um, ["G1"], lados[:1], SEM_RESSALVAS, SEM_TEXTOS)[0].startswith(
         f"Helena com {qa.MIN_HELENA_COM_DEBATE} palavras (alvo {qa.MIN_POR_PERSONAGEM}-")

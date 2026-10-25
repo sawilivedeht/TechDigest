@@ -50,8 +50,8 @@ def _episodio(fontes: list[str]) -> dict:
     return {
         "titulo_reescrito": "Título", "resumo_didatico": "Uma frase. " * qa.MIN_FRASES_RESUMO,
         "pontos_chave": ["a", "b"], "por_que_importa": "Importa.",
-        "personagens": [{"nome": "Helena", "papel": "apresentadora"}, {"nome": "Ramos", "papel": "analista"}],
-        "roteiro_podcast": [{"personagem": "Helena", "fala": fala}, {"personagem": "Ramos", "fala": fala}],
+        "personagens": [{"nome": "Helena", "papel": "apresentadora"}, {"nome": "Otávio", "papel": "analista"}],
+        "roteiro_podcast": [{"personagem": "Helena", "fala": fala}, {"personagem": "Otávio", "fala": fala}],
         "houve_divergencia": False, "fontes_citadas": fontes,
     }
 
@@ -322,11 +322,11 @@ def test_process_com_dois_lados_exige_um_analista_por_lado(ollama_8192):
     terco = " ".join(["palavra"] * max(qa.MIN_POR_PERSONAGEM, math.ceil(qa.MIN_TOTAL / 3)))
     debate = {
         **um_analista, "houve_divergencia": True,
-        "personagens": [{"nome": "Helena"}, {"nome": "Bia"}, {"nome": "Ramos"}],
+        "personagens": [{"nome": "Helena"}, {"nome": "Patrícia"}, {"nome": "Otávio"}],
         "roteiro_podcast": [
             {"personagem": "Helena", "fala": terco},
-            {"personagem": "Bia", "fala": terco + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
-            {"personagem": "Ramos", "fala": terco + ". Já a Agência Brasil registra que a Meta nega."},
+            {"personagem": "Patrícia", "fala": terco + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
+            {"personagem": "Otávio", "fala": terco + ". Já a Agência Brasil registra que a Meta nega."},
         ],
     }
     provider = ProviderFalso(um_analista, debate, lados=dois_lados)
@@ -335,14 +335,14 @@ def test_process_com_dois_lados_exige_um_analista_por_lado(ollama_8192):
     assert s.process(*_artigos_da_meta()) is debate
     assert [lado.atores for lado in s.ultimo_diagnostico["lados"].lados] == [("campanha de Lula",), ("Meta",)]
     assert s.ultimo_diagnostico["problemas"] == [
-        "1 analista(s) (Ramos) para 2 lado(s): o elenco é Helena e exatamente 2 analista(s), um por lado",
+        "1 analista(s) (Otávio) para 2 lado(s): o elenco é Helena e exatamente 2 analista(s), um por lado",
         "houve_divergencia tem de ser true: a pauta tem 2 lado(s), e o campo é true se e só se houver 2 lados ou mais",
     ]
     (_, entrada), (_, revisao) = (args for args, _ in provider.chamadas)
     for mensagem in (entrada, revisao):                                   # o bloco vai na geração e na revisão
         assert ("\nLADOS DA PAUTA: 2 lados.\nQUESTÃO: A Meta favoreceu um candidato?\n"
                 "Lado 1 (resposta: Sim): A campanha acusa a Meta. Atores: campanha de Lula. Veículos: CartaCapital.\n") in mensagem
-        assert 'ELENCO: Helena e exatamente 2 analistas, um por lado; "houve_divergencia": true.' in mensagem
+        assert 'ELENCO: Helena e exatamente 2 analistas, um por lado: Otávio, do lado 1, e Patrícia, do lado 2; "houve_divergencia": true.' in mensagem
     assert len(provider.analises) == 1                                    # os lados são analisados uma vez só, antes da geração
 
 
@@ -401,11 +401,11 @@ def _debate(fontes: list[str]) -> dict:
     terco = " ".join(["palavra"] * max(qa.MIN_POR_PERSONAGEM, math.ceil(qa.MIN_TOTAL / 3)))
     return {
         **_episodio(fontes), "houve_divergencia": True,
-        "personagens": [{"nome": "Helena", "papel": "apresentadora"}, {"nome": "Bia", "papel": "analista"}, {"nome": "Ramos", "papel": "analista"}],
+        "personagens": [{"nome": "Helena", "papel": "apresentadora"}, {"nome": "Patrícia", "papel": "analista"}, {"nome": "Otávio", "papel": "analista"}],
         "roteiro_podcast": [
             {"personagem": "Helena", "fala": terco},
-            {"personagem": "Bia", "fala": terco + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
-            {"personagem": "Ramos", "fala": terco + ". Já a Agência Brasil registra que a Meta nega."},
+            {"personagem": "Patrícia", "fala": terco + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
+            {"personagem": "Otávio", "fala": terco + ". Já a Agência Brasil registra que a Meta nega."},
         ],
     }
 
@@ -481,7 +481,7 @@ def test_as_revisoes_levam_o_recorte_por_relevancia_no_espaco_de_cada_uma(tipo, 
     debate = _debate(["Agência Brasil", "CartaCapital"])
     reprovado = json.loads(json.dumps(debate))
     if tipo == "roteiro":
-        reprovado["roteiro_podcast"][2]["fala"] = "A Agência Brasil registra que a Meta nega."            # Ramos fala pouco: problema só no roteiro
+        reprovado["roteiro_podcast"][2]["fala"] = "A Agência Brasil registra que a Meta nega."            # Otávio fala pouco: problema só no roteiro
     else:
         reprovado["fontes_citadas"] = ["Agência Brasil"]                                                 # campo sem correção própria
     provider = ProviderFalso(reprovado, debate if tipo == "completa" else {"roteiro_podcast": debate["roteiro_podcast"]}, lados=DISPUTA_NO_FIM)
@@ -513,7 +513,7 @@ def test_texto_curto_pede_menos_palavras_e_o_qa_cobra_o_minimo_da_pauta(ollama_8
     principal = _artigo("G1", 1300)                                  # perto dos 1.200 caracteres: umas 200 palavras
     curto = _episodio(["G1"])
     curto["roteiro_podcast"] = [{"personagem": "Helena", "fala": " ".join(["palavra"] * 200)},
-                                {"personagem": "Ramos", "fala": " ".join(["palavra"] * 230)}]   # 430 palavras
+                                {"personagem": "Otávio", "fala": " ".join(["palavra"] * 230)}]   # 430 palavras
     provider = ProviderFalso(curto)
     s = Summarizer(provider=provider)
 
@@ -532,9 +532,9 @@ def test_texto_curto_pede_menos_palavras_e_o_qa_cobra_o_minimo_da_pauta(ollama_8
 def test_a_revisao_leva_o_mesmo_orcamento_da_geracao(ollama_8192):
     principal = _artigo("G1", 1300)
     curto = _episodio(["G1"])
-    sem_resumo = {**curto, "roteiro_podcast": [{"personagem": "Helena", "fala": "pouco"}, {"personagem": "Ramos", "fala": "pouco"}]}
+    sem_resumo = {**curto, "roteiro_podcast": [{"personagem": "Helena", "fala": "pouco"}, {"personagem": "Otávio", "fala": "pouco"}]}
     provider = ProviderFalso(sem_resumo, {"roteiro_podcast": [{"personagem": "Helena", "fala": " ".join(["palavra"] * 200)},
-                                                               {"personagem": "Ramos", "fala": " ".join(["palavra"] * 230)}]})
+                                                               {"personagem": "Otávio", "fala": " ".join(["palavra"] * 230)}]})
     s = Summarizer(provider=provider)
     s.process(principal)
     orc = s.ultimo_diagnostico["orcamento"]
@@ -603,20 +603,22 @@ def test_no_fechamento_helena_recapitula_fatos_e_posicoes_atribuidas():
     assert curta in prompt.PROMPT_REVISOR and curta in prompt.PROMPT_ROTEIRO
 
 
-def test_o_numero_fica_com_o_que_o_texto_diz_que_ele_mede():
-    # decisão de 24/10/2026: o N92 pôs os 30 mil exemplares no recolhimento em quatro de cinco rodadas
-    from techdigest.ai import prompt
-    assert ("Um número fica com o que o texto diz que ele mede. Se o texto diz que 4 mil ingressos foram vendidos e que só "
-            "os não usados serão devolvidos, não diga que 4 mil ingressos serão devolvidos.") in prompt.PROMPT_SISTEMA
-
-
-def test_o_analista_nao_tem_o_nome_de_uma_pessoa_citada_e_a_revisao_pode_troca_lo():
-    # decisão de 24/10/2026: o N86 chamou o analista de "Bruno" e "Bruno Silva", o nome do colunista que é a fonte
+def test_o_nome_dos_analistas_vem_do_bloco_e_a_revisao_completa_pode_troca_lo():
+    # decisão de 24/10/2026: depois da frase que proibia o nome de pessoa citada, os analistas viraram "Analista de
+    # Política", "Analista Jurídico"...; a frase saiu, e o código dá os nomes (ver ai/elenco.py)
     from techdigest.ai import prompt
     personagens = prompt.PROMPT_SISTEMA.split("### personagens")[1].split("### roteiro_podcast")[0]
-    assert "O analista não tem o nome de uma pessoa citada nos textos, nem o primeiro nome dela." in personagens
-    assert ("Mantenha os personagens, a não ser que o problema aponte analista a mais ou a menos, ou um analista com o nome de "
-            "uma pessoa citada nos textos, que ganha outro nome no elenco e no roteiro") in prompt.PROMPT_REVISOR
+    assert "O bloco LADOS DA PAUTA dá o nome de cada analista: use exatamente esses nomes" in personagens
+    assert "pessoa citada nos textos" not in prompt.PROMPT_SISTEMA and '"Dr. Ramos"' not in prompt.PROMPT_SISTEMA
+    assert ("ou um analista sem um dos nomes que o bloco LADOS DA PAUTA dá, que passa a ter o nome do bloco no elenco e no "
+            "roteiro") in prompt.PROMPT_REVISOR
+    assert "com os nomes que o bloco LADOS DA PAUTA do artigo-fonte dá" in prompt._REGRAS_DO_ROTEIRO
+
+
+def test_a_frase_do_numero_ligado_ao_que_mede_saiu():
+    # decisão de 24/10/2026: ela não mudou o N92 nem evitou o caso do A104; fica como limitação conhecida
+    from techdigest.ai import prompt
+    assert "ingressos" not in prompt.PROMPT_SISTEMA and "Um número fica com o que o texto diz" not in prompt.PROMPT_SISTEMA
 
 
 def test_os_exemplos_dos_prompts_nao_usam_veiculos_que_existem():
@@ -685,7 +687,7 @@ def test_problema_so_no_roteiro_reescreve_so_o_roteiro_com_os_mesmos_personagens
     assert "\nLADOS DA PAUTA: 1 lado.\n" in mensagem and summarizer.LEMBRETE_DO_ROTEIRO in mensagem
     assert summarizer.LEMBRETE not in mensagem and "resumo_didatico" not in mensagem      # só o roteiro, sem o episódio inteiro
     assert ('\n\nPERSONAGENS (os mesmos, com estes nomes):\n[{"nome": "Helena", "papel": "apresentadora"}, '
-            '{"nome": "Ramos", "papel": "analista"}]\n\nPROBLEMAS DETECTADOS:\n- Ramos com ') in mensagem
+            '{"nome": "Otávio", "papel": "analista"}]\n\nPROBLEMAS DETECTADOS:\n- Otávio com ') in mensagem
     assert mensagem.endswith("\n\nROTEIRO ORIGINAL:\n" + json.dumps(curto["roteiro_podcast"], ensure_ascii=False))
     assert diagnostico["revisao"].cortes == [{"fonte": "G1", "texto": len(summarizer._limpar(_artigo("G1", 3000)["text"])),
                                               "incluido": diagnostico["revisao"].cortes[0]["incluido"]}]
@@ -749,16 +751,16 @@ def test_papel_com_nome_de_ator_vai_para_a_revisao_do_roteiro_que_so_troca_o_pap
     terco = " ".join(["palavra"] * max(qa.MIN_POR_PERSONAGEM, math.ceil(qa.MIN_TOTAL / 3)))
     roteiro = [
         {"personagem": "Helena", "fala": terco},
-        {"personagem": "Bia", "fala": terco + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
-        {"personagem": "Ramos", "fala": terco + ". Já a Agência Brasil registra que a Meta nega."},
+        {"personagem": "Patrícia", "fala": terco + ". Segundo a CartaCapital, a campanha de Lula acusa a empresa."},
+        {"personagem": "Otávio", "fala": terco + ". Já a Agência Brasil registra que a Meta nega."},
     ]
     porta_voz = {
         **_episodio(["Agência Brasil", "CartaCapital"]), "houve_divergencia": True, "roteiro_podcast": roteiro,
-        "personagens": [{"nome": "Helena", "papel": "apresentadora"}, {"nome": "Bia", "papel": "analista da campanha de Lula"},
-                        {"nome": "Ramos", "papel": "analista da Meta"}],
+        "personagens": [{"nome": "Helena", "papel": "apresentadora"}, {"nome": "Patrícia", "papel": "analista da campanha de Lula"},
+                        {"nome": "Otávio", "papel": "analista da Meta"}],
     }
     devolvido = {"roteiro_podcast": roteiro, "personagens": [
-        {"nome": "Bia", "papel": "analista de política"}, {"nome": "Ramos", "papel": "analista de tecnologia"},
+        {"nome": "Patrícia", "papel": "analista de política"}, {"nome": "Otávio", "papel": "analista de tecnologia"},
         {"nome": "Intruso", "papel": "analista"}, {"nome": "Helena", "papel": ""},
     ]}
     provider = ProviderFalso(porta_voz, devolvido, lados=dois_lados)
@@ -766,14 +768,14 @@ def test_papel_com_nome_de_ator_vai_para_a_revisao_do_roteiro_que_so_troca_o_pap
 
     episodio = s.process(*_artigos_da_meta())
     assert episodio["personagens"] == [                                               # os mesmos nomes, na mesma ordem: só o papel muda
-        {"nome": "Helena", "papel": "apresentadora"}, {"nome": "Bia", "papel": "analista de política"},
-        {"nome": "Ramos", "papel": "analista de tecnologia"},
+        {"nome": "Helena", "papel": "apresentadora"}, {"nome": "Patrícia", "papel": "analista de política"},
+        {"nome": "Otávio", "papel": "analista de tecnologia"},
     ]
     assert s.ultimo_diagnostico["correcao"] == "roteiro" and s.ultimo_diagnostico["problemas_da_revisao"] == []
-    assert [p[:26] for p in s.ultimo_diagnostico["problemas"]] == ["papel de Bia com o nome de", "papel de Ramos com o nome d"[:26]]
+    assert [p[:26] for p in s.ultimo_diagnostico["problemas"]] == ["papel de Patrícia com o nome de"[:26], "papel de Otávio com o nome d"[:26]]
     ((_, _), _), ((sistema, mensagem), opcoes) = provider.chamadas
     assert sistema == PROMPT_ROTEIRO and opcoes == {"chaves": ("roteiro_podcast",)}
-    assert '"papel": "analista da Meta"' in mensagem and "papel de Ramos com o nome de um ator dos lados" in mensagem
+    assert '"papel": "analista da Meta"' in mensagem and "papel de Otávio com o nome de um ator dos lados" in mensagem
 
 
 def test_correcao_direcionada_que_nao_resolve_levanta_qareprovado(ollama_8192):

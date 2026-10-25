@@ -45,6 +45,7 @@ import testar_agrupamento as diag
 from techdigest import trava
 from techdigest.ai import maquina, qa
 from techdigest.ai.llm import get_provider
+from techdigest.ai.elenco import nomes_dos_analistas
 from techdigest.ai.lados import lados_finos
 from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
 from techdigest.ai.summarizer import CORRECOES, TETO_PRINCIPAL, TETO_RELACIONADO, QAReprovado, Summarizer
@@ -673,6 +674,9 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
                       f"de {a['alvo']}, {a['frases_do_lado']} frases do lado no recorte")
         for nome, palavras in (relatorio.get("lado_fino_acima_do_teto") or {}).items():
             print(f"  diagnóstico: {nome}, analista de lado fino, com {palavras} palavras (o prompt pede até {qa.MAX_LADO_FINO})")
+        if analise is not None:
+            relatorio["nomes_do_bloco"] = nomes_dos_analistas(analise.lados)
+            print(f"  nomes que o bloco deu aos analistas: {', '.join(relatorio['nomes_do_bloco'])}")
         print(f"  papéis: {[(p.get('nome'), p.get('papel')) for p in relatorio['personagens'] or [] if isinstance(p, dict)]}")
         for item in relatorio["frases_na_primeira_pessoa"]:
             print(f"  primeira pessoa ({item['personagem']}; {', '.join(item['marcas'])}): {item['frase']}")

@@ -5,6 +5,7 @@ import unicodedata
 from dataclasses import dataclass
 
 from techdigest.ai.atribuicoes import atribuicoes_a_grupos, grupo_na_pauta, plano
+from techdigest.ai.elenco import nomes_dos_analistas
 from techdigest.ai.numeros import dobrar as _dobrar
 from techdigest.ai.numeros import formatar, mais_proximo, numeros, pede_fonte, qualificador, tem_fonte, valores_dos_textos
 from techdigest.ai.orcamento import Orcamento, cinco, minimo_do_qa
@@ -45,13 +46,6 @@ _SEM_PESO = _ARTIGOS | _PREPOSICOES | {"e", "em", "no", "na", "nos", "nas"}
 QUANTIFICADORES = frozenset({
     "um", "uma", "uns", "umas", "algum", "alguma", "alguns", "algumas", "varios", "varias", "outro", "outra",
     "outros", "outras", "muitos", "muitas", "diversos", "diversas",
-})
-# Títulos e cargos que vêm antes de um nome ("Dr. Ramos", "presidente Lula"), sem acento: não contam no nome do
-# analista nem no do ator, na regra do nome do analista (ver `problemas_dos_nomes`).
-_TITULOS = frozenset({
-    "dr", "dra", "doutor", "doutora", "prof", "profa", "professor", "professora", "sr", "sra", "senhor", "senhora",
-    "presidente", "presidenta", "ministro", "ministra", "senador", "senadora", "deputado", "deputada", "governador",
-    "governadora", "prefeito", "prefeita", "general", "coronel", "comandante", "juiz", "juiza", "padre", "pastor", "papa",
 })
 _ABREVIATURA = re.compile(r"(?:^|[\s(\"'“‘])(?:dr|dra|sr|sra|prof|profa|sen|dep|min|gov|pres|gen|cel|[^\W\d_])\.$", re.IGNORECASE)
 
@@ -357,44 +351,20 @@ def problemas_dos_papeis(result: dict, lados) -> list[str]:
     return probs
 
 
-def _nome_sem_titulos(nome) -> list[tuple[str, str]]:
-    """As palavras de um nome, como estão escritas e sem acento nem caixa, sem os títulos e cargos do começo (_TITULOS)."""
-    escritas = re.findall(r"[^\W\d_]+", unicodedata.normalize("NFC", str(nome)))
-    palavras = list(zip(escritas, (_palavras_do_nome(p)[0] if _palavras_do_nome(p) else "" for p in escritas)))
-    while palavras and palavras[0][1] in _TITULOS:
-        palavras.pop(0)
-    return palavras
-
-
 def problemas_dos_nomes(result: dict, lados) -> list[str]:
-    """O analista não tem o nome de um ator dos lados, nem o primeiro nome dele; lista vazia = aprovado.
+    """Os analistas que falam no roteiro têm os nomes que o bloco LADOS DA PAUTA dá (ver `elenco.nomes_dos_analistas`);
+    lista vazia = aprovado.
 
-    Sem os títulos e cargos do começo ("Dr.", "presidente"), reprova o analista cujo nome é o do ator (as mesmas
-    palavras, sem acento nem caixa) ou cujo primeiro nome é o primeiro nome do ator, quando este começa com
-    maiúscula: com o ator "Bruno Silva", reprovam "Bruno" e "Bruno Costa", e "Dr. Silva" passa.
+    Confere o nome, não o lado: o analista do lado 2 com o nome do lado 1 passa. O número de analistas é da regra dos
+    analistas por lado (ver `problemas_dos_analistas`).
     """
-    atores = [ator for lado in lados for ator in lado.atores]
-    probs = []
-    for personagem in result["personagens"]:
-        nome = _nome_sem_titulos(personagem.get("nome"))
-        if not nome or nome[0][1] == HELENA:
-            continue
-        for ator in atores:
-            dele = _nome_sem_titulos(ator)
-            if not dele:
-                continue
-            if [p for _, p in nome] == [p for _, p in dele]:
-                igual = "o nome"
-            elif dele[0][0][:1].isupper() and nome[0][1] == dele[0][1]:
-                igual = "o primeiro nome"
-            else:
-                continue
-            probs.append(
-                f"o analista {personagem['nome']} tem {igual} de {ator}, pessoa citada nos textos: troque o nome do analista, "
-                f"em \"personagens\" e no roteiro, por um que nenhuma pessoa citada nos textos tenha"
-            )
-            break
-    return probs
+    nomes = nomes_dos_analistas(lados)
+    return [
+        f"o analista {nome} não tem um dos nomes que o bloco LADOS DA PAUTA dá aos analistas ({', '.join(nomes)}): use os "
+        f"nomes do bloco, em \"personagens\" e no roteiro"
+        for nome in palavras_por_personagem(result["roteiro_podcast"])
+        if _palavras_do_nome(nome) != [HELENA] and _palavras_do_nome(nome) not in [_palavras_do_nome(n) for n in nomes]
+    ]
 
 
 def _dos_analistas(result: dict, lados) -> list[Problema]:
@@ -592,8 +562,8 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos, orc: O
     listas é o Summarizer, para toda pauta. `orc` é o orçamento de palavras da pauta (ver
     `ai/orcamento.py`): com ele, os mínimos de palavras vêm do alvo de cada personagem e do total, e
     a mensagem diz o alvo e, para quem está abaixo do mínimo, o que falta em cada fala pelo plano (ver
-    `o_que_falta`); sem ele, valem os mínimos de antes. O analista não tem o nome de um ator dos
-    lados (ver `problemas_dos_nomes`).
+    `o_que_falta`); sem ele, valem os mínimos de antes. Os analistas têm os nomes que o bloco dá (ver
+    `problemas_dos_nomes`).
     """
     probs = []
 

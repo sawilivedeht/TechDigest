@@ -7,9 +7,14 @@ from pathlib import Path
 import edge_tts
 
 import logging
+
+from techdigest.ai.elenco import vaga
+
 logger = logging.getLogger("techdigest.audio.tts")
 
 VOZ_FIXA = {"Helena": "pt-BR-FranciscaNeural"}   # apresentadora = marca sonora fixa
+# A voz de cada vaga de analista (`elenco.VAGAS`, na mesma posição: masculina, feminina, masculina); a última sobra
+# para quem não tem nome da lista.
 VOZES_DIVERSIDADE = [
     "pt-BR-AntonioNeural",
     "pt-BR-ThalitaNeural",
@@ -22,11 +27,17 @@ PAUSA_TROCA_PERSONAGEM_S = 0.65  # pausa de conversa
 
 
 def atribuir_vozes(personagens: list[dict]) -> dict[str, str]:
-    """Helena tem voz fixa; os demais recebem vozes distintas em ordem de declaração."""
-    mapeamento, proxima = {}, 0
+    """Helena tem voz fixa; o analista com nome da lista (`elenco.VAGAS`) tem a voz da vaga dele, do gênero do nome; os
+    demais recebem, em ordem de declaração, as vozes que sobraram (e, sem sobra, as vozes de novo, a partir da primeira)."""
+    mapeamento = {}
     for p in personagens:
-        if p["nome"] not in VOZ_FIXA:
-            mapeamento[p["nome"]] = VOZES_DIVERSIDADE[proxima % len(VOZES_DIVERSIDADE)]
+        if p["nome"] not in VOZ_FIXA and (i := vaga(p["nome"])) is not None:
+            mapeamento[p["nome"]] = VOZES_DIVERSIDADE[i]
+    livres = [v for v in VOZES_DIVERSIDADE if v not in mapeamento.values()] or VOZES_DIVERSIDADE
+    proxima = 0
+    for p in personagens:
+        if p["nome"] not in VOZ_FIXA and p["nome"] not in mapeamento:
+            mapeamento[p["nome"]] = livres[proxima % len(livres)]
             proxima += 1
     for nome, voz in VOZ_FIXA.items():
         if any(p["nome"] == nome for p in personagens):

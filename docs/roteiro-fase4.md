@@ -35,7 +35,7 @@ ele está; este arquivo guarda o que foi decidido e o que falta, e é atualizado
    por mil palavras. Na terceira leva, a mensagem do que falta em cada fala, o teto pelo material, a
    passiva de decisão, o nome do analista, o "Sim" e "Não" e o número ligado ao que mede entraram
    (bb1fc8b), e a terceira rodada curta também não atingiu o aceite: 3 de 8 aprovados, todos os outros
-   por palavras, com 7,6 marcas por mil palavras. A regressão não rodou. O resultado espera a decisão
+   por palavras, com 7,9 marcas por mil palavras. A regressão não rodou. O resultado espera a decisão
    do dono.
 5. **Integração do agrupamento** atrás de `AGRUPAMENTO_ATIVO`, com os filtros, o limite de
    tentativas, os excedentes e o registro de cada execução.
@@ -321,6 +321,30 @@ citar o "fica claro que..." no prompt):
   itens, com o mesmo critério e o mesmo relatório; se passar, a regressão nos 20, com o critério de
   23/10, as marcas por mil palavras e as medidas por analista. Se não passar, parar e trazer. Em nenhum
   caso mudar prompt ou QA por causa do resultado.
+
+Em 24/10/2026, quarta leva, ao ler o resultado da terceira rodada curta (as duas decisões minhas confirmadas: a Helena
+com no máximo 45% do total que sobra quando o teto corta, e a nova tentativa por ator faltando valendo como antes; as
+leituras certas, menos o "queimadas causadas pelo El Niño" do A79, que conta como A):
+
+- **1. Mínimo do QA em 60% do alvo:** o mínimo de cada personagem e do total passa de 75% para 60% do alvo, e os mínimos
+  antigos (240, 180, 120 e 600) continuam como teto. O plano continua pedindo o alvo inteiro. É relaxamento: os
+  analistas de material cheio já passam com 56% (240 de 430), e a regra dá a mesma folga aos outros. O motivo: desde
+  23/10, os analistas ficam entre 66% e 73% do alvo, e nem o plano nem a mensagem por fala os fizeram escrever mais.
+- **2. Nomes dos analistas pelo código:** sai do prompt a frase sobre o nome (depois dela, todos os analistas viraram
+  "Analista de Política", "Analista Jurídico"...). O código dá os nomes, de uma lista fixa de nomes de pessoa, sem os
+  nomes e os primeiros nomes dos atores da análise; o bloco diz o nome de cada analista, e o QA confere que o roteiro usa
+  esses nomes. Conferir como o TTS escolhe a voz, para que todo nome da lista tenha voz.
+- **3. Contagem de menções:** a menção que só aparece dentro de aspas não conta (no A79, a segunda frase do comandante é
+  o ministro falando dele; no N13, uma das frases de Lula é a da área técnica sobre o canal "Exército de Lula"). Antes,
+  medir e listar as frases que deixam de contar, inclusive as que são fala do próprio ator. Na mesma medida, o sobrenome
+  sozinho só vale para nome de pessoa (no N92, "Unificado" contou como sobrenome do "Sindipetro Unificado").
+- **4. Número:** a frase do número sai do prompt (não mudou o N92 nem evitou o caso do A104); o número ligado à coisa
+  errada fica como limitação conhecida.
+- **A regressão:** os itens 1 a 4 com testes e commit, com o CLAUDE.md e o roteiro atualizados; a parte do item 3 cuja
+  medida mostrar mudança errada fica fora, e a medida vem para o dono. Depois, direto à regressão nos 20, sem outra
+  rodada curta, com o critério de 23/10, as mesmas medidas das rodadas curtas e a leitura frase a frase, acompanhando as
+  marcas da Helena fora do fechamento (de 4 para 12 na terceira rodada curta). Não mudar prompt nem QA por causa do
+  resultado.
 
 Das fases 1 a 3, continuam valendo (o detalhe está no CLAUDE.md e no histórico do git):
 
@@ -959,7 +983,7 @@ GiB; o detalhe em `data/agrupamento/rodada_20261024/resultado.md`):
   | Critério | Meta | Resultado |
   |---|---|---|
   | Aprovados | 7 de 8 ou mais | 3 (A104, N27, N84) |
-  | Marcas por mil palavras de roteiro | menos de 10 | 7,6 |
+  | Marcas por mil palavras de roteiro | menos de 10 | 7,9 |
 
   A regressão nos 20 não rodou. Os 5 reprovados caíram só por palavras, depois da revisão do roteiro;
   quatro deles ficaram poucas palavras abaixo do mínimo (126 de 135, 132 de 135, 135 de 142, total 275 de
@@ -981,12 +1005,54 @@ GiB; o detalhe em `data/agrupamento/rodada_20261024/resultado.md`):
   nos lados certos (no A63, Lula "Sim" e Kassio "Não"). A nova tentativa não foi acionada.
 - **Item 6:** o N92 pôs de novo os 30 mil exemplares no recolhimento (cinco de seis rodadas), e o A104
   ligou 52,2% ao "total de vítimas" em vez dos casos.
-- **A leitura** (`data/agrupamento/correcoes_20261024c/leitura_curta3.py`): 30 marcas. O fechamento foi
+- **A leitura** (`data/agrupamento/correcoes_20261024c/leitura_curta3.py`): 31 marcas, com o "queimadas
+  causadas pelo El Niño" do A79 marcado como A por decisão do dono. O fechamento foi
   de 4 para 1; a Helena fora do fechamento, de 4 para 12 (avaliações e contrastes que o texto não faz);
   os analistas, de 16 para 12. A ressalva do veículo no N84 voltou.
 - **À espera do dono** (propostas em `resultado.md`; nada foi mudado): o tamanho (o plano em frases, ou
   o mínimo em 70%); o nome do analista (a regra escrita pelo que se quer, ou os nomes dados pelo código);
   o lado do comandante no A79; o número ligado à coisa errada, que nenhuma conferência pega.
+
+**Em 24/10, a quarta leva** (as decisões de mesmo nome; medidas em `data/agrupamento/correcoes_20261024d/`):
+
+- **Item 3, as aspas, medido antes** (rascunho em `aspas.py`, medida em `medir_aspas.py`, conferência do código em
+  `conferir_no_codigo.py`): das 69 análises gravadas com dois lados ou mais, em 46 alguma frase deixa de contar, mudam 46
+  divisões do orçamento e 5 lados finos. Em todas as frases que saem, o nome do ator só aparece dentro das aspas:
+  - a fala de outro ator sobre ele: o ministro sobre o comandante (A79 e 79+105), a campanha e o PT sobre a Meta (2+46),
+    Lula sobre Nunes Marques, com o nome posto entre colchetes pelo jornalista dentro da citação (64+13+42);
+  - o nome citado como título: o canal "Exército do Lula", em frases da área técnica, do TSE, do Cueva e do próprio
+    canal (N13, 92+97+63, 64+13+42);
+  - **a fala do próprio ator**: Lula falando do "Exército do Lula" e da "Aeronáutica do Lula" (N13 e 64+13+42, três
+    frases), e uma frase em que ele é "o presidente" e só o canal tem o nome dele (64+13+42). Elas contavam só pelo nome
+    do canal; sem ele, seriam como qualquer frase que nomeia o ator pelo cargo, que não conta. A fala do próprio ator que
+    o texto atribui pelo nome continua contando ("“...”, afirmou Lula", no A63, que não muda).
+  - Nos 20 itens, mudam o A79 (o comandante passa de 2 frases para 1: lado fino, alvo de 180 para 90, e a Helena de 380
+    para 370, pelo limite de 45%) e o N13 (Lula de 5 para 3, alvo de 360 para 270; com só a frase da área técnica fora,
+    seriam 4 e o alvo continuaria 360).
+  - Nenhuma frase saiu por erro das aspas (aspa sem fechar, apóstrofo): entra.
+- **Item 3, o sobrenome de organização** (`medir_sobrenome_de_organizacao.py` e `medir_pessoa.py`): dos 28 atores que
+  `lados.sobrenome` aceita nas análises gravadas, 6 são organizações (Agência Brasil, Banco Central, Coligação Brasil
+  Pronto Para Mais, Justiça Global, Sindipetro Unificado, Terra de Direitos e Justiça Global), e a regra
+  (`lados.nome_de_pessoa`) separa exatamente esses 6 dos 22 nomes de pessoa. Só mudam contagens de análises de um lado
+  só, que não pesam no orçamento: no A104, o "Brasil" sozinho contava frases sobre o país como menções da Agência
+  Brasil (3 para 1). Entra.
+- **Item 2, as vozes:** o TTS dava as vozes pela ordem de declaração (a primeira masculina, a segunda feminina), e não
+  pelo nome: a "Bia" analista única falava com a voz do Antonio. Agora cada nome tem a voz da vaga dele.
+- **Leituras minhas, para o dono corrigir:**
+  - nomes: três vagas, uma por lado, cada uma com a voz do TTS do mesmo gênero: Otávio, Mateus, Caio (voz do Antonio);
+    Patrícia, Sofia, Isabela (Thalita); Vinícius, Sérgio, Renato (Gustavo). Não usei Ricardo, Beatriz e Dr. Ramos, os
+    exemplos da decisão, porque aparecem nas amostras (Ricardo 23 vezes, entre elas Ricardo Villas Bôas Cueva, citado no
+    N13 sem ser ator; Beatriz 10; Ramos 8); os escolhidos aparecem de 0 a 2 vezes. Em cada vaga vale o primeiro nome que
+    não é o nome nem o primeiro nome de um ator da análise; com um lado só, a primeira vaga;
+  - o QA confere o nome, não o lado (o analista do lado 2 com o nome do lado 1 passa), com o nome escrito como o bloco dá
+    ("Dr. Otávio" não vale por "Otávio"); o problema vai para a revisão completa, que pode trocar o nome;
+  - o bloco usa o nome no elenco ("Otávio, do lado 1, e Patrícia, do lado 2"), no alvo, no plano e na ordem dos turnos;
+  - aspas: contam as duplas retas e curvas e as simples curvas; a curva aberta só continua no parágrafo seguinte quando
+    ele abre com aspas; a fala do próprio ator em que o nome só aparece dentro das aspas deixa de contar (a lista acima);
+  - nome de pessoa: sem palavra de organização (uma lista fechada) e, nos textos fora das aspas, mais vezes sem artigo
+    antes do que com artigo; o "a" conta como artigo mesmo quando é preposição ("direcionado a Nunes Marques"), o que só
+    pesa num nome que aparece poucas vezes;
+  - o mínimo de 60% vale também para a Helena e para o total, como pedido; o plano continua pedindo o alvo inteiro.
 
 ## Números medidos
 

@@ -14,8 +14,8 @@ def _episodio() -> dict:
     return {
         "titulo_reescrito": "Prefeitura multa construtora", "resumo_didatico": "Uma frase. " * qa.MIN_FRASES_RESUMO,
         "pontos_chave": ["a", "b"], "por_que_importa": "Importa.",
-        "personagens": [{"nome": "Helena", "papel": "apresentadora"}, {"nome": "Ramos", "papel": "analista de obras"}],
-        "roteiro_podcast": [{"personagem": "Helena", "fala": fala}, {"personagem": "Ramos", "fala": fala}],
+        "personagens": [{"nome": "Helena", "papel": "apresentadora"}, {"nome": "Otávio", "papel": "analista de obras"}],
+        "roteiro_podcast": [{"personagem": "Helena", "fala": fala}, {"personagem": "Otávio", "fala": fala}],
         "houve_divergencia": False, "fontes_citadas": ["Jornal do Vale"],
     }
 

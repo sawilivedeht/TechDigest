@@ -450,6 +450,55 @@ def test_a_contagem_aceita_o_sobrenome_sozinho_de_quem_e_nome_de_pessoa():
     assert [lado.mencoes for lado in com_mencoes(lados, BAIRRO)] == [1, 0]
 
 
+# Nomes inventados: a menção dentro de aspas, a de outro ator e a do nome citado como título, não conta.
+PRACA = [{"fonte": VILA, "titulo": "Marta Quaresma cobra a cooperativa", "texto": (
+    "A cooperativa respondeu à presidente da associação, Marta Quaresma. “Seria prudente que Marta Quaresma ouvisse os "
+    "feirantes”, declarou o diretor Ivo Brandão. O grupo “Amigos de Marta Quaresma” reuniu 300 pessoas.\n"
+    "“Não vamos sair da praça”, afirmou Marta Quaresma. Em nota, a cooperativa disse: “A conversa com\n"
+    "“Marta Quaresma continua.” A Sant’Ana, padaria da praça, apoia Marta Quaresma."
+)}]
+
+
+def test_a_mencao_que_so_aparece_dentro_de_aspas_nao_conta():
+    # decisão de 24/10/2026: no A79, a segunda frase do comandante era o ministro falando dele; no N13, uma das de Lula era
+    # a área técnica sobre o canal "Exército de Lula"
+    assert modulo.fora_das_aspas("O canal “Exército de Lula” e o 'X'.") == "O canal                    e o 'X'."
+    assert modulo.fora_das_aspas('Disse "Lula" e ‘Lula’; Sant’Ana fica.') == "Disse        e       ; Sant’Ana fica."
+    # a curva aberta continua no parágrafo seguinte só quando ele abre com aspas
+    assert modulo.fora_das_aspas("“Começo\n“meio” fim") == "       \n       fim"
+    assert modulo.fora_das_aspas("“Sem fechar\nLula fala") == " " * 11 + "\nLula fala"
+    contadas = [f for f, fora in zip(modulo._frases_dos_textos(PRACA), modulo._frases_fora_das_aspas(PRACA))
+                if modulo.ator_citado("Marta Quaresma", fora)]
+    assert [f[:26] for f in contadas] == [
+        "Marta Quaresma cobra a coo",   # o título
+        "A cooperativa respondeu à ",   # fora das aspas
+        "“Não vamos sair da praça”,",   # a fala do próprio ator conta quando o texto o nomeia fora das aspas
+        "A Sant’Ana, padaria da pra",   # o apóstrofo não abre aspas
+    ]
+    assert mencoes(["Marta Quaresma"], PRACA) == 4
+    # no A79, o lado do comandante fica com uma frase só: a fala do ministro sobre ele não conta
+    a79 = [{"fonte": "Agência Brasil", "titulo": "Ministro rebate críticas", "texto": (
+        "Waldez Góes respondeu às declarações do comandante do Corpo de Bombeiros do Amazonas. “Seria prudente que o "
+        "comandante do Corpo de Bombeiros do Amazonas apagasse fogo”, declarou.")}]
+    assert mencoes(["comandante do Corpo de Bombeiros do Amazonas"], a79) == 1
+
+
+def test_o_sobrenome_sozinho_so_conta_para_nome_de_pessoa():
+    # decisão de 24/10/2026: no N92, "Unificado" contou como sobrenome do "Sindipetro Unificado"
+    sindicato = [{"fonte": VILA, "titulo": "Feira fecha", "texto": (
+        "O Sindifeira Unido protestou. Para o Sindifeira Unido, a decisão é censura. Unido, o bairro foi à praça.")}]
+    assert sobrenome("Sindifeira Unido") == "Unido" and not modulo.nome_de_pessoa("Sindifeira Unido", sindicato)
+    assert sobrenomes_que_contam(["Sindifeira Unido"], sindicato) == [] and mencoes(["Sindifeira Unido"], sindicato) == 2
+    # palavra de organização no nome: não é pessoa, com ou sem artigo no texto
+    for ator in ("Agência Serena", "Banco Popular", "Justiça Comunitária", "Terra Viva e Justiça Comunitária"):
+        assert not modulo.nome_de_pessoa(ator, BAIRRO), ator
+    # pessoa: sem artigo antes do nome, ou com o artigo do cargo ("a presidente da associação, Marta Quaresma")
+    assert modulo.nome_de_pessoa("Marta Quaresma", BAIRRO) and modulo.nome_de_pessoa("Marta Quaresma", PRACA)
+    # o "a" preposição conta como artigo: com mais menções sem ele, o nome continua de pessoa
+    assert modulo.nome_de_pessoa("Ivo Brandão", [{"fonte": VILA, "titulo": "Ivo Brandão fala", "texto": "O pedido foi a Ivo Brandão."}]) is False
+    assert modulo.nome_de_pessoa("Ivo Brandão", [{"fonte": VILA, "titulo": "Ivo Brandão fala", "texto": "Ivo Brandão pediu a Ivo Brandão."}])
+
+
 def test_lado_fino_e_o_que_tem_os_atores_em_no_maximo_uma_frase_dos_textos():
     assert mencoes(["Waldez Góes"], QUEIMADAS) == 3 and mencoes(["comandante do Corpo de Bombeiros do Amazonas"], QUEIMADAS) == 1
     assert mencoes(["Meta"], TEXTOS) == 3                               # o título de cada texto conta como uma frase
@@ -981,45 +1030,47 @@ def test_bloco_diz_a_questao_os_lados_o_elenco_exato_e_o_alvo_de_palavras():
         "QUESTÃO: A Meta favoreceu um candidato?\n"
         "Lado 1 (resposta: Sim; lado fino): A campanha acusa a Meta. Atores: campanha de Lula, PT. Veículos: Agência Brasil, CartaCapital.\n"
         "Lado 2 (resposta: Não): A Meta nega. Atores: Meta. Veículos: Agência Brasil.\n"
-        'ELENCO: Helena e exatamente 2 analistas, um por lado; "houve_divergencia": true. Helena apresenta a questão '
+        'ELENCO: Helena e exatamente 2 analistas, um por lado: Otávio, do lado 1, e Patrícia, do lado 2; "houve_divergencia": '
+        "true. Helena apresenta a questão "
         "uma vez, na abertura, com palavras naturais, e não atribui as posições aos atores; cada analista sustenta a "
         "posição do seu lado, numa frase que nomeia um ator do lado, cita um veículo do lado e usa um verbo de posição, "
         'como em "segundo <veículo>, <ator> afirma que...". Lado fino tem pouco material nas fontes: o analista dele não '
-        "amplia além do que as fontes trazem. Alvo de palavras: Helena, 290; analista do lado 1, 90; analista do lado 2, "
-        "270; total, 650. Plano das falas: Helena, 4 falas de uns 75 palavras; analista do lado 1, 2 falas de uns 45; "
-        "analista do lado 2, 3 falas de uns 90. Ordem dos 9 turnos: Helena, lado 1, lado 2, Helena, lado 1, lado 2, Helena, "
-        "lado 2, Helena."
+        "amplia além do que as fontes trazem. Alvo de palavras: Helena, 290; Otávio (lado 1), 90; Patrícia (lado 2), "
+        "270; total, 650. Plano das falas: Helena, 4 falas de uns 75 palavras; Otávio, 2 falas de uns 45; "
+        "Patrícia, 3 falas de uns 90. Ordem dos 9 turnos: Helena, Otávio, Patrícia, Helena, Otávio, Patrícia, Helena, "
+        "Patrícia, Helena."
     )   # sem as palavras do texto, o total seria o de antes, mas os lados têm 1 e 3 frases: 90 palavras por frase, no máximo
     sem_fino = [Lado("A campanha acusa.", ("PT",), ("G1",), "Sim", ("um trecho", "outro trecho")), Lado("A Meta nega.", ("Meta",), ("G1",), "Não")]
     assert "lado fino" not in bloco_dos_lados(sem_fino, "Q?")
     assert bloco_dos_lados(sem_fino, "Q?").endswith(
-        "Alvo de palavras: Helena, 380; analista do lado 1, 350; analista do lado 2, 350; total, 1080. Plano das falas: Helena, "
-        "5 falas de uns 75 palavras; analista do lado 1, 4 falas de uns 90; analista do lado 2, 4 falas de uns 90. Ordem dos 13 "
-        "turnos: Helena, lado 1, lado 2, Helena, lado 1, lado 2, Helena, lado 1, lado 2, Helena, lado 1, lado 2, Helena.")
+        "Alvo de palavras: Helena, 380; Otávio (lado 1), 350; Patrícia (lado 2), 350; total, 1080. Plano das falas: Helena, "
+        "5 falas de uns 75 palavras; Otávio, 4 falas de uns 90; Patrícia, 4 falas de uns 90. Ordem dos 13 turnos: Helena, "
+        "Otávio, Patrícia, Helena, Otávio, Patrícia, Helena, Otávio, Patrícia, Helena, Otávio, Patrícia, Helena.")
     um = analise_da_resposta(UM_LADO, TEXTOS)
     assert reserva_do_bloco(um.lados) >= len(bloco_dos_lados(um.lados))  # a reserva cobre o orçamento com os números mais compridos
     assert bloco_dos_lados(um.lados, um.questao) == (
         "\nLADOS DA PAUTA: 1 lado.\n"
         "Lado 1: Uma posição. Atores: Meta. Veículos: Agência Brasil, CartaCapital.\n"
-        'ELENCO: Helena e exatamente 1 analista, que explica o tema com ela, sem advogar; "houve_divergencia": false. '
-        "Alvo de palavras: Helena, 350; analista, 430; total, 780. Plano das falas: Helena, 6 falas de uns 60 palavras; "
-        "analista, 5 falas de uns 85. Ordem dos 11 turnos: Helena, analista, Helena, analista, Helena, analista, Helena, "
-        "analista, Helena, analista, Helena."
+        'ELENCO: Helena e exatamente 1 analista, Otávio, que explica o tema com ela, sem advogar; "houve_divergencia": false. '
+        "Alvo de palavras: Helena, 350; Otávio, 430; total, 780. Plano das falas: Helena, 6 falas de uns 60 palavras; "
+        "Otávio, 5 falas de uns 85. Ordem dos 11 turnos: Helena, Otávio, Helena, Otávio, Helena, Otávio, Helena, "
+        "Otávio, Helena, Otávio, Helena."
     )
     # com o orçamento da pauta, o bloco pede menos e avisa que o material é pouco
     curto = bloco_dos_lados(um.lados, um.questao, (), orcamento(um.lados, 201))
-    assert curto.endswith("Alvo de palavras: Helena, 160; analista, 190; total, 350. Plano das falas: Helena, 4 falas de uns 40 "
-                          "palavras; analista, 3 falas de uns 65. Ordem dos 7 turnos: Helena, analista, Helena, analista, Helena, "
-                          "analista, Helena. Os textos trazem pouco material, e o alvo já é menor: cumpra-o com o que as fontes "
+    assert curto.endswith("Alvo de palavras: Helena, 160; Otávio, 190; total, 350. Plano das falas: Helena, 4 falas de uns 40 "
+                          "palavras; Otávio, 3 falas de uns 65. Ordem dos 7 turnos: Helena, Otávio, Helena, Otávio, Helena, "
+                          "Otávio, Helena. Os textos trazem pouco material, e o alvo já é menor: cumpra-o com o que as fontes "
                           "trazem, sem argumento novo.")
     # o lado fino fica com o mínimo de falas, e o plano diz o tamanho de cada personagem
     dois = [Lado("p", ("Ator A",), ("G1",), "Sim", (), 1), Lado("p", ("Ator B",), ("G1",), "Não", (), 6)]
-    assert ("Plano das falas: Helena, 3 falas de uns 50 palavras; analista do lado 1, 2 falas de uns 45; analista do lado 2, 2 "
-            "falas de uns 75. Ordem dos 7 turnos: Helena, lado 1, lado 2, Helena, lado 1, lado 2, Helena.") in bloco_dos_lados(
+    assert ("Plano das falas: Helena, 3 falas de uns 50 palavras; Otávio, 2 falas de uns 45; Patrícia, 2 "
+            "falas de uns 75. Ordem dos 7 turnos: Helena, Otávio, Patrícia, Helena, Otávio, Patrícia, Helena.") in bloco_dos_lados(
         dois, "Q?", (), orcamento(dois, 239))
     assert reserva_do_bloco(um.lados) >= len(curto)
     tres = [Lado("p", (f"Ator {i}",), ("G1",), f"Resposta {i}") for i in range(3)]
-    assert "exatamente 3 analistas, um por lado" in bloco_dos_lados(tres, "Q?") and "analista do lado 3, 250; total, 1150" in bloco_dos_lados(tres, "Q?")
+    assert ("exatamente 3 analistas, um por lado: Otávio, do lado 1, Patrícia, do lado 2, e Vinícius, do lado 3;" in bloco_dos_lados(tres, "Q?")
+            and "Vinícius (lado 3), 250; total, 1150" in bloco_dos_lados(tres, "Q?"))
 
 
 def test_bloco_traz_as_ressalvas_logo_depois_dos_lados():
@@ -1030,13 +1081,13 @@ def test_bloco_traz_as_ressalvas_logo_depois_dos_lados():
         "Lado 1: Flávio propõe flexibilizar o Mercosul. Atores: Flávio Bolsonaro, Milei. Veículos: Gazeta do Povo.\n"
         "Ressalva 1: A flexibilização pode enfraquecer a tarifa comum. Grupos: economistas. Veículos: Gazeta do Povo.\n"
         "Ressalva 2: Há risco fiscal. Veículos: Gazeta do Povo.\n"
-        "ELENCO: Helena e exatamente 1 analista, que explica a posição e responde às ressalvas com o que as fontes dizem, "
+        "ELENCO: Helena e exatamente 1 analista, Otávio, que explica a posição e responde às ressalvas com o que as fontes dizem, "
         'sem tomar partido; "houve_divergencia": false. Ressalva não é lado nem ganha analista: Helena traz cada uma como '
         "pergunta atribuída, sem avaliá-la nem reformulá-la, numa frase com o veículo, o grupo e um verbo de posição, "
         'seguida de uma pergunta aberta, como em "Segundo <veículo>, <grupo> alertam que... Como você vê isso?". '
-        "Alvo de palavras: Helena, 350; analista, 430; total, 780. Plano das falas: Helena, 6 falas de uns 60 palavras; "
-        "analista, 5 falas de uns 85. Ordem dos 11 turnos: Helena, analista, Helena, analista, Helena, analista, Helena, "
-        "analista, Helena, analista, Helena."
+        "Alvo de palavras: Helena, 350; Otávio, 430; total, 780. Plano das falas: Helena, 6 falas de uns 60 palavras; "
+        "Otávio, 5 falas de uns 85. Ordem dos 11 turnos: Helena, Otávio, Helena, Otávio, Helena, Otávio, Helena, "
+        "Otávio, Helena, Otávio, Helena."
     )
     dois = analisar_lados(Chamada(DOIS_LADOS), TEXTOS)
     com_ressalva = bloco_dos_lados(dois.lados, dois.questao, ressalvas[:1])
@@ -1048,10 +1099,10 @@ def test_bloco_do_lado_neutro_leva_a_posicao_e_os_veiculos():
     assert bloco_dos_lados(lado_unico(VEICULOS)) == (
         "\nLADOS DA PAUTA: 1 lado.\n"
         "Lado 1: relato dos fatos, sem lados definidos. Veículos: Agência Brasil, CartaCapital.\n"
-        'ELENCO: Helena e exatamente 1 analista, que explica o tema com ela, sem advogar; "houve_divergencia": false. '
-        "Alvo de palavras: Helena, 350; analista, 430; total, 780. Plano das falas: Helena, 6 falas de uns 60 palavras; "
-        "analista, 5 falas de uns 85. Ordem dos 11 turnos: Helena, analista, Helena, analista, Helena, analista, Helena, "
-        "analista, Helena, analista, Helena."
+        'ELENCO: Helena e exatamente 1 analista, Otávio, que explica o tema com ela, sem advogar; "houve_divergencia": false. '
+        "Alvo de palavras: Helena, 350; Otávio, 430; total, 780. Plano das falas: Helena, 6 falas de uns 60 palavras; "
+        "Otávio, 5 falas de uns 85. Ordem dos 11 turnos: Helena, Otávio, Helena, Otávio, Helena, Otávio, Helena, "
+        "Otávio, Helena, Otávio, Helena."
     )
 
 
@@ -1060,7 +1111,7 @@ def test_bloco_nunca_passa_do_espaco_reservado():
                    "Uma resposta comprida demais para caber inteira no bloco de lados da pauta. " * 3) for _ in range(3)]
     bloco = bloco_dos_lados(longos, "Uma questão comprida demais? " * 20)
     # as posições encolhem até o mínimo; o que ainda não cabe sai do fim da última linha, e o elenco, com o plano, fica
-    assert len(bloco) == modulo.MAX_BLOCO and "Ordem dos 13 turnos: Helena, lado 1, lado 2, lado 3, Helena" in bloco
+    assert len(bloco) == modulo.MAX_BLOCO and "Ordem dos 13 turnos: Helena, Otávio, Patrícia, Vinícius, Helena" in bloco
     assert reserva_do_bloco(longos, "Uma questão comprida demais? " * 20) == modulo.MAX_BLOCO                        # a reserva nunca passa do teto do bloco
     assert all(f"Lado {i} (resposta: Uma resposta comprida" in bloco and "): Posição muito comprida." in bloco for i in (1, 2, 3))
 

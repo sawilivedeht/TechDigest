@@ -12,6 +12,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field, replace
 
+from techdigest.ai.elenco import VAGAS, nomes_dos_analistas
 from techdigest.ai.orcamento import MAX_ALVO, Orcamento, orcamento
 from techdigest.ai.prompt import PROMPT_LADOS
 from techdigest.ai.qa import (
@@ -88,6 +89,21 @@ _ANTES_DO_SOBRENOME = frozenset({
     "diretora", "doutor", "doutora", "dr", "dra", "sr", "sra", "professor", "professora", "padre", "pastor", "papa",
     "dom", "ex", "governo", "gestao", "campanha", "familia",
 })
+# Palavras que fazem do nome uma organização, sem acento: o sobrenome sozinho só conta para nome de pessoa (ver `nome_de_pessoa`).
+_PALAVRAS_DE_ORGANIZACAO = frozenset({
+    "agencia", "banco", "justica", "sindicato", "coligacao", "associacao", "federacao", "confederacao", "instituto",
+    "fundacao", "conselho", "comissao", "comite", "ministerio", "secretaria", "prefeitura", "tribunal", "corte", "partido",
+    "governo", "camara", "assembleia", "senado", "congresso", "uniao", "universidade", "policia", "forca", "forcas", "corpo",
+    "central", "rede", "frente", "movimento", "observatorio", "centro", "ordem", "igreja", "grupo", "empresa", "companhia",
+    "organizacao", "instituicao", "orgao", "campanha", "plataforma",
+})
+# O artigo, ou a contração com artigo, logo antes do nome: "o Sindipetro Unificado", "segundo a Agência Brasil".
+_ARTIGO_ANTES = re.compile(
+    r"(?<![^\W\d_])(?:o|a|os|as|do|da|dos|das|no|na|nos|nas|pelo|pela|pelos|pelas|ao|aos|à|às|um|uma|num|numa)\s*$",
+    re.IGNORECASE,
+)
+# As aspas da contagem de menções (ver `fora_das_aspas`): a reta simples não entra, porque também é apóstrofo.
+_ABRE_DUPLAS, _FECHA_DUPLAS = "“«„", "”»"
 # Marcadores de que a frase atribui o que diz a alguém já nomeado, sem verbo de posição (sem acento).
 _MARCADOR_DE_ATRIBUICAO = re.compile(
     r"\b(?:segundo (?:ele|ela|eles|elas)|de acordo com (?:ele|ela|eles|elas)|na (?:avaliacao|visao|opiniao) (?:dele|dela|deles|delas))\b"
@@ -585,6 +601,82 @@ def _frases_dos_textos(textos) -> list[str]:
     return [frase for texto in textos for frase in (texto["titulo"], *frases(texto["texto"]))]
 
 
+def fora_das_aspas(texto: str) -> str:
+    """O texto com o que está entre aspas, e as próprias aspas, trocado por espaços: o mesmo tamanho, para as posições valerem.
+
+    Contam as aspas duplas retas, as curvas duplas (“ ”, « », „) e as curvas simples (‘ ’). A reta dupla abre e fecha
+    dentro do parágrafo. A curva dupla aberta e não fechada continua aberta no parágrafo seguinte quando ele abre com
+    aspas, como se escreve uma citação longa (o "“" que abre o parágrafo continuado não é aspa nova); senão, fecha no fim
+    do parágrafo. A curva simples só fecha se houver uma aberta: sem ela, o "’" é apóstrofo ("Sant’Ana").
+    """
+    linhas, saida, duplas = texto.split("\n"), [], 0
+    for n, linha in enumerate(linhas):
+        reta, simples, nova = False, 0, []
+        recuo = len(linha) - len(linha.lstrip())
+        continua = duplas > 0 and linha[recuo:recuo + 1] in _ABRE_DUPLAS
+        for i, c in enumerate(linha):
+            dentro = reta or duplas or simples
+            if c == '"':
+                reta = not reta
+            elif c in _ABRE_DUPLAS:
+                duplas += 0 if (continua and i == recuo) else 1
+            elif c in _FECHA_DUPLAS:
+                duplas = max(duplas - 1, 0)
+            elif c == "‘":
+                simples += 1
+            elif c == "’" and simples:
+                simples -= 1
+            else:
+                nova.append(" " if dentro and not c.isspace() else c)
+                continue
+            nova.append(" ")
+        saida.append("".join(nova))
+        if (linhas[n + 1].lstrip()[:1] if n + 1 < len(linhas) else "") not in _ABRE_DUPLAS:
+            duplas = 0
+    return "\n".join(saida)
+
+
+def _frases_fora_das_aspas(textos) -> list[str]:
+    """As frases de `_frases_dos_textos`, na mesma ordem, cada uma sem o que está entre aspas (ver `fora_das_aspas`).
+
+    A frase que não se acha no texto (não deveria acontecer) fica como está.
+    """
+    saida = []
+    for texto in textos:
+        saida.append(fora_das_aspas(str(texto["titulo"])))
+        original = str(texto["texto"])
+        mascarado, pos = fora_das_aspas(original), 0
+        for frase in frases(original):
+            achado = re.compile(r"\s+".join(map(re.escape, frase.split()))).search(original, pos) if frase.split() else None
+            if achado is None:
+                saida.append(frase)
+                continue
+            saida.append(mascarado[achado.start():achado.end()])
+            pos = achado.end()
+    return saida
+
+
+def nome_de_pessoa(ator, textos) -> bool:
+    """Se o ator é nome de pessoa, para o sobrenome sozinho contar: o nome não tem palavra de organização
+    (`_PALAVRAS_DE_ORGANIZACAO`: "Agência Brasil", "Justiça Global") e, nos textos, fora das aspas, vem mais vezes sem
+    artigo antes do que com artigo ("o Sindipetro Unificado"; "o ministro Waldez Góes" não conta, porque o artigo vai com
+    o cargo). Para o nome que não aparece inteiro nos textos, vale só a palavra de organização.
+    """
+    if any(_sem_acento(p) in _PALAVRAS_DE_ORGANIZACAO for p in _PALAVRA.findall(str(ator))):
+        return False
+    com = sem = 0
+    padrao = re.compile(rf"(?<![^\W\d_]){re.escape(str(ator))}(?![^\W\d_])")
+    for texto in textos:
+        for parte in (texto["titulo"], texto["texto"]):
+            fora = fora_das_aspas(str(parte))
+            for achado in padrao.finditer(fora):
+                if _ARTIGO_ANTES.search(fora[:achado.start()]):
+                    com += 1
+                else:
+                    sem += 1
+    return com < sem or com == sem == 0
+
+
 def outro_com_o_sobrenome(ator, textos, alheios=()) -> str:
     """Quem mais tem o sobrenome do ator: um ator de outro lado ou uma pessoa citada nos textos; vazio se ninguém.
 
@@ -611,24 +703,28 @@ def outro_com_o_sobrenome(ator, textos, alheios=()) -> str:
 
 
 def sobrenomes_que_contam(atores, textos, alheios=()) -> list[str]:
-    """Os sobrenomes dos atores que contam sozinhos na contagem de menções: os que ninguém mais tem (ver
-    `outro_com_o_sobrenome`)."""
-    return [sobrenome(ator) for ator in atores if sobrenome(ator) and not outro_com_o_sobrenome(ator, textos, alheios)]
+    """Os sobrenomes dos atores que contam sozinhos na contagem de menções: os de nome de pessoa (ver `nome_de_pessoa`)
+    que ninguém mais tem (ver `outro_com_o_sobrenome`)."""
+    return [sobrenome(ator) for ator in atores
+            if sobrenome(ator) and nome_de_pessoa(ator, textos) and not outro_com_o_sobrenome(ator, textos, alheios)]
 
 
 def mencoes(atores, textos, alheios=()) -> int:
-    """Em quantas frases dos textos (o título e as frases do texto de cada um) aparece algum dos atores.
+    """Em quantas frases dos textos (o título e as frases do texto de cada um) aparece algum dos atores, fora das aspas.
 
     Conta o nome, pela regra de `qa.ator_citado`, e o sobrenome sozinho de quem é nome de pessoa ("Góes" por
-    "Waldez Góes"), a não ser que outra pessoa citada nos textos ou um ator de outro lado (`alheios`) tenha o
-    mesmo sobrenome (ver `outro_com_o_sobrenome`). O cargo não conta: "o ministro" não vale por "Waldez Góes".
-    É a medida de quanto material as fontes trazem sobre quem sustenta um lado. O sobrenome sozinho vale só aqui,
-    e não na regra do QA.
+    "Waldez Góes"; ver `nome_de_pessoa`), a não ser que outra pessoa citada nos textos ou um ator de outro lado
+    (`alheios`) tenha o mesmo sobrenome (ver `outro_com_o_sobrenome`). O cargo não conta: "o ministro" não vale por
+    "Waldez Góes". A menção que só aparece dentro de aspas também não conta (ver `fora_das_aspas`; decisão de
+    24/10/2026): a fala de outro ator sobre ele ("“Seria prudente que o comandante...”, declarou" o ministro) e o nome
+    citado como título (o canal “Exército de Lula”). A fala do próprio ator conta quando o texto o nomeia fora das
+    aspas ("“...”, afirmou Lula"). É a medida de quanto material as fontes trazem sobre quem sustenta um lado. O
+    sobrenome sozinho vale só aqui, e não na regra do QA.
     """
     padroes = [re.compile(rf"(?<![^\W\d_]){re.escape(s)}(?![^\W\d_])") for s in sobrenomes_que_contam(atores, textos, alheios)]
     return sum(
         any(ator_citado(ator, frase) for ator in atores) or any(p.search(frase) for p in padroes)
-        for frase in _frases_dos_textos(textos)
+        for frase in _frases_fora_das_aspas(textos)
     )
 
 
@@ -913,49 +1009,56 @@ def _frase(texto: str) -> str:
     return texto if texto.endswith((".", "!", "?", "…")) else texto + "."
 
 
-def _alvo_do_elenco(orc: Orcamento) -> str:
-    """O alvo de palavras de cada personagem e do total e o plano das falas, como o bloco os diz.
+def _alvo_do_elenco(orc: Orcamento, analistas: list[str]) -> str:
+    """O alvo de palavras de cada personagem e do total e o plano das falas, como o bloco os diz, com o nome de cada um.
 
     Cada alvo é um número só: o QA cobra uma fração dele, e a diferença fica como margem. O plano diz
     quantas falas cada personagem tem, de que tamanho e em que ordem (ver `orcamento.Orcamento.plano`).
+    `analistas` são os nomes dos analistas, um por lado (ver `elenco.nomes_dos_analistas`).
     """
     um = len(orc.analistas) == 1
-    nomes = ["Helena"] + (["analista"] if um else [f"analista do lado {i}" for i in range(1, len(orc.analistas) + 1)])
-    na_ordem = ["Helena"] + (["analista"] if um else [f"lado {i}" for i in range(1, len(orc.analistas) + 1)])
+    nomes = ["Helena", *analistas[:len(orc.analistas)]]
+    com_lado = ["Helena"] + (nomes[1:] if um else [f"{nome} (lado {i})" for i, nome in enumerate(nomes[1:], 1)])
     plano = orc.plano
-    alvos = "; ".join(f"{nome}, {alvo}" for nome, alvo in zip(nomes, (orc.helena, *orc.analistas)))
+    alvos = "; ".join(f"{nome}, {alvo}" for nome, alvo in zip(com_lado, (orc.helena, *orc.analistas)))
     falas = "; ".join(
         f"{nome}, {n} falas de uns {tamanho}" + (" palavras" if k == 0 else "")
         for k, (nome, n, tamanho) in enumerate(zip(nomes, plano.falas, plano.tamanhos))
     )
     texto = (f" Alvo de palavras: {alvos}; total, {orc.total}. Plano das falas: {falas}. Ordem dos {plano.turnos} turnos: "
-             f"{', '.join(na_ordem[i] for i in plano.ordem)}.")
+             f"{', '.join(nomes[i] for i in plano.ordem)}.")
     if orc.reduzido:
         texto += " Os textos trazem pouco material, e o alvo já é menor: cumpra-o com o que as fontes trazem, sem argumento novo."
     return texto
 
 
-def _linhas_do_bloco(lados, questao: str, ressalvas, finos: list[bool], teto: int, orc: Orcamento) -> list[str]:
-    """As linhas do bloco: o cabeçalho (com a questão), uma por lado, uma por ressalva e o elenco, com o alvo de palavras.
+def _linhas_do_bloco(lados, questao: str, ressalvas, finos: list[bool], teto: int, orc: Orcamento,
+                     analistas: list[str]) -> list[str]:
+    """As linhas do bloco: o cabeçalho (com a questão), uma por lado, uma por ressalva e o elenco, com o nome de cada
+    analista e o alvo de palavras.
 
     `finos` diz quais lados são finos, `teto`, quantos caracteres a frase de posição de cada um
-    pode ter, e `orc`, o orçamento de palavras do episódio (ver `ai/orcamento.py`).
+    pode ter, `orc`, o orçamento de palavras do episódio (ver `ai/orcamento.py`), e `analistas`, os nomes dos
+    analistas, um por lado (ver `elenco.nomes_dos_analistas`).
     """
     n = len(lados)
     if n > 1:
+        por_lado = [f"{nome}, do lado {i}" for i, nome in enumerate(analistas[:n], 1)]
         elenco = (
-            f'ELENCO: Helena e exatamente {n} analistas, um por lado; "houve_divergencia": true. Helena apresenta a '
+            f'ELENCO: Helena e exatamente {n} analistas, um por lado: {", ".join(por_lado[:-1])}, e {por_lado[-1]}; '
+            f'"houve_divergencia": true. Helena apresenta a '
             f"questão uma vez, na abertura, com palavras naturais, e não atribui as posições aos atores; cada analista "
             f"sustenta a posição do seu lado, numa frase que nomeia um ator do lado, cita um veículo do lado e usa um "
             f'verbo de posição, como em "segundo <veículo>, <ator> afirma que...".'
         )
     elif ressalvas:
         elenco = (
-            "ELENCO: Helena e exatamente 1 analista, que explica a posição e responde às ressalvas com o que as fontes "
-            'dizem, sem tomar partido; "houve_divergencia": false.'
+            f"ELENCO: Helena e exatamente 1 analista, {analistas[0]}, que explica a posição e responde às ressalvas com o "
+            'que as fontes dizem, sem tomar partido; "houve_divergencia": false.'
         )
     else:
-        elenco = 'ELENCO: Helena e exatamente 1 analista, que explica o tema com ela, sem advogar; "houve_divergencia": false.'
+        elenco = (f"ELENCO: Helena e exatamente 1 analista, {analistas[0]}, que explica o tema com ela, sem advogar; "
+                  '"houve_divergencia": false.')
     if ressalvas:
         elenco += (
             " Ressalva não é lado nem ganha analista: Helena traz cada uma como pergunta atribuída, sem avaliá-la nem "
@@ -964,7 +1067,7 @@ def _linhas_do_bloco(lados, questao: str, ressalvas, finos: list[bool], teto: in
         )
     if any(finos):
         elenco += " Lado fino tem pouco material nas fontes: o analista dele não amplia além do que as fontes trazem."
-    elenco += _alvo_do_elenco(orc)
+    elenco += _alvo_do_elenco(orc, analistas)
     cabecalho = f"\nLADOS DA PAUTA: {n} lado{'s' if n > 1 else ''}."
     if questao:
         cabecalho += f"\nQUESTÃO: {_encurtar(questao, MAX_QUESTAO)}"
@@ -988,7 +1091,8 @@ def _linhas_do_bloco(lados, questao: str, ressalvas, finos: list[bool], teto: in
 
 
 def bloco_dos_lados(lados, questao: str = "", ressalvas=(), orc: Orcamento | None = None) -> str:
-    """O bloco LADOS DA PAUTA da entrada do episódio: a questão, os lados, as ressalvas, o elenco exato e o alvo de palavras.
+    """O bloco LADOS DA PAUTA da entrada do episódio: a questão, os lados, as ressalvas, o elenco exato, com o nome de cada
+    analista (ver `elenco.nomes_dos_analistas`), e o alvo de palavras.
 
     O alvo vem de `orc`; sem ele, é o de antes para o tamanho do elenco (ver `orcamento.orcamento`).
     Nunca passa de MAX_BLOCO caracteres: se for preciso, as frases de posição encolhem. O orçamento
@@ -996,11 +1100,12 @@ def bloco_dos_lados(lados, questao: str = "", ressalvas=(), orc: Orcamento | Non
     """
     finos = lados_finos(lados)
     orc = orc or orcamento(lados)
+    analistas = nomes_dos_analistas(lados)
     teto = MAX_POSICAO
-    linhas = _linhas_do_bloco(lados, questao, ressalvas, finos, teto, orc)
+    linhas = _linhas_do_bloco(lados, questao, ressalvas, finos, teto, orc, analistas)
     while len("\n".join(linhas)) > MAX_BLOCO and teto > MIN_POSICAO:
         teto -= 20
-        linhas = _linhas_do_bloco(lados, questao, ressalvas, finos, teto, orc)
+        linhas = _linhas_do_bloco(lados, questao, ressalvas, finos, teto, orc, analistas)
     bloco = "\n".join(linhas)
     if len(bloco) > MAX_BLOCO:   # listas de atores longas demais: o que fica de fora é o fim da última linha
         logger.warning("Bloco de lados com %d caracteres: cortado em %d.", len(bloco), MAX_BLOCO)
@@ -1015,9 +1120,10 @@ def reserva_do_bloco(lados, questao: str = "", ressalvas=()) -> int:
     O lado fino só é contado depois do recorte dos textos, e o orçamento de palavras vem das
     palavras do recorte, que depende do espaço que o bloco ocupa. Por isso a reserva é o tamanho do
     bloco com todos os lados finos (em pauta de 2 lados ou mais) e o orçamento com os números mais
-    compridos, o plano mais longo (cada analista no alvo máximo) e o aviso de pouco material, sem
-    encolher as posições e até MAX_BLOCO: o bloco de verdade nunca passa disso.
+    compridos, o plano mais longo (cada analista no alvo máximo), o nome mais comprido de cada vaga e o
+    aviso de pouco material, sem encolher as posições e até MAX_BLOCO: o bloco de verdade nunca passa disso.
     """
     todos = [len(lados) >= 2] * len(lados)
     maior = Orcamento(9990, (MAX_ALVO,) * max(len(lados), 1), 0, reduzido=True)
-    return min(MAX_BLOCO, len("\n".join(_linhas_do_bloco(lados, questao, ressalvas, todos, MAX_POSICAO, maior))))
+    compridos = [max(vaga, key=len) for vaga in VAGAS]
+    return min(MAX_BLOCO, len("\n".join(_linhas_do_bloco(lados, questao, ressalvas, todos, MAX_POSICAO, maior, compridos))))

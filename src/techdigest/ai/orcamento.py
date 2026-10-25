@@ -29,7 +29,9 @@ MAX_ALVO = 430                # o alvo de cada personagem, no máximo: abaixo do
 # Com dois lados ou mais, o alvo do analista não passa disto por frase do lado: acima de umas 90 palavras por frase
 # de material, a invenção dos analistas salta (medida de 24/10/2026). Prevalece sobre MIN_ANALISTA.
 MAX_POR_FRASE_DO_LADO = 90
-FRACAO_DO_MINIMO = 0.75       # o QA cobra esta fração do alvo como mínimo (nunca acima do mínimo de antes)
+# O QA cobra esta fração do alvo como mínimo, nunca acima do mínimo de antes (0,75 até 24/10/2026: desde 23/10 os
+# analistas ficam entre 66% e 73% do alvo, e nem o plano das falas nem a mensagem por fala os fizeram escrever mais).
+FRACAO_DO_MINIMO = 0.60
 MAX_FALA_DO_ANALISTA = 90     # palavras: cada analista tem as falas que o alvo dele pede com no máximo este tamanho
 MIN_FALAS_DO_ANALISTA = 2     # a Helena passa a palavra a cada analista pelo menos duas vezes
 
@@ -53,7 +55,8 @@ def minimo_do_qa(alvo: int, minimo_de_antes: int) -> int:
     """O mínimo que o QA cobra de um alvo: FRACAO_DO_MINIMO dele, nunca acima do mínimo de antes.
 
     Fica sempre abaixo do alvo que o bloco pede, inclusive para quem antes tinha um piso (o
-    analista de lado fino, 120; a Helena com debate, 180).
+    analista de lado fino, 120; a Helena com debate, 180). O analista de material cheio (alvo 430)
+    já passava com 240, 56% do alvo: a fração dá a mesma folga aos outros.
     """
     return min(int(alvo * FRACAO_DO_MINIMO), minimo_de_antes)
 

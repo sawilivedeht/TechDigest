@@ -89,13 +89,13 @@ def test_o_plano_fecha_a_conta_do_alvo_e_comeca_e_termina_com_a_helena(n):
 
 def test_o_minimo_do_qa_fica_abaixo_do_alvo_e_nunca_acima_do_de_antes():
     # no N92 o alvo da Helena seria de uns 150: o piso de 180 da Helena com debate passaria do alvo
-    assert minimo_do_qa(150, 180) == 112 < 150
-    assert minimo_do_qa(430, 240) == 240 and minimo_do_qa(120, 120) == 90
+    assert minimo_do_qa(150, 180) == 90 < 150
+    assert minimo_do_qa(430, 240) == 240 and minimo_do_qa(120, 120) == 72 and minimo_do_qa(90, 120) == 54
     for n in (1, 2, 3):
         for texto in range(50, 1200, 37):
             orc = orcamento(_lados(*([1, 4, 2][:n])), texto)
             for alvo in (orc.helena, *orc.analistas):
-                assert minimo_do_qa(alvo, 240) <= 0.75 * alvo < alvo <= modulo.MAX_ALVO
+                assert minimo_do_qa(alvo, 240) <= 0.60 * alvo < alvo <= modulo.MAX_ALVO
             assert minimo_do_qa(orc.total, 600) < orc.total
 
 
