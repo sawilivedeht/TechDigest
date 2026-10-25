@@ -32,7 +32,11 @@ ele está; este arquivo guarda o que foi decidido e o que falta, e é atualizado
    não atingiu o aceite: 5 de 8 aprovados, os outros por palavras, porque a conta do bloco não
    fecha, com 9,8 marcas por mil palavras. Na segunda leva do mesmo dia, o plano das falas entrou
    (70ef651), e a segunda rodada curta também não atingiu o aceite: 6 de 8 aprovados, com 6,8 marcas
-   por mil palavras. A regressão não rodou. O resultado espera a decisão do dono.
+   por mil palavras. Na terceira leva, a mensagem do que falta em cada fala, o teto pelo material, a
+   passiva de decisão, o nome do analista, o "Sim" e "Não" e o número ligado ao que mede entraram
+   (bb1fc8b), e a terceira rodada curta também não atingiu o aceite: 3 de 8 aprovados, todos os outros
+   por palavras, com 7,6 marcas por mil palavras. A regressão não rodou. O resultado espera a decisão
+   do dono.
 5. **Integração do agrupamento** atrás de `AGRUPAMENTO_ATIVO`, com os filtros, o limite de
    tentativas, os excedentes e o registro de cada execução.
 6. **Simulação de ponta a ponta.** A que libera o merge roda com `AGRUPAMENTO_ATIVO=false`, que é o
@@ -946,6 +950,43 @@ GiB; o detalhe em `data/agrupamento/rodada_20261024/resultado.md`):
     questão não se responde com sim ou não, que ela seja reescrita sobre o mesmo fato;
   - número: a frase entrou só no `PROMPT_SISTEMA`, como pedido; as revisões continuam com "Todo número e
     todo percentual vêm das fontes, com o valor que elas trazem".
+
+**Em 24/10, a terceira rodada curta** (20:52 a 21:11, 23 chamadas, memória disponível sempre acima de
+18,2 GiB; o detalhe em `data/agrupamento/rodada_20261024c/resultado.md`):
+
+- **O aceite não foi atingido:**
+
+  | Critério | Meta | Resultado |
+  |---|---|---|
+  | Aprovados | 7 de 8 ou mais | 3 (A104, N27, N84) |
+  | Marcas por mil palavras de roteiro | menos de 10 | 7,6 |
+
+  A regressão nos 20 não rodou. Os 5 reprovados caíram só por palavras, depois da revisão do roteiro;
+  quatro deles ficaram poucas palavras abaixo do mínimo (126 de 135, 132 de 135, 135 de 142, total 275 de
+  277). Com o mínimo em 70% do alvo, seriam 6 de 8.
+- **O plano:** número de falas e ordem seguidos em 6 de 8; nenhum episódio termina com o analista. Os
+  analistas escreveram 69% do alvo (73% na segunda rodada), e o roteiro médio foi de 517 para 492
+  palavras.
+- **Item 1:** a mensagem por fala chegou à revisão, mas a revisão deu de 0 a 5 palavras ao analista
+  apontado nos 5 reprovados, e duas vezes acrescentou à Helena. Só acrescentou mais quando faltava uma
+  fala inteira (+34 e +71). Quando o problema era só o total, resolveu (A104 e N84).
+- **Item 2:** nenhum analista passou de 90 palavras por frase do lado. Os dois de lado fino (alvo 90)
+  escreveram 71 e 58 palavras, sem marca. O analista do lado do comandante no A79 inventou de novo:
+  5 marcas em 132 palavras, 66 por frase.
+- **Item 3:** nenhum analista precisou da passiva; a correspondência um a um saiu certa nas 4 disputas.
+- **Item 4:** o N86 não tem mais o nome do colunista, mas os 12 analistas da rodada saíram com nome de
+  função ("Analista", "Analista de Política"...), contra nenhum em 140 até a segunda rodada; em 3
+  episódios o papel foi "analista do lado 1". A causa provável é a frase nova do prompt.
+- **Item 5:** as 8 análises valeram na primeira tentativa, e as 4 disputas já vieram com "Sim" e "Não",
+  nos lados certos (no A63, Lula "Sim" e Kassio "Não"). A nova tentativa não foi acionada.
+- **Item 6:** o N92 pôs de novo os 30 mil exemplares no recolhimento (cinco de seis rodadas), e o A104
+  ligou 52,2% ao "total de vítimas" em vez dos casos.
+- **A leitura** (`data/agrupamento/correcoes_20261024c/leitura_curta3.py`): 30 marcas. O fechamento foi
+  de 4 para 1; a Helena fora do fechamento, de 4 para 12 (avaliações e contrastes que o texto não faz);
+  os analistas, de 16 para 12. A ressalva do veículo no N84 voltou.
+- **À espera do dono** (propostas em `resultado.md`; nada foi mudado): o tamanho (o plano em frases, ou
+  o mínimo em 70%); o nome do analista (a regra escrita pelo que se quer, ou os nomes dados pelo código);
+  o lado do comandante no A79; o número ligado à coisa errada, que nenhuma conferência pega.
 
 ## Números medidos
 
