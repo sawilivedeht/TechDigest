@@ -200,6 +200,35 @@ def numeros(texto: str) -> list[Numero]:
     return achados
 
 
+def _nos_nomes(texto: str, nomes) -> list[tuple[int, int]]:
+    """Onde os nomes que têm algarismo aparecem em `texto`: (início, fim) de cada ocorrência.
+
+    Compara parte a parte (letras e algarismos são partes separadas), sem acento nem caixa, com só
+    espaço ou nada entre as partes: "Poder360" e "Poder 360" são o mesmo nome. Do nome vale o que vem
+    antes de um slogan (" - ", " | ").
+    """
+    lidos = tokens(texto)
+    trechos = []
+    for nome in nomes:
+        partes = tokens(re.split(r"\s[-–—|]\s", str(nome))[0])
+        if not any(p.numerico for p in partes):
+            continue
+        normas = [p.norm for p in partes]
+        for i in range(len(lidos) - len(partes) + 1):
+            janela = lidos[i:i + len(partes)]
+            if [t.norm for t in janela] == normas and all(texto[a.fim:b.inicio].strip(" \t") == ""
+                                                          for a, b in zip(janela, janela[1:])):
+                trechos.append((janela[0].inicio, janela[-1].fim))
+    return trechos
+
+
+def numeros_fora_dos_nomes(texto: str, nomes) -> list[Numero]:
+    """Os números de `texto` que não fazem parte de um dos `nomes`: o "360" de "Poder360" e o "247" de "Brasil 247",
+    quando o veículo é da pauta, não são dados (decisão de 25/10/2026)."""
+    nos_nomes = _nos_nomes(texto, nomes)
+    return [n for n in numeros(texto) if not any(inicio <= n.inicio and n.fim <= fim for inicio, fim in nos_nomes)]
+
+
 def formatar(valor: float, percentual: bool = False) -> str:
     inteiro = valor == int(valor)
     texto = f"{int(valor):,}".replace(",", ".") if inteiro else f"{valor:.6g}".replace(".", ",")

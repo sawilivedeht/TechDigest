@@ -630,6 +630,37 @@ def test_dois_milhoes_e_meio_vale_pelo_valor_inteiro():
     assert qa.problemas_dos_numeros(_com_fala("A cooperativa vendeu 2 milhões e meio de mudas."), textos) == []
 
 
+@pytest.mark.parametrize("fala", [
+    "Segundo o Poder360, o ministro falou.", "O Poder 360 relata que o ministro falou.",
+    "O Brasil 247 diz que o ministro falou.", "Para o brasil247, o ministro falou.",
+])
+def test_numero_do_nome_de_um_veiculo_da_pauta_nao_conta(fala):
+    # o "360" do Poder360 na prévia de 25/10/2026 (86+71) era lido como número sem fonte
+    textos = ["O ministro falou à imprensa na terça-feira."]
+    assert qa.problemas_dos_numeros(_com_fala(fala), textos, ["Poder360 - Jornalismo e Política", "Brasil 247"]) == []
+    episodio = _com_fala(fala)
+    episodio["fontes_citadas"] = ["Poder360", "Brasil 247"]
+    assert qa.problemas_com_campo(episodio, ["Poder360", "Brasil 247"], UM_LADO, SEM_RESSALVAS, textos) == []
+
+
+def test_numero_fora_do_nome_ou_de_veiculo_que_nao_e_da_pauta_continua_contando():
+    textos = ["O ministro falou à imprensa na terça-feira."]
+    assert len(qa.problemas_dos_numeros(_com_fala("Segundo o Poder360, foram 360 votos."), textos, ["Poder360"])) == 1
+    assert len(qa.problemas_dos_numeros(_com_fala("Segundo o Poder360, o ministro falou."), textos, ["G1"])) == 1
+    assert len(qa.problemas_dos_numeros(_com_fala("Segundo o Poder360, o ministro falou."), textos)) == 1
+
+
+@pytest.mark.parametrize("frases_de_verdade, passa", [
+    (qa.MIN_FRASES_RESUMO, True), (qa.MAX_FRASES_RESUMO, True), (qa.MIN_FRASES_RESUMO - 1, False),
+])
+def test_ponto_dentro_de_uma_palavra_nao_fecha_frase_do_resumo(frases_de_verdade, passa):
+    # o 26+69 da prévia de 25/10/2026: os pontos de "Hardware.com.br" contavam como fim de frase (8 frases viravam 12)
+    textos = ["A placa custa R$ 1.200 no Brasil."]
+    resumo = "Segundo o Hardware.com.br, a placa custa R$ 1.200. " + "Uma frase. " * (frases_de_verdade - 1)
+    problemas = qa.problemas(_episodio(["G1"], resumo_didatico=resumo), ["G1"], UM_LADO, SEM_RESSALVAS, textos)
+    assert problemas == ([] if passa else [f"resumo com {frases_de_verdade} frases (alvo {qa.MIN_FRASES_RESUMO}-{qa.MAX_FRASES_RESUMO})"])
+
+
 # ── Papel dos analistas e lado fino ───────────────────────────────────────────────────────
 
 def test_a_passiva_de_decisao_com_o_ator_como_agente_apresenta_o_lado():

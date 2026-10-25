@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from techdigest.ai.atribuicoes import atribuicoes_a_grupos, grupo_na_pauta, plano
 from techdigest.ai.elenco import nomes_dos_analistas
 from techdigest.ai.numeros import dobrar as _dobrar
-from techdigest.ai.numeros import formatar, mais_proximo, numeros, pede_fonte, qualificador, tem_fonte, valores_dos_textos
+from techdigest.ai.numeros import (formatar, mais_proximo, numeros_fora_dos_nomes, pede_fonte, qualificador, tem_fonte,
+                                   valores_dos_textos)
 from techdigest.ai.orcamento import Orcamento, cinco, minimo_do_qa
 from techdigest.ai.verbos import FORMAS_DE_POSICAO, INFINITIVOS, agentes_da_decisao, verbos_de_posicao
 from techdigest.config import Settings
@@ -48,6 +49,9 @@ QUANTIFICADORES = frozenset({
     "outros", "outras", "muitos", "muitas", "diversos", "diversas",
 })
 _ABREVIATURA = re.compile(r"(?:^|[\s(\"'“‘])(?:dr|dra|sr|sra|prof|profa|sen|dep|min|gov|pres|gen|cel|[^\W\d_])\.$", re.IGNORECASE)
+# As frases do resumo, para o QA: cada ".", "!" ou "?", menos o que vem colado a uma letra ou a um algarismo, como os
+# pontos de "Hardware.com.br" e de "1.200" (decisão de 25/10/2026). Abreviatura e reticências contam como antes.
+_FIM_DE_FRASE = re.compile(r"[.!?](?![^\W_])")
 
 # Título sem percentuais nem proporções. Os padrões valem sobre o título sem acento e em minúsculas.
 _ALGARISMOS = r"\d+(?:[.,]\d+)*"
@@ -524,10 +528,11 @@ def problemas_das_atribuicoes(result: dict, textos) -> list[Problema]:
     return probs
 
 
-def problemas_dos_numeros(result: dict, textos) -> list[Problema]:
+def problemas_dos_numeros(result: dict, textos, veiculos=()) -> list[Problema]:
     """Os percentuais e os números a partir de 10 que nenhum texto da pauta traz; lista vazia = aprovado.
 
-    `textos` são os textos da pauta (título e texto completo de cada artigo). O número vale em
+    `textos` são os textos da pauta (título e texto completo de cada artigo), e `veiculos`, os seus
+    veículos: o número que faz parte do nome de um deles não conta ("Poder360"). O número vale em
     algarismos ou por extenso, e o arredondamento segue `numeros.tem_fonte`: com "cerca de" ou
     "aproximadamente", até 5% do número da fonte; com "quase", a fonte abaixo do dito; com "mais
     de", acima; sem qualificador, só o inteiro que arredonda ou trunca um decimal da fonte, também
@@ -538,7 +543,7 @@ def problemas_dos_numeros(result: dict, textos) -> list[Problema]:
     probs = []
     for campo, onde, texto in _textos_do_episodio(result):
         texto = unicodedata.normalize("NFC", texto)
-        for n in numeros(texto):
+        for n in numeros_fora_dos_nomes(texto, veiculos):
             if not pede_fonte(n) or tem_fonte(n, qualificador(texto, n), da_pauta):
                 continue
             perto = mais_proximo(n, da_pauta)
@@ -576,7 +581,7 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos, orc: O
             f"podem ficar); reescreva-o a partir do resumo_didatico"
         )))
 
-    frases_do_resumo = sum(result["resumo_didatico"].count(p) for p in ".!?")
+    frases_do_resumo = len(_FIM_DE_FRASE.findall(result["resumo_didatico"]))
     if not (MIN_FRASES_RESUMO <= frases_do_resumo <= MAX_FRASES_RESUMO):
         probs.append(Problema(RESUMO, f"resumo com {frases_do_resumo} frases (alvo {MIN_FRASES_RESUMO}-{MAX_FRASES_RESUMO})"))
 
@@ -616,7 +621,7 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos, orc: O
     probs += [Problema(PAPEL, texto) for texto in problemas_dos_papeis(result, lados)]
     probs += [Problema(ROTEIRO, texto) for texto in problemas_das_ressalvas(result, ressalvas)]
     probs += problemas_das_atribuicoes(result, textos)
-    probs += problemas_dos_numeros(result, textos)
+    probs += problemas_dos_numeros(result, textos, veiculos)
     return probs
 
 

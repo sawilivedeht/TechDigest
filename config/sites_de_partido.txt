@@ -2,10 +2,10 @@
 # resolver o link do Google Notícias, está num destes domínios ou num subdomínio deles, com o agrupamento ligado ou
 # desligado (decisões do dono de 16/10 e 25/10/2026). Um domínio por linha; o que vem depois de "#" é comentário.
 #
-# RASCUNHO de 25/10/2026, à espera da revisão do dono: os 30 partidos com estatuto registrado no TSE (a lista oficial
-# recusa o acesso automático; a conferência de cada domínio está em data/agrupamento/filtro_20261025/
-# sites_de_partido_conferencia.md). Ficam fora, para o dono decidir: os sites das lideranças, das fundações dos partidos
-# e das federações.
+# Aprovada pelo dono em 25/10/2026: os 30 partidos com estatuto registrado no TSE (a lista oficial recusa o acesso
+# automático; a conferência de cada domínio está em data/agrupamento/filtro_20261025/sites_de_partido_conferencia.md).
+# O pcb.org.br e o pv.org.br ficam, mesmo sem a conferência do conteúdo. Os sites das lideranças, das fundações dos
+# partidos e das federações ficam fora por enquanto: entram quando aparecerem no registro de alguma execução.
 
 republicanos10.org.br        # 10 Republicanos
 progressistas.org.br         # 11 Progressistas (PP)
