@@ -1181,6 +1181,38 @@ registro em `data/execucoes/<data-hora>/`; com o agrupamento ligado, a mesma mat
 duplicata, a chamada da etapa 3 que falha deixa os artigos separados e o link entregue continua o do feed; nenhuma
 proposta de mudança se apoia na terceira amostra.
 
+**Em 25/10, a sessão de teste** (08:54 a 09:24, 51 chamadas, memória disponível sempre acima de 17,5 GiB; o detalhe em
+`data/agrupamento/previa_20261025/resultado.md`):
+
+- **A condição do teto passa.** Com a provisória em 6, a etapa 2 junta Lula/TSE e a área técnica numa provisória de 5
+  artigos (71+64+85+13+42), e nas três repetições a etapa 3 a separa em 71+85 e 64+13+42. A maior chamada teve 2.653 + 273
+  tokens: cabe em 8192 sem cortar texto (ajuste 3). Na amostra antiga o teto em 6 não muda nenhuma provisória.
+- **A prévia:** 7 de 9 aprovadas; 57 marcas em 411 frases (14%), 9,4 por mil palavras de roteiro (7,4 na regressão de fonte
+  única de 24/10), 19 atribuídos (2,1 por episódio, contra 0,8). As 6 disputas saíram com os atores principais nos lados
+  certos e nenhuma disputa foi inventada; o 90+79+43 caiu no lado neutro de emergência (veículos fora de todos os lados nas
+  duas tentativas), sem disputa como o gabarito.
+- **Veículo errado (ajuste 2):** 5 frases, em 2 dos 7 aprovados (92+97+63 e 64+13+42), contra 4 de 18 na fase 3. A regra
+  estrita pegou 2, sem falso positivo.
+- **A janela:** o prompt de hoje tira de 1.393 a 2.078 caracteres de texto por pauta, em relação ao de 17/10; nenhum
+  parágrafo com trecho de evidência ficou de fora.
+- **Dois falsos positivos do QA, que valem também para a fonte única:** o "360" do Poder360 lido como número sem fonte
+  (86+71) e os pontos do "Hardware.com.br" contados como fim de frase no resumo (26+69, "12 frases" para 8; a contagem é a
+  da `master`). Os dois são relaxamento; nada foi mudado.
+- **À espera do dono:** a leitura da prévia, que libera o agrupamento atrás de `AGRUPAMENTO_ATIVO`, e os dois falsos
+  positivos.
+
+**Em 25/10, as partes que não dependem da prévia** (implementadas depois da sessão, com testes):
+
+- **Filtro** (`processing/filtro.py`, `config/sites_de_partido.txt` como rascunho): nas duas primeiras amostras, o mesmo
+  resultado da medida de 16/10. A extração que devolve a URL resolvida dá o mesmo texto que a de hoje nos 209 candidatos
+  das duas amostras, item a item (ajuste 1; `data/agrupamento/filtro_20261025/saida_conferir_extracao.txt`).
+- **Limite de tentativas:** a tabela `reprovacoes`, aditiva (um teste confere que os comandos da `master` continuam
+  funcionando no banco com ela).
+- **Registro de cada execução** (`registro.py`): lido pelos dois diagnósticos sem mudança neles; 30 dias guardados, a
+  proposta do ajuste 6 (uns 0,6 MB por execução de 20 itens: com duas execuções por dia, uns 36 MB por mês).
+- **Aviso de parada**, também no erro inesperado (decisão 1).
+- **Nomes e vozes:** a escolha do nome evita as pessoas citadas (decisão 3); a voz de cada personagem no log e no episódio.
+
 ## Números medidos
 
 - **Produção, 07/10/2026** (`master`, execução das 08:09): geração de 208 a 291 s a 11-16 tok/s,
