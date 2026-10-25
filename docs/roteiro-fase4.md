@@ -35,8 +35,11 @@ ele está; este arquivo guarda o que foi decidido e o que falta, e é atualizado
    por mil palavras. Na terceira leva, a mensagem do que falta em cada fala, o teto pelo material, a
    passiva de decisão, o nome do analista, o "Sim" e "Não" e o número ligado ao que mede entraram
    (bb1fc8b), e a terceira rodada curta também não atingiu o aceite: 3 de 8 aprovados, todos os outros
-   por palavras, com 7,9 marcas por mil palavras. A regressão não rodou. O resultado espera a decisão
-   do dono.
+   por palavras, com 7,9 marcas por mil palavras. Na quarta leva, o mínimo do QA em 60% do alvo, os
+   nomes dos analistas pelo código e as aspas na contagem de menções entraram (8d1a2d2), e a
+   regressão nos 20, direto, sem outra rodada curta, atingiu o aceite de 23/10: 19 de 20 aprovados,
+   nenhuma disputa inventada, 10% de frases marcadas e 16 atribuídos (7 nas disputas), com 7,3 marcas
+   por mil palavras. O resultado espera a decisão do dono sobre o próximo passo.
 5. **Integração do agrupamento** atrás de `AGRUPAMENTO_ATIVO`, com os filtros, o limite de
    tentativas, os excedentes e o registro de cada execução.
 6. **Simulação de ponta a ponta.** A que libera o merge roda com `AGRUPAMENTO_ATIVO=false`, que é o
@@ -1053,6 +1056,40 @@ GiB; o detalhe em `data/agrupamento/rodada_20261024/resultado.md`):
     antes do que com artigo; o "a" conta como artigo mesmo quando é preposição ("direcionado a Nunes Marques"), o que só
     pesa num nome que aparece poucas vezes;
   - o mínimo de 60% vale também para a Helena e para o total, como pedido; o plano continua pedindo o alvo inteiro.
+
+**Em 24/10, a regressão da quarta leva** (23:37 de 24/10 a 00:18 de 25/10, 49 chamadas, memória disponível sempre
+acima de 18,1 GiB; o detalhe em `data/agrupamento/rodada_20261024d/resultado.md`, a leitura e as medidas em
+`data/agrupamento/correcoes_20261024d/`):
+
+- **O aceite de 23/10 foi atingido:**
+
+  | Critério | Meta | Resultado |
+  |---|---|---|
+  | Aprovados | 17 de 20 ou mais | 19 (só o N92 reprovou) |
+  | Disputa inventada | nenhuma | nenhuma |
+  | Frases marcadas | até 21% | 10% |
+  | Argumentos atribuídos | até 34, e 9 nas disputas | 16, e 7 nas disputas |
+
+  Marcas por mil palavras de roteiro: 7,3 (12,6 em 17/10, 6,9 em 23/10, 18,1 na `master`). Roteiro médio de 536
+  palavras.
+- **O N92** caiu na regra dos analistas por lado na primeira versão; a revisão do roteiro consertou, mas encurtou a
+  analista do sindicato de 99 para 79 palavras (mínimo de 84), mesmo com o plano.
+- **O plano:** número de falas e ordem seguidos nos 20; nenhum termina com o analista. Os analistas escreveram 70% do
+  alvo e a Helena 83%: o mínimo de 60% decide (com 75%, os mesmos episódios dariam 7 aprovados).
+- **A Helena fora do fechamento:** 16 marcas, 3,9 por mil (2,9 em 23/10, 3,0 em 17/10; 8,4 na terceira rodada curta),
+  quase todas enquadramentos na abertura, conclusões ("fica claro que...", "disputa muito equilibrada") e contrastes
+  que o texto não faz. O fechamento caiu de 17 para 12; o resumo, os pontos e o "por que importa" subiram de 12 para 17;
+  os analistas ficaram em 5,9 por mil (5,8 em 23/10).
+- **Nomes:** Otávio e Patrícia nos 20, com as vozes da vaga; a Helena chama o analista pelo nome.
+- **Aspas:** no A79, o lado do comandante ficou fino (alvo 90), e a analista dele fez 1 marca em 62 palavras (5 em 132
+  na terceira rodada curta).
+- **Análise de lados:** as 5 disputas do gabarito e nenhuma outra; a nova tentativa do "Sim" e "Não" não foi
+  acionada; no N69, a recusa do trecho da Sony levou ao lado único do gabarito.
+- **Limitações que continuam:** os 30 mil do N92 no recolhimento (seis de sete rodadas); a ressalva do veículo no N84
+  sumiu de novo.
+- **Leituras minhas, para o dono corrigir** (o detalhe em `resultado.md`): o "devido ao El Niño" do A79 também como
+  A; os pontos-chave "A necessidade de..." como opinião como fato (O), como no N86 da segunda rodada; a análise do
+  veículo atribuída a outro grupo como F, como em 17/10.
 
 ## Números medidos
 
