@@ -111,6 +111,33 @@ def test_sem_disputa_a_questao_fica_vazia_e_ha_um_lado_so():
     assert analise.lados == [Lado("Uma posição.", ("Meta",), ("Agência Brasil", "CartaCapital"))] and analise.questao == ""
 
 
+
+# ── O veículo que a resposta deixa fora de todos os lados (decisão de 25/10/2026) ──────────
+
+def test_com_um_lado_so_o_veiculo_que_ficou_de_fora_entra_nele():
+    # o 90+79+43 da prévia de 25/10: o lado do Zuckerberg só com o NeoFeed, e os outros dois veículos de fora
+    analise = analise_da_resposta({"questao": "", "lados": [_lado()]}, TEXTOS)
+    assert analise.problemas == []
+    assert analise.lados == [Lado("Uma posição.", ("Meta",), ("Agência Brasil", "CartaCapital"))]
+    assert "veículo da pauta em nenhum lado da resposta: entra no lado único (CartaCapital)" in analise.ajustes
+    assert analise.contexto == []
+
+
+def test_sem_lado_com_ator_o_veiculo_que_ficou_de_fora_fica_no_lado_neutro():
+    ressalva = _lado("Há risco.", [], ["Agência Brasil"], grupos=["economistas"], trecho=DA_AB)
+    analise = analise_da_resposta({"lados": [ressalva]}, TEXTOS)
+    assert analise.problemas == [] and analise.lados == EMERGENCIA and analise.ressalvas == []
+
+
+def test_com_dois_lados_o_veiculo_sem_ator_de_nenhum_lado_entra_como_contexto():
+    textos = [*TEXTOS, {"fonte": "G1", "titulo": "Eleição tem debate na quinta", "texto": "O debate da eleição ocorre na quinta-feira."}]
+    analise = analise_da_resposta(_disputa(_lado(), _lado(atores=["PT"], veiculos=["CartaCapital"])), textos)
+    assert analise.problemas == []
+    assert [l.atores for l in analise.lados] == [("Meta",), ("PT",)]
+    assert [l.veiculos for l in analise.lados] == [("Agência Brasil",), ("CartaCapital",)]
+    assert analise.contexto == ["G1"]
+    assert "veículo da pauta em nenhum lado, sem ator de nenhum lado no texto: entra como contexto (G1)" in analise.ajustes
+
 @pytest.mark.parametrize("resposta, problema", [
     (QUATRO_LADOS, "resposta com 4 lados (vale de 1 a 3)"),
     ({"lados": []}, "resposta com 0 lados (vale de 1 a 3)"),
@@ -119,7 +146,8 @@ def test_sem_disputa_a_questao_fica_vazia_e_ha_um_lado_so():
      "lado 1 sem ator que não esteja em outro lado"),                                      # um nome dentro do outro é o mesmo ator
     (_disputa(_lado(veiculos=["Agência Brasil", "Folha de S.Paulo"]), _lado(atores=["PT"], veiculos=["CartaCapital"])),
      "lado 1 com veículo fora da pauta (Folha de S.Paulo)"),
-    (_disputa(_lado(), _lado(atores=["PT"])), "veículo da pauta em nenhum lado (CartaCapital)"),
+    # com dois lados, o veículo fora de todos os lados cujo texto cita um ator ("Campanha de Lula acusa Meta")
+    (_disputa(_lado(), _lado(atores=["PT"])), "veículo da pauta em nenhum lado, com ator de um lado no texto (CartaCapital)"),
     ({"lados": [_lado(posicao=" ", veiculos=VEICULOS)]}, "lado 1 sem posição"),
     ({"lados": [{**_lado(veiculos=VEICULOS), "atores": "Meta"}]}, 'lado 1 com "atores" fora do formato (é uma lista de nomes)'),
     ({"lados": [_lado(veiculos=VEICULOS, grupos=[1])]}, 'lado 1 com "grupos" fora do formato (é uma lista de nomes)'),

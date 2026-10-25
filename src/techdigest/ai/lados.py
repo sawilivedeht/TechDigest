@@ -205,6 +205,7 @@ class Analise:
     recusados: list[Recusado] = field(default_factory=list)   # atores que estão num lado e cujo trecho não vale
     cortes: list[dict] = field(default_factory=list)     # se os textos não couberam inteiros na chamada: fonte, texto e lido
     sem_sim_e_nao: str = ""                              # numa disputa de dois lados, por que as respostas não são "Sim" e "Não"
+    contexto: list[str] = field(default_factory=list)   # veículos da pauta sem lado, que entram como contexto (2 lados ou mais)
     resposta: dict | None = None
     primeira: "Analise | None" = None                    # a primeira tentativa, quando houve outra e a outra ficou valendo
     segunda: "Analise | None" = None                     # a segunda tentativa, quando ela não valeu e a primeira ficou
@@ -761,6 +762,30 @@ def sim_e_nao(lados) -> bool:
     return sorted(_sem_acento(lado.resposta).strip().rstrip(".!").strip() for lado in lados) == ["nao", "sim"]
 
 
+def _veiculos_sem_lado(sem_lado: list[str], validos: list[Lado], textos, da_pauta: list[str]) -> tuple[list[Lado], list[str], list[str], list[str]]:
+    """O veículo da pauta que a resposta não pôs em nenhum lado nem ressalva (decisão de 25/10/2026).
+
+    Com um lado só, ele entra nesse lado, que é a pauta inteira; sem lado com ator nomeado, fica no lado neutro, que
+    já tem todos os veículos. Com dois lados ou mais, o veículo cujo texto não cita ator de nenhum lado (ver
+    `mencoes`) entra como contexto: fica na pauta, sem lado, e não invalida a análise; o que cita um ator continua
+    invalidando, porque a resposta o deixou fora do lado desse ator. Devolve os lados, os veículos de contexto, os
+    ajustes e os veículos que invalidam a resposta.
+    """
+    if not validos:
+        return validos, [], [f"veículo da pauta em nenhum lado da resposta: fica no lado neutro ({', '.join(sem_lado)})"], []
+    if len(validos) == 1:
+        lado = validos[0]
+        veiculos = tuple(v for v in da_pauta if v in lado.veiculos or v in sem_lado)
+        return [replace(lado, veiculos=veiculos)], [], [f"veículo da pauta em nenhum lado da resposta: entra no lado único ({', '.join(sem_lado)})"], []
+    atores = [a for lado in validos for a in lado.atores]
+    contexto, invalidam = [], []
+    for veiculo in sem_lado:
+        dele = [t for t in textos if mesmo_veiculo(t["fonte"], veiculo)]
+        (invalidam if mencoes(atores, dele) else contexto).append(veiculo)
+    ajustes = [f"veículo da pauta em nenhum lado, sem ator de nenhum lado no texto: entra como contexto ({', '.join(contexto)})"] if contexto else []
+    return validos, contexto, ajustes, invalidam
+
+
 def lado_unico(veiculos) -> list[Lado]:
     """O lado neutro: um lado só, sem atores, com todos os veículos da pauta e a posição de emergência."""
     return [Lado(posicao=POSICAO_DE_EMERGENCIA, atores=(), veiculos=tuple(veiculos_distintos(veiculos)))]
@@ -771,8 +796,8 @@ def analise_da_resposta(resposta, textos) -> Analise:
 
     `textos` são os textos inteiros da pauta (fonte, titulo e texto): é neles que os trechos de
     evidência são conferidos. Cada lado da resposta tem posição e pelo menos um veículo, todos da
-    pauta (pela comparação tolerante de `qa.mesmo_veiculo`), e todo veículo da pauta está em algum
-    lado da resposta. Só conta como lado o que tem ator nomeado: o ator genérico (`ator_generico`)
+    pauta (pela comparação tolerante de `qa.mesmo_veiculo`); o veículo da pauta que não está em
+    nenhum lado da resposta entra no lado único ou como contexto (ver `_veiculos_sem_lado`). Só conta como lado o que tem ator nomeado: o ator genérico (`ator_generico`)
     passa a grupo, e a posição que só grupos sustentam é uma ressalva, que fica se o trecho dela
     estiver no texto (ver `_separar`). Ficam no máximo MAX_RESSALVAS ressalvas, as primeiras. O
     lado sem ator nem grupo não vale; se ele é o único da resposta, a pauta fica com o lado neutro.
@@ -855,8 +880,12 @@ def analise_da_resposta(resposta, textos) -> Analise:
     else:   # sem disputa entre atores nomeados, a questão sai
         questao = ""
         validos = [replace(lado, resposta="") for lado in nomeados.values()]
+    contexto = []
     if sem_lado:
-        probs.append(f"veículo da pauta em nenhum lado ({', '.join(sem_lado)})")
+        validos, contexto, mudou, sem_lugar = _veiculos_sem_lado(sem_lado, validos, textos, da_pauta)
+        ajustes += mudou
+        if sem_lugar:
+            probs.append(f"veículo da pauta em nenhum lado, com ator de um lado no texto ({', '.join(sem_lugar)})")
     if probs:
         return invalida(*probs)
     if not validos:   # sem lado com ator nomeado não há a quem a ressalva se oponha: fica só o relato dos fatos
@@ -874,7 +903,8 @@ def analise_da_resposta(resposta, textos) -> Analise:
                          f'lados, são "Sim" e "Não", opostas')
     return Analise(
         validos, questao, motivo, ressalvas=ressalvas, respostas=respostas, ajustes=ajustes,
-        descartadas=descartadas, faltam=faltam, recusados=recusados, sem_sim_e_nao=sem_sim_e_nao, resposta=resposta,
+        descartadas=descartadas, faltam=faltam, recusados=recusados, sem_sim_e_nao=sem_sim_e_nao, contexto=contexto,
+        resposta=resposta,
     )
 
 

@@ -43,7 +43,7 @@ def lados_para_registro(analise, chamadas: list[dict] | None = None) -> dict:
         "quantos": len(analise.lados), "questao": analise.questao, "motivo": analise.motivo,
         "tentativas": tentativas, "lado_de_emergencia": bool(analise.problemas), "invalida_porque": analise.problemas,
         "ajustes": analise.ajustes, "atores_sem_entrada": analise.faltam, "textos_cortados_na_analise": analise.cortes,
-        "sem_sim_e_nao": analise.sem_sim_e_nao,
+        "sem_sim_e_nao": analise.sem_sim_e_nao, "veiculos_de_contexto": analise.contexto,
         "atores_recusados": [{"ator": r.ator, "trecho": r.trecho, "motivo": r.motivo} for r in analise.recusados],
         "ressalvas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos), "trecho": r.trecho}
                       for r in analise.ressalvas],
