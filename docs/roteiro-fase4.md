@@ -1291,6 +1291,31 @@ certas."):
   `AGRUP_MAX_PROVISORIA`. Na amostra nova, sem o modelo, saem as mesmas 8 provisórias da condição do teto (uma de 5
   artigos).
 
+**Em 25/10, as simulações de trabalho** (18:18 a 20:26, sem áudio, cada uma numa cópia do banco, sob `systemd-inhibit`
+e com o vigia de memória, que nunca viu menos de 16,3 GiB disponíveis; o detalhe em
+`data/simulacoes/rodada_20261025/resultado.md`):
+
+- **Desligada** (42 min): 20 entregues, 1 reprovado, 2 filtrados antes da extração e **nenhum depois dela** (ajuste 5:
+  nada a guardar numa tabela por enquanto), 4 textos curtos.
+- **Ligada, primeira execução** (41 min): 108 extraídos em lote em cerca de 1 minuto, 17 curtos, 91 candidatos em 83
+  pautas, 5 de várias fontes; a etapa 3 levou 1,5 minuto para 7 provisórias (uma de 4 artigos virou 3 textos e 1
+  excedente). Nas 20 vagas coube uma pauta de várias fontes (CBN, Money Times e Estadão, aprovada): as outras estavam
+  mais adiante na lista intercalada. As vagas por boletim ficaram iguais às da desligada.
+- **Ligada, segunda execução na mesma pasta** (44 min): 73 candidatos em 66 pautas, 5 de várias fontes, 3 geradas (duas
+  aprovadas; a do Zanin, com 1 excedente, reprovada, com a reprovação contada para os 3 textos e não para o excedente).
+  Nenhum link entregue duas vezes; todos os links das pautas entregues estão em `seen`.
+- **Problema que barra o merge: a medida de caracteres por token.** O `Summarizer` usa o mínimo de todas as chamadas da
+  execução (desde 5d72d68, na fase 3). Na segunda ligada, a pauta CartaCapital + BBC (tabelas de votos por país) mediu
+  2,6 caracteres por token (2,34 com a folga), e daí em diante a geração de todos os itens ficou com uns 1.900
+  caracteres para os textos e o bloco: do item 13 ao 23 entraram de 206 a 966 caracteres de texto por item, os de
+  fonte única inclusive, e 9 foram aprovados assim; a análise de lados também passou a cortar os textos. A `master`
+  corta em 5.000 caracteres fixos e não tem isso. Com o merge, vale também para a fonte única com o agrupamento
+  desligado; na desligada não aconteceu só porque nenhum texto longo de números apareceu. A proposta de correção vai
+  para o dono antes de qualquer mudança.
+- **Outras observações:** o "Entenda por que a votação foi prorrogada" (Folha) ficou fora da pauta do Zanin (score de
+  0,10 a 0,12, abaixo do limiar); a história do NYT saiu de novo na segunda execução, por outro veículo (o artigo que
+  chega depois forma outra pauta).
+
 ## Números medidos
 
 - **Produção, 07/10/2026** (`master`, execução das 08:09): geração de 208 a 291 s a 11-16 tok/s,
