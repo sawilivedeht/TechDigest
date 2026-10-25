@@ -1,0 +1,41 @@
+# Sites de partido. O filtro (src/techdigest/processing/filtro.py) tira da execução o item cuja URL final, depois de
+# resolver o link do Google Notícias, está num destes domínios ou num subdomínio deles, com o agrupamento ligado ou
+# desligado (decisões do dono de 16/10 e 25/10/2026). Um domínio por linha; o que vem depois de "#" é comentário.
+#
+# RASCUNHO de 25/10/2026, à espera da revisão do dono: os 30 partidos com estatuto registrado no TSE (a lista oficial
+# recusa o acesso automático; a conferência de cada domínio está em data/agrupamento/filtro_20261025/
+# sites_de_partido_conferencia.md). Ficam fora, para o dono decidir: os sites das lideranças, das fundações dos partidos
+# e das federações.
+
+republicanos10.org.br        # 10 Republicanos
+progressistas.org.br         # 11 Progressistas (PP)
+pp.org.br                    # 11 Progressistas: redireciona para progressistas.org.br
+pdt.org.br                   # 12 PDT
+pt.org.br                    # 13 PT
+missao.org.br                # 14 Missão
+mdb.org.br                   # 15 MDB
+pstu.org.br                  # 16 PSTU
+redesustentabilidade.org.br  # 18 Rede Sustentabilidade
+podemos.org.br               # 20 Podemos
+pcb.org.br                   # 21 PCB (responde com verificação de robô: o conteúdo não foi conferido)
+partidoliberal.org.br        # 22 PL
+cidadania23.org.br           # 23 Cidadania: redireciona para rede23.org
+rede23.org                   # 23 Cidadania
+prd25.org.br                 # 25 PRD
+democraciacrista.org.br      # 27 Democracia Cristã
+prtb.org.br                  # 28 PRTB
+pco.org.br                   # 29 PCO
+novo.org.br                  # 30 Novo
+mobiliza.org.br              # 33 Mobiliza
+democrata.org.br             # 35 Democrata (antigo PMB)
+agir36.org.br                # 36 Agir
+psb40.org.br                 # 40 PSB
+pv.org.br                    # 43 PV (responde com o desafio do Cloudflare: o conteúdo não foi conferido)
+uniaobrasil.org.br           # 44 União Brasil
+psdb.org.br                  # 45 PSDB
+psol50.org.br                # 50 PSOL
+psd.org.br                   # 55 PSD
+pcdob.org.br                 # 65 PCdoB
+avante70.org.br              # 70 Avante
+solidariedade.org.br         # 77 Solidariedade
+unidadepopular.org.br        # 80 Unidade Popular

@@ -45,3 +45,13 @@ def test_nome_fora_da_lista_fica_com_uma_voz_que_sobrou():
     vozes = atribuir_vozes([{"nome": "Helena"}, {"nome": "Otávio"}, {"nome": "Analista"}, {"nome": "Bia"}])
     assert vozes["Otávio"] == VOZES_DIVERSIDADE[0] and vozes["Analista"] == VOZES_DIVERSIDADE[1] and vozes["Bia"] == VOZES_DIVERSIDADE[2]
     assert elenco.vaga("Analista") is None
+
+
+def test_o_primeiro_nome_de_uma_pessoa_citada_nos_textos_tambem_sai():
+    # decisão do dono de 25/10/2026: com vários veículos, mais pessoas são citadas; a escolha evita também as que não são atores
+    citado = ["Título da matéria\nSegundo o economista Otávio Fakhoury, a obra atrasou."]
+    assert nomes_dos_analistas(lado_unico(["G1"]), citado) == ["Mateus"]
+    assert nomes_dos_analistas(_lados(["A"], ["B"]), ["Nada aqui.", "A professora Patricia de Souza explicou."]) == ["Otávio", "Sofia"]
+    # o nome sozinho, ou seguido de vírgula ou de minúscula, não é uma pessoa citada
+    assert nomes_dos_analistas(_lados(["A"]), ["Em Sofia, capital da Bulgária, Otávio disse que sim."]) == ["Otávio"]
+    assert nomes_dos_analistas(_lados(["A"], ["B"]), ["Patrícia Lins e Sofia Ramos falaram; Isabela Costa também."]) == ["Otávio", "Isabela"]

@@ -22,7 +22,7 @@ ITEM = {
 @pytest.fixture
 def ambiente_isolado(monkeypatch):
     """`preparar()` escreve no ambiente do processo: o monkeypatch devolve o que havia depois do teste."""
-    for nome in ("DB_PATH", "LOG_DIR", "AUDIO_DIR", "ARQUIVO_DIR", "DELIVERY_CHANNEL", "TELEGRAM_TOKEN",
+    for nome in ("DB_PATH", "LOG_DIR", "AUDIO_DIR", "EXECUCOES_DIR", "ARQUIVO_DIR", "DELIVERY_CHANNEL", "TELEGRAM_TOKEN",
                  "TELEGRAM_CHAT_ID", simulacao.VARIAVEL):
         monkeypatch.setenv(nome, os.environ.get(nome, ""))
 
@@ -50,7 +50,8 @@ def test_preparar_copia_o_banco_lendo_a_origem_so_para_leitura(tmp_path, banco_d
     assert json.loads((pasta / simulacao.MARCA).read_text(encoding="utf-8"))["banco_origem"] == str(banco_de_producao)
     assert ambiente == {
         simulacao.VARIAVEL: str(pasta), "DB_PATH": str(pasta / "digest.db"), "LOG_DIR": str(pasta / "logs"),
-        "AUDIO_DIR": str(pasta / "audio"), "ARQUIVO_DIR": str(pasta / "entregas"), "DELIVERY_CHANNEL": "arquivo",
+        "AUDIO_DIR": str(pasta / "audio"), "EXECUCOES_DIR": str(pasta / "execucoes"), "ARQUIVO_DIR": str(pasta / "entregas"),
+        "DELIVERY_CHANNEL": "arquivo",
         "TELEGRAM_TOKEN": "", "TELEGRAM_CHAT_ID": "",
     }
     assert all(os.environ[nome] == valor for nome, valor in ambiente.items())
@@ -132,6 +133,7 @@ import sys, types
 from pathlib import Path
 
 marca_do_telegram = Path(sys.argv[1])
+PARAR_EM = sys.argv[2]          # o título do artigo em que uma trava da máquina dispara ("" = nenhum)
 import requests
 def _post_proibido(*args, **kwargs):
     marca_do_telegram.write_text("chamado")
@@ -143,8 +145,10 @@ coleta = types.ModuleType("techdigest.collectors.rss")
 coleta.collect_rss = lambda: [Article(title=f"Artigo {n}", url=f"https://jornaldovale.example/{n}", source="Jornal do Vale")
                               for n in (1, 2)]
 sys.modules["techdigest.collectors.rss"] = coleta
+from techdigest.processing.extractor import Extracao
 extracao = types.ModuleType("techdigest.processing.extractor")
-extracao.extract_full_text = lambda url, fallback="": "texto " * 400
+extracao.Extracao = Extracao
+extracao.extrair = lambda url, fallback="": Extracao("texto " * 400, url, True)
 sys.modules["techdigest.processing.extractor"] = extracao
 geracao = types.ModuleType("techdigest.ai.summarizer")
 class QAReprovado(Exception):
@@ -152,15 +156,20 @@ class QAReprovado(Exception):
 class Summarizer:
     def __init__(self, provider=None):
         self.provider = provider
+        self.ultimo_diagnostico = {}
     def process(self, principal):
+        if principal["title"] == PARAR_EM:
+            from techdigest.ai.maquina import ExecucaoInterrompida
+            raise ExecucaoInterrompida("memória disponível em 3.1 GiB, abaixo do mínimo de 4.0 GiB")
         return {"titulo_reescrito": principal["title"], "resumo_didatico": "Resumo.", "pontos_chave": ["Ponto."],
                 "por_que_importa": "Importa.", "personagens": [], "roteiro_podcast": [], "houve_divergencia": False,
                 "fontes_citadas": ["Jornal do Vale"]}
 geracao.QAReprovado, geracao.Summarizer = QAReprovado, Summarizer
+geracao.TETO_PRINCIPAL, geracao.TETO_RELACIONADO = 5000, 3000   # o registro da execução os importa
 sys.modules["techdigest.ai.summarizer"] = geracao
 
 from techdigest.main import main
-main(sys.argv[2:])
+main(sys.argv[3:])
 """
 
 
@@ -180,7 +189,7 @@ def test_a_simulacao_de_ponta_a_ponta_entrega_em_arquivos_e_nao_chama_o_telegram
     antes = banco_de_producao.read_bytes()
     pasta = tmp_path / "simulacoes" / "ponta_a_ponta"
     marca = tmp_path / "telegram_chamado"
-    saida = _rodar_techdigest(tmp_path, str(marca), "--simular", str(pasta), "--banco-origem", str(banco_de_producao),
+    saida = _rodar_techdigest(tmp_path, str(marca), "", "--simular", str(pasta), "--banco-origem", str(banco_de_producao),
                               "--sem-audio", script=SIMULACAO_FALSA)
     assert saida.returncode == 0, saida.stderr[-2000:]
     assert not marca.exists()
@@ -192,6 +201,25 @@ def test_a_simulacao_de_ponta_a_ponta_entrega_em_arquivos_e_nao_chama_o_telegram
     log = (pasta / "logs" / "techdigest.log").read_text(encoding="utf-8")
     assert "Simulação em" in log and "Execução concluída: 2 notícia(s) entregue(s)" in log
     assert (tmp_path / "estado" / "techdigest" / "modelo.lock").read_text(encoding="utf-8") == ""
+    [registro] = (pasta / "execucoes").iterdir()                     # o registro da execução fica na pasta da simulação
+    assert len(json.loads(next(registro.glob("relatorio_*.json")).read_text(encoding="utf-8"))["episodios"]) == 2
+    assert not (pasta / "AVISO.txt").exists()
+
+
+def test_o_aviso_de_parada_da_simulacao_vai_para_o_aviso_txt_e_nunca_para_o_telegram(tmp_path, banco_de_producao):
+    pasta = tmp_path / "simulacoes" / "com_parada"
+    marca = tmp_path / "telegram_chamado"
+    saida = _rodar_techdigest(tmp_path, str(marca), "Artigo 2", "--simular", str(pasta), "--banco-origem",
+                              str(banco_de_producao), "--sem-audio", script=SIMULACAO_FALSA)
+    assert saida.returncode == 1, saida.stderr[-2000:]
+    assert not marca.exists()
+    aviso = (pasta / "AVISO.txt").read_text(encoding="utf-8")
+    assert "TechDigest parou às " in aviso and "memória disponível em 3.1 GiB" in aviso and "Entregues: 1 de 20" in aviso
+    assert "AVISO: TechDigest parou às " in saida.stderr                  # e na saída de erro
+    log = (pasta / "logs" / "techdigest.log").read_text(encoding="utf-8")
+    assert "Aviso de parada: TechDigest parou às " in log and "Execução interrompida: memória disponível" in log
+    copia = SeenStore(str(pasta / "digest.db"))
+    assert not copia.is_new("https://jornaldovale.example/1") and copia.is_new("https://jornaldovale.example/2")
 
 
 def test_techdigest_simular_recusa_a_pasta_sem_rodar_nada(tmp_path, banco_de_producao):

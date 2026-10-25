@@ -7,7 +7,9 @@ Uso (da raiz do projeto, com o venv ativo):
 
 Lê data/logs/techdigest.log (ou o log de --log) e os arquivos rotacionados (.1 a .7), do mais
 antigo ao mais novo. Uma execução interrompida por uma trava da máquina aparece com o motivo, e
-as que nem começaram porque a trava do modelo estava ocupada vêm listadas depois da tabela.
+as que nem começaram porque a trava do modelo estava ocupada vêm listadas depois da tabela. Os itens
+que o filtro tirou (esporte, ofertas, site de partido) e os abandonados pelo limite de tentativas
+têm colunas próprias, e o aviso de parada aparece nas observações (enviado ou não).
 """
 import datetime
 import re
@@ -34,8 +36,8 @@ def _arquivos_de_log(log: str | None = None) -> list[Path]:
 
 
 def _novo_lote(hora: str) -> dict:
-    return {"inicio": hora, "fim": None, "entregues": None, "qa": 0, "descartados": 0,
-            "erros": 0, "falhas_entrega": 0, "orcamento": False, "fatal": False, "interrompida": "",
+    return {"inicio": hora, "fim": None, "entregues": None, "qa": 0, "descartados": 0, "filtrados": 0, "abandonados": 0,
+            "erros": 0, "falhas_entrega": 0, "orcamento": False, "fatal": False, "interrompida": "", "aviso": "",
             "toks": [], "ram": [], "swap": [], "cpu": [], "gpu": [], "gpu_mhz": []}
 
 
@@ -85,6 +87,14 @@ def ler_lotes(dia: str, log: str | None = None, nao_comecaram: list | None = Non
                 ultimo_evento = "erro"
             elif msg.startswith("Item descartado"):
                 atual["descartados"] += 1
+            elif msg.startswith("Item filtrado"):
+                atual["filtrados"] += 1
+            elif msg.startswith("Item abandonado"):
+                atual["abandonados"] += 1
+            elif msg.startswith("Aviso de parada não enviado"):
+                atual["aviso"] = "aviso não enviado"
+            elif msg.startswith("Aviso de parada:"):
+                atual["aviso"] = "aviso enviado"
             elif msg.startswith("Falha ao entregar"):
                 atual["falhas_entrega"] += 1
             elif "tok/s" in msg and msg.startswith("Ollama"):
@@ -130,7 +140,7 @@ def main() -> None:
         print(f"Nenhum lote encontrado em {dia} (arquivos lidos: {[str(p) for p in _arquivos_de_log(log)]})")
         _listar_nao_comecaram(nao_comecaram)
         return
-    cab = ("Início", "Duração", "Entreg.", "QA", "Desc.", "Erros", "F.entr.",
+    cab = ("Início", "Duração", "Entreg.", "QA", "Desc.", "Filt.", "Aband.", "Erros", "F.entr.",
            "tok/s méd", "tok/s mín", "RAM mín GB", "swap máx GB", "CPU máx °C", "GPU máx °C", "GPU mín MHz", "Obs.")
     linhas = []
     for l in lotes:
@@ -141,11 +151,14 @@ def main() -> None:
             obs.append("falha fatal")
         if l["interrompida"]:
             obs.append(f"interrompida: {l['interrompida']}")
+        if l["aviso"]:
+            obs.append(l["aviso"])
         toks = l["toks"]
         linhas.append((
             l["inicio"], _duracao(l["inicio"], l["fim"]),
             "-" if l["entregues"] is None else str(l["entregues"]),
-            str(l["qa"]), str(l["descartados"]), str(l["erros"]), str(l["falhas_entrega"]),
+            str(l["qa"]), str(l["descartados"]), str(l["filtrados"]), str(l["abandonados"]), str(l["erros"]),
+            str(l["falhas_entrega"]),
             f"{sum(toks) / len(toks):.1f}" if toks else "-", _min(toks, "{:.1f}"),
             _min(l["ram"], "{:.1f}"), _max(l["swap"], "{:.1f}"),
             _max(l["cpu"]), _max(l["gpu"]), _min(l["gpu_mhz"]),

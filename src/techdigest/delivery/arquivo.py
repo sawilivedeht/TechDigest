@@ -3,17 +3,21 @@
 Cada item vira `<NN>_<slug>.html`, com o texto exatamente como o Telegram o receberia
 (`telegram._render_item`, em HTML), e `<NN>_<slug>.json`, com o episódio inteiro; o mp3, quando
 há, é copiado ao lado. `entregas.txt` lista as entregas na ordem e recebe o fechamento do lote. A
-pasta é `ARQUIVO_DIR`, que a simulação aponta para `<pasta>/entregas`.
+pasta é `ARQUIVO_DIR`, que a simulação aponta para `<pasta>/entregas`. O aviso de parada vai para
+`<pasta>/AVISO.txt` e para a saída de erro.
 """
 import datetime
 import json
 import logging
+import os
 import re
 import shutil
+import sys
 from pathlib import Path
 
 from techdigest.config import Settings
 from techdigest.delivery.telegram import _render_item   # o texto que o Telegram receberia; importar não envia nada
+from techdigest.simulacao import VARIAVEL
 
 settings = Settings()
 logger = logging.getLogger("techdigest.delivery.arquivo")
@@ -47,3 +51,11 @@ def entregar_item(it: dict, audio: str | None) -> None:
 def entregar_fechamento(n: int) -> None:
     """O fechamento do lote, como a última linha de `entregas.txt`."""
     _registrar(_pasta(), f"fim do lote: {n} {'notícia' if n == 1 else 'notícias'}")
+
+
+def registrar_aviso(texto: str) -> None:
+    """O aviso de parada na simulação: acrescentado, com a hora, ao `AVISO.txt` da pasta dela, e na saída de erro."""
+    pasta = Path(os.environ[VARIAVEL])
+    with open(pasta / "AVISO.txt", "a", encoding="utf-8") as arquivo:
+        arquivo.write(f"{datetime.datetime.now():%d/%m %H:%M:%S} · {texto}\n")
+    print(f"AVISO: {texto}", file=sys.stderr)

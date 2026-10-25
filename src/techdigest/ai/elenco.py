@@ -7,8 +7,9 @@ Até então o modelo escolhia os nomes. Ele repetia o nome de uma pessoa citada 
 
 Os nomes vão por vaga: a vaga i é a do analista do lado i (com um lado só, a primeira), e cada vaga tem a sua voz no TTS,
 do gênero dos nomes dela. Em cada vaga vale o primeiro nome que não é o nome nem o primeiro nome de um ator da análise
-(ver `mesmo_nome`). Os nomes quase não aparecem nas amostras da fase 4, para não coincidir com o de uma pessoa citada
-que não é ator.
+(ver `mesmo_nome`), nem o primeiro nome de uma pessoa citada nos textos da pauta (ver `citado_nos_textos`; decisão do
+dono de 25/10/2026: com vários veículos, mais pessoas são citadas). Os nomes quase não aparecem nas amostras da fase 4:
+nas duas primeiras, só "Renato" é primeiro nome de uma pessoa citada, e é o último da vaga dele.
 
 Não importa nada do projeto: `lados.py` e `qa.py` o usam.
 """
@@ -58,16 +59,33 @@ def mesmo_nome(nome, ator) -> str:
     return ""
 
 
-def nomes_dos_analistas(lados) -> list[str]:
+def _sem_acento(texto: str) -> str:
+    """O texto sem acentos, com a caixa como está."""
+    return "".join(c for c in unicodedata.normalize("NFKD", texto) if not unicodedata.combining(c))
+
+
+def citado_nos_textos(nome: str, textos) -> bool:
+    """Se algum texto cita uma pessoa com esse primeiro nome: o nome com maiúscula seguido de outra palavra com maiúscula,
+    só com espaço ou partícula (da, de, do, das, dos) entre os dois ("Otávio Fakhoury", "Patricia de Souza"), sem acento.
+
+    O nome sozinho, ou seguido de vírgula ou de minúscula, não conta ("em Sofia, capital da Bulgária", "Otávio disse").
+    """
+    alvo = re.compile(rf"(?<![^\W\d_]){re.escape(_sem_acento(nome))}\s+(?:(?:da|de|do|das|dos)\s+)?[A-Z]")
+    return any(alvo.search(_sem_acento(str(texto))) for texto in textos)
+
+
+def nomes_dos_analistas(lados, textos=()) -> list[str]:
     """O nome do analista de cada lado, na ordem dos lados (com um lado só, ou nenhum, um analista).
 
-    Em cada vaga, o primeiro nome que não coincide com nenhum ator dos lados (ver `mesmo_nome`); se todos coincidirem, o
-    último da vaga.
+    Em cada vaga, o primeiro nome que não coincide com nenhum ator dos lados (ver `mesmo_nome`) nem é o primeiro nome de
+    uma pessoa citada nos `textos` da pauta (ver `citado_nos_textos`); se todos coincidirem, o último da vaga. O bloco
+    LADOS DA PAUTA e o QA passam os mesmos textos (título e texto de cada artigo), então dão os mesmos nomes.
     """
     atores = [ator for lado in lados for ator in lado.atores]
     nomes = []
     for vaga in VAGAS[:max(len(lados), 1)]:
-        nomes.append(next((n for n in vaga if not any(mesmo_nome(n, ator) for ator in atores)), vaga[-1]))
+        nomes.append(next((n for n in vaga
+                           if not any(mesmo_nome(n, ator) for ator in atores) and not citado_nos_textos(n, textos)), vaga[-1]))
     return nomes
 
 

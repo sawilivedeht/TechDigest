@@ -4,8 +4,9 @@ Cada módulo do techdigest lê as configurações quando é importado (`settings
 este arquivo roda antes de qualquer outro import do pacote, como o pytest garante para o
 conftest.py. Ele desliga a leitura do .env, tira do ambiente toda variável com nome de
 configuração, fixa os limites do QA nos valores em vigor e aponta banco, log, áudio, entregas,
-log do Ollama e trava do modelo para uma pasta temporária. Assim os testes dão o mesmo resultado em
-qualquer pasta (a principal, a worktree), com ou sem .env, e nenhum deles escreve no banco de
+registro das execuções, log do Ollama e trava do modelo para uma pasta temporária. Assim os
+testes dão o mesmo resultado em qualquer pasta (a principal, a worktree), com ou sem .env, e
+nenhum deles escreve no banco de
 produção nem prende a trava de verdade. Os testes também rodam como numa simulação
 (TECHDIGEST_SIMULACAO): o envio ao Telegram recusa rodar, mesmo que algum teste chegue até ele.
 """
@@ -35,6 +36,7 @@ os.environ.update({
     "DB_PATH": str(PASTA_DOS_TESTES / "digest.db"),
     "LOG_DIR": str(PASTA_DOS_TESTES / "logs"),
     "AUDIO_DIR": str(PASTA_DOS_TESTES / "audio"),
+    "EXECUCOES_DIR": str(PASTA_DOS_TESTES / "execucoes"),
     "OLLAMA_LOG": str(PASTA_DOS_TESTES / "ollama_serve.log"),
     "ARQUIVO_DIR": str(PASTA_DOS_TESTES / "entregas"),
     "DELIVERY_CHANNEL": "arquivo",                        # nenhum teste chega ao Telegram, nem por engano

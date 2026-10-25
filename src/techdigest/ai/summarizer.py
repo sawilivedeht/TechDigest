@@ -199,7 +199,9 @@ def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limi
     artigos = list(lidos)
     completos = {id(a): _limpar(a["text"]) for a in lidos}
     titulos = {id(a): _limpar(a["title"]) for a in lidos}
-    bloco = bloco_dos_lados(lados, questao, ressalvas, orc) if lados else ""
+    # Os nomes dos analistas evitam as pessoas citadas nos textos: os mesmos textos que o QA recebe (ver `process`).
+    pauta = [f"{a['title']}\n{a['text']}" for a in recebidos]
+    bloco = bloco_dos_lados(lados, questao, ressalvas, orc, pauta) if lados else ""
     evidencias = trechos_de_evidencia(lados or [], ressalvas)
 
     while True:

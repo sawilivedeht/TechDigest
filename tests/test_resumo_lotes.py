@@ -5,9 +5,16 @@ LOG = (
     "16/10 08:00:00 │ ERROR    │ techdigest.pipeline │ Execução não começou: o modelo está em uso por "
     "scripts/testar_episodio.py --amostra x (PID 1, desde 16/10 07:15, na pasta /x); espere essa execução terminar\n"
     "16/10 09:00:00 │ INFO     │ techdigest.pipeline │ === TechDigest iniciando ===\n"
+    "16/10 09:01:00 │ INFO     │ techdigest.pipeline │ Item filtrado (esporte: seção /esportes/): 'Jogo' ↳ https://x.example/e\n"
+    "16/10 09:02:00 │ INFO     │ techdigest.pipeline │ Item filtrado (site de partido (pt.org.br), depois da extração): "
+    "'Nota' ↳ https://pt.org.br/n\n"
     "16/10 09:05:00 │ WARNING  │ techdigest.pipeline │ Item pulado pelo QA: 'Artigo' — reprovado ↳ https://x.example\n"
+    "16/10 09:05:01 │ WARNING  │ techdigest.pipeline │ Item abandonado (reprovado pelo QA em 2 execuções): 'Artigo' ↳ "
+    "https://x.example\n"
     "16/10 09:20:00 │ ERROR    │ techdigest.pipeline │ Execução interrompida: memória disponível em 3.1 GiB, abaixo do "
     "mínimo de 4.0 GiB (7 notícia(s) entregue(s) antes; o que não foi entregue fica para a próxima execução).\n"
+    "16/10 09:20:01 │ WARNING  │ techdigest.pipeline │ Aviso de parada: TechDigest parou às 09:20: memória disponível em "
+    "3.1 GiB, abaixo do mínimo de 4.0 GiB. Entregues: 7 de 20; o resto volta na próxima execução.\n"
     "16/10 10:00:00 │ INFO     │ techdigest.pipeline │ === TechDigest iniciando ===\n"
     "16/10 11:10:00 │ INFO     │ techdigest.pipeline │ Execução concluída: 20 notícia(s) entregue(s) em 70 min.\n"
 )
@@ -20,11 +27,12 @@ def test_o_resumo_mostra_a_execucao_interrompida_e_a_que_nao_comecou(tmp_path, c
     interrompida, concluida = rl.ler_lotes("16/10", str(log), nao_comecaram)
     assert (interrompida["fim"], interrompida["interrompida"], interrompida["qa"]) == \
         ("09:20:00", "memória disponível em 3.1 GiB, abaixo do mínimo de 4.0 GiB", 1)
+    assert (interrompida["filtrados"], interrompida["abandonados"], interrompida["aviso"]) == (2, 1, "aviso enviado")
     assert (concluida["entregues"], concluida["interrompida"]) == (20, "")
     assert nao_comecaram == [("08:00:00", "o modelo está em uso por scripts/testar_episodio.py --amostra x (PID 1, "
                                           "desde 16/10 07:15, na pasta /x); espere essa execução terminar")]
     monkeypatch.setattr("sys.argv", ["resumo_lotes.py", "16/10", "--log", str(log)])
     rl.main()
     saida = capsys.readouterr().out
-    assert "interrompida: memória disponível em 3.1 GiB" in saida
+    assert "interrompida: memória disponível em 3.1 GiB, abaixo do mínimo de 4.0 GiB, aviso enviado" in saida
     assert "Não começaram (a trava do modelo estava ocupada):\n  08:00:00: o modelo está em uso" in saida

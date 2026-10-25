@@ -351,14 +351,15 @@ def problemas_dos_papeis(result: dict, lados) -> list[str]:
     return probs
 
 
-def problemas_dos_nomes(result: dict, lados) -> list[str]:
+def problemas_dos_nomes(result: dict, lados, textos=()) -> list[str]:
     """Os analistas que falam no roteiro têm os nomes que o bloco LADOS DA PAUTA dá (ver `elenco.nomes_dos_analistas`);
     lista vazia = aprovado.
 
     Confere o nome, não o lado: o analista do lado 2 com o nome do lado 1 passa. O número de analistas é da regra dos
-    analistas por lado (ver `problemas_dos_analistas`).
+    analistas por lado (ver `problemas_dos_analistas`). `textos` são os textos da pauta, os mesmos que o bloco recebe:
+    a escolha do nome evita também as pessoas citadas neles.
     """
-    nomes = nomes_dos_analistas(lados)
+    nomes = nomes_dos_analistas(lados, textos)
     return [
         f"o analista {nome} não tem um dos nomes que o bloco LADOS DA PAUTA dá aos analistas ({', '.join(nomes)}): use os "
         f"nomes do bloco, em \"personagens\" e no roteiro"
@@ -611,7 +612,7 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos, orc: O
             )))
 
     probs += _dos_analistas(result, lados)
-    probs += [Problema(ELENCO, texto) for texto in problemas_dos_nomes(result, lados)]
+    probs += [Problema(ELENCO, texto) for texto in problemas_dos_nomes(result, lados, textos)]
     probs += [Problema(PAPEL, texto) for texto in problemas_dos_papeis(result, lados)]
     probs += [Problema(ROTEIRO, texto) for texto in problemas_das_ressalvas(result, ressalvas)]
     probs += problemas_das_atribuicoes(result, textos)

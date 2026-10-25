@@ -2,8 +2,9 @@
 
 Coleta, extração, LLM e áudio são reais; a entrega vai para arquivos em `<pasta>/entregas` (o
 texto como o Telegram o receberia, o episódio e o mp3), pelo canal `arquivo`; o banco é uma cópia,
-feita com o de origem aberto só para leitura; o log e o áudio também ficam na pasta, longe do log
-que `scripts/resumo_lotes.py` lê por padrão. A trava do modelo é a de sempre (ver `trava.py`).
+feita com o de origem aberto só para leitura; o log, o áudio e o registro de cada execução
+(`<pasta>/execucoes`) também ficam na pasta, longe do log que `scripts/resumo_lotes.py` lê por
+padrão, e o aviso de parada vai para `<pasta>/AVISO.txt`. A trava do modelo é a de sempre (ver `trava.py`).
 
 `preparar()` roda antes de qualquer import do pacote que leia a configuração: cada módulo cria o
 seu `Settings()` ao ser importado, então os caminhos e o canal da simulação têm de estar no
@@ -71,6 +72,7 @@ def preparar(pasta: str | Path, banco_origem: str | Path | None) -> dict[str, st
         "DB_PATH": str(banco),
         "LOG_DIR": str(pasta / "logs"),
         "AUDIO_DIR": str(pasta / "audio"),
+        "EXECUCOES_DIR": str(pasta / "execucoes"),
         "ARQUIVO_DIR": str(pasta / "entregas"),
         "DELIVERY_CHANNEL": "arquivo",
         "TELEGRAM_TOKEN": "",

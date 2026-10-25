@@ -674,6 +674,18 @@ def test_os_analistas_tem_os_nomes_que_o_bloco_da():
     assert problema.campo == qa.ELENCO and "(Otávio)" in problema.texto
 
 
+def test_o_qa_confere_os_nomes_com_os_mesmos_textos_do_bloco():
+    # decisão de 25/10/2026: a escolha evita também as pessoas citadas nos textos, e o QA recebe os mesmos textos
+    textos = ["Título\nSegundo o engenheiro Otávio Prado, a obra atrasou."]
+    episodio = {**_episodio(["G1"]), "personagens": [{"nome": "Helena"}, {"nome": "Otávio"}],
+                "roteiro_podcast": [{"personagem": "Helena", "fala": "a"}, {"personagem": "Otávio", "fala": "b"}]}
+    assert qa.problemas_dos_nomes(episodio, UM_LADO) == []
+    assert qa.problemas_dos_nomes(episodio, UM_LADO, textos)[0].startswith(
+        "o analista Otávio não tem um dos nomes que o bloco LADOS DA PAUTA dá aos analistas (Mateus)")
+    [problema] = [p for p in qa.problemas_com_campo(episodio, ["G1"], UM_LADO, SEM_RESSALVAS, textos) if "nomes" in p.texto]
+    assert "(Mateus)" in problema.texto
+
+
 def test_papel_de_analista_com_nome_de_ator_dos_lados_reprova():
     episodio = _episodio(["G1"])
     episodio["personagens"] = [{"nome": "Helena", "papel": "apresentadora da Meta"}, {"nome": "Otávio", "papel": "analista da Meta"}]

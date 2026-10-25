@@ -46,11 +46,11 @@ from techdigest import trava
 from techdigest.ai import maquina, qa
 from techdigest.ai.llm import get_provider
 from techdigest.ai.elenco import nomes_dos_analistas
-from techdigest.ai.lados import lados_finos
 from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
-from techdigest.ai.summarizer import CORRECOES, TETO_PRINCIPAL, TETO_RELACIONADO, QAReprovado, Summarizer
+from techdigest.ai.summarizer import CORRECOES, QAReprovado, Summarizer
 from techdigest.config import Settings
 from techdigest.processing import agrupamento as ag
+from techdigest.registro import cortes_para_registro, lados_para_registro, orcamento_para_registro
 
 settings = Settings()
 
@@ -302,38 +302,7 @@ def _fontes(pauta: ag.Pauta) -> tuple[dict, list[dict]]:
 
 def _lados(analise, chamadas: list[dict]) -> dict:
     """Mostra o resultado da análise de lados e devolve o que vai para o relatório."""
-    feitas = [ch for ch in chamadas if ch["prompt"] == "lados"]
-    registro = {
-        "quantos": len(analise.lados), "questao": analise.questao, "motivo": analise.motivo,
-        "tentativas": len(feitas), "lado_de_emergencia": bool(analise.problemas), "invalida_porque": analise.problemas,
-        "ajustes": analise.ajustes, "atores_sem_entrada": analise.faltam, "textos_cortados_na_analise": analise.cortes,
-        "sem_sim_e_nao": analise.sem_sim_e_nao,
-        "atores_recusados": [{"ator": r.ator, "trecho": r.trecho, "motivo": r.motivo} for r in analise.recusados],
-        "ressalvas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos), "trecho": r.trecho}
-                      for r in analise.ressalvas],
-        "ressalvas_descartadas": [{"grupos": list(r.grupos), "posicao": r.posicao, "veiculos": list(r.veiculos), "trecho": r.trecho,
-                                   "motivo": motivo} for r, motivo in analise.descartadas],
-        "lados": [{"resposta": lado.resposta, "posicao": lado.posicao, "atores": list(lado.atores), "veiculos": list(lado.veiculos),
-                   "trechos": list(lado.trechos), "frases_com_os_atores": lado.mencoes, "fino": fino}
-                  for lado, fino in zip(analise.lados, lados_finos(analise.lados))],
-        "respostas_por_ator": [{"ator": e.ator, "resposta": e.resposta, "trecho": e.trecho, "veiculo": e.veiculo,
-                                "comprovada": e.comprovada, "prova": e.prova, "trecho_do_llm": e.trecho_do_llm,
-                                "diferencas": e.diferencas}
-                               for e in analise.respostas],
-        "resposta_do_llm": analise.resposta,
-        "primeira_tentativa": None if analise.primeira is None else {
-            "invalida_porque": analise.primeira.problemas, "atores_sem_entrada": analise.primeira.faltam,
-            "atores_recusados": [{"ator": r.ator, "trecho": r.trecho, "motivo": r.motivo} for r in analise.primeira.recusados],
-            "sem_sim_e_nao": analise.primeira.sem_sim_e_nao, "resposta_do_llm": analise.primeira.resposta,
-        },
-        "segunda_tentativa_recusada": None if analise.segunda is None else {
-            "invalida_porque": analise.segunda.problemas, "sem_sim_e_nao": analise.segunda.sem_sim_e_nao,
-            "lados": len(analise.segunda.lados), "resposta_do_llm": analise.segunda.resposta,
-        },
-        "segundos": round(sum(ch.get("segundos", 0.0) for ch in feitas), 1),
-        "segundos_por_tentativa": [round(ch.get("segundos", 0.0), 1) for ch in feitas],
-        "tokens_entrada": [ch.get("tokens_entrada") for ch in feitas], "tokens_saida": [ch.get("tokens_saida") for ch in feitas],
-    }
+    registro = lados_para_registro(analise, chamadas)
     print(f"  lados: {registro['quantos']} · {registro['tentativas']} tentativa(s) · {registro['segundos']:.1f} s · "
           f"tokens {registro['tokens_entrada']} + {registro['tokens_saida']}")
     for corte in analise.cortes:
@@ -400,20 +369,6 @@ def _primeira_pessoa(episodio: dict) -> list[dict]:
             if marcas:
                 achadas.append({"personagem": turno.get("personagem"), "marcas": marcas, "frase": frase})
     return achadas
-
-
-def _cortes(entrada) -> list[dict]:
-    """Por artigo da pauta: quanto do texto entrou na mensagem, que parágrafos entraram, por quê, e os que ficaram de fora
-    tendo trecho de evidência."""
-    recortes = {i: recorte for i, recorte in enumerate(entrada.recortes)}   # na mesma ordem dos cortes, só os que a análise leu
-    return [
-        {**corte, "teto": TETO_PRINCIPAL if i == 0 else TETO_RELACIONADO,
-         "cortado_pelo_orcamento": max(min(corte["texto"], TETO_PRINCIPAL if i == 0 else TETO_RELACIONADO) - corte["incluido"], 0),
-         "paragrafos_do_texto": recortes.get(i, {}).get("paragrafos"),
-         "paragrafos_que_entraram": recortes.get(i, {}).get("entraram", []),
-         "paragrafos_com_trecho_fora": recortes.get(i, {}).get("fora", [])}
-        for i, corte in enumerate(entrada.cortes)
-    ]
 
 
 def _faixas(entraram: list[dict]) -> str:
@@ -526,7 +481,7 @@ def _analisar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summari
     primeira = len(monitor.chamadas)
     entrada, analise = summarizer.preparar(*_fontes(pauta))
     relatorio["lados"] = _lados(analise, monitor.chamadas[primeira:])
-    relatorio["cortes_na_geracao"] = _cortes(entrada)
+    relatorio["cortes_na_geracao"] = cortes_para_registro(entrada)
     relatorio["chars_da_entrada_do_episodio"] = len(entrada.texto)
     _mostrar_cortes(relatorio["cortes_na_geracao"], "geração")
     return relatorio
@@ -576,7 +531,7 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
         relatorio["lados"] = _lados(diagnostico["lados"], chamadas)
     for nome, entrada in (("cortes_na_geracao", diagnostico.get("entrada")), ("cortes_na_revisao", diagnostico.get("revisao"))):
         if entrada is not None:
-            relatorio[nome] = _cortes(entrada)
+            relatorio[nome] = cortes_para_registro(entrada)
 
     for ch in chamadas:
         if "erro" in ch:
@@ -618,10 +573,7 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
         analise = diagnostico.get("lados")
         orc = diagnostico.get("orcamento")
         if orc is not None:
-            relatorio["orcamento"] = {"helena": orc.helena, "analistas": list(orc.analistas), "total": orc.total,
-                                      "palavras_do_texto": orc.palavras_do_texto, "reduzido": orc.reduzido,
-                                      "turnos": orc.turnos, "falas": list(orc.plano.falas),
-                                      "tamanhos": list(orc.plano.tamanhos), "ordem": list(orc.plano.ordem)}
+            relatorio["orcamento"] = orcamento_para_registro(orc)
         try:
             relatorio["palavras_por_personagem"] = qa.palavras_por_personagem(episodio["roteiro_podcast"])
             antes = (relatorio.get("primeira_versao") or {}).get("palavras_por_personagem")
@@ -675,7 +627,8 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
         for nome, palavras in (relatorio.get("lado_fino_acima_do_teto") or {}).items():
             print(f"  diagnóstico: {nome}, analista de lado fino, com {palavras} palavras (o prompt pede até {qa.MAX_LADO_FINO})")
         if analise is not None:
-            relatorio["nomes_do_bloco"] = nomes_dos_analistas(analise.lados)
+            textos = [f"{c.titulo}\n{c.texto}" for c in pauta.artigos]   # os mesmos textos do bloco e do QA
+            relatorio["nomes_do_bloco"] = nomes_dos_analistas(analise.lados, textos)
             print(f"  nomes que o bloco deu aos analistas: {', '.join(relatorio['nomes_do_bloco'])}")
         print(f"  papéis: {[(p.get('nome'), p.get('papel')) for p in relatorio['personagens'] or [] if isinstance(p, dict)]}")
         for item in relatorio["frases_na_primeira_pessoa"]:

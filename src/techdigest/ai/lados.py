@@ -1090,9 +1090,10 @@ def _linhas_do_bloco(lados, questao: str, ressalvas, finos: list[bool], teto: in
     ]
 
 
-def bloco_dos_lados(lados, questao: str = "", ressalvas=(), orc: Orcamento | None = None) -> str:
+def bloco_dos_lados(lados, questao: str = "", ressalvas=(), orc: Orcamento | None = None, textos=()) -> str:
     """O bloco LADOS DA PAUTA da entrada do episódio: a questão, os lados, as ressalvas, o elenco exato, com o nome de cada
-    analista (ver `elenco.nomes_dos_analistas`), e o alvo de palavras.
+    analista (ver `elenco.nomes_dos_analistas`, que evita os atores e as pessoas citadas nos `textos` da pauta), e o alvo
+    de palavras.
 
     O alvo vem de `orc`; sem ele, é o de antes para o tamanho do elenco (ver `orcamento.orcamento`).
     Nunca passa de MAX_BLOCO caracteres: se for preciso, as frases de posição encolhem. O orçamento
@@ -1100,7 +1101,7 @@ def bloco_dos_lados(lados, questao: str = "", ressalvas=(), orc: Orcamento | Non
     """
     finos = lados_finos(lados)
     orc = orc or orcamento(lados)
-    analistas = nomes_dos_analistas(lados)
+    analistas = nomes_dos_analistas(lados, textos)
     teto = MAX_POSICAO
     linhas = _linhas_do_bloco(lados, questao, ressalvas, finos, teto, orc, analistas)
     while len("\n".join(linhas)) > MAX_BLOCO and teto > MIN_POSICAO:

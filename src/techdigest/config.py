@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     gnews_resolver: bool = True        # resolve links do Google Notícias para a URL do veículo (False = desliga)
     max_runtime_min: int = 180         # não inicia novos itens depois desse tempo (0 = sem limite); o systemd mata em 4h
     max_falhas_entrega: int = 3        # falhas de entrega SEGUIDAS que encerram a execução (canal fora do ar)
+    max_reprovacoes: int = 2           # execuções em que o QA reprovou o item até ele ser abandonado (só QAReprovado conta)
+    execucoes_dir: str = str(BASE_DIR / "data" / "execucoes")   # o registro de cada execução (registro.py): os textos usados
+                                       # e os episódios, no formato que checar_fidelidade.py e refazer_qa.py leem
+    execucoes_dias: int = 30           # dias que o registro de uma execução fica guardado (0 = guarda todos)
 
     # Extração em lote (extractor.extrair_em_lote)
     extracao_workers: int = 6          # itens extraídos em paralelo

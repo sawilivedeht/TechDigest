@@ -78,6 +78,15 @@ def _extrair(url: str, fallback: str = "", limite_gnews=None) -> Extracao:
     return Extracao(fallback, alvo, False)
 
 
+def extrair(url: str, fallback: str = "") -> Extracao:
+    """Extrai uma matéria e devolve o texto e a URL resolvida (a do veículo, depois do Google Notícias).
+
+    É o que o pipeline usa: o filtro de sites de partido, esporte e ofertas olha a URL final. O texto é o mesmo de
+    `extract_full_text`.
+    """
+    return _extrair(url, fallback)
+
+
 def extract_full_text(url: str, fallback: str = "") -> str:
     return _extrair(url, fallback).texto
 

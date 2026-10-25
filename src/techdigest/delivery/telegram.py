@@ -129,6 +129,11 @@ def _enviar_audio(it: dict, audio: str) -> None:
         return
 
 
+def send_aviso_telegram(texto: str) -> None:
+    """O aviso de parada, em texto puro (sem HTML, que o motivo pode quebrar), pelo mesmo `_post` que esconde o token."""
+    _post("sendMessage", {"chat_id": settings.telegram_chat_id, "text": f"⚠️ {texto}"})
+
+
 def send_footer_telegram(n: int) -> None:
     """Fechamento do lote: quantas notícias esta execução entregou (pode haver vários lotes por dia)."""
     _post("sendMessage", {

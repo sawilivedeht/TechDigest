@@ -44,6 +44,21 @@ def deliver_item(item: dict, audio: str | None) -> str:
     raise _canal_nao_implementado()
 
 
+def deliver_aviso(texto: str) -> None:
+    """O aviso de parada (ver `pipeline._avisar`): no Telegram, em produção; na simulação, no `AVISO.txt` da pasta dela e
+    na saída de erro, nunca no Telegram. Levanta exceção se o aviso falhar: quem chama registra no log."""
+    if settings.delivery_channel == "telegram":
+        from techdigest.delivery.telegram import send_aviso_telegram
+        send_aviso_telegram(texto)
+        return
+    if settings.delivery_channel == "arquivo":
+        _so_na_simulacao()
+        from techdigest.delivery.arquivo import registrar_aviso
+        registrar_aviso(texto)
+        return
+    raise _canal_nao_implementado()
+
+
 def deliver_footer(n: int) -> None:
     """Mensagem de fechamento do digest (quantas notícias foram entregues)."""
     if settings.delivery_channel == "telegram":
