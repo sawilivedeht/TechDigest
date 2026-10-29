@@ -1411,6 +1411,108 @@ repetidos). Pelo rascunho, a meta do protocolo não fecha: 9 pautas de 2 ou mais
 de esporte), contra 15, e 3 com disputa (todas na coleta 3), contra 6; 8 itens de fonte única com disputa. Se o
 gabarito do dono confirmar, falta uma quarta coleta.
 
+## O gabarito da terceira amostra e a validação cega: as decisões de 29/10
+
+Em 29/10/2026, ao ler o rascunho do gabarito (a janela e as duas leituras do relatório da janela certas):
+
+- **Regras para o gabarito:**
+  1. Listas e guias de compra ("10 X", "5 apps", "conheça 5 modelos") e sumários de revista são textos de vários fatos
+     (coleta 1: 5, 6, 11 e 24; coleta 2: 4, 24, 79, 105 e 43). Opinião ou análise de um tema só não é.
+  2. Um veículo citado que afirma o fato que o ator nega é lado: o 83 da coleta 1 (Aftonbladet "Sim", TV4 "Não") e o 53
+     da coleta 3 (UOL "Sim", Ricardo Nunes "Não") têm disputa.
+  3. Uma decisão anterior que a nova suspende, sem ninguém que a defenda no texto, é sequência dos fatos: o 77 da coleta
+     1 fica sem disputa, com lado único do MP Eleitoral e do TRE/AL.
+- **Item a item:** na coleta 3, a carta (A) e a fuga (B) são duas pautas, a C fica à parte, o 100 fica na B e o 49 na A;
+  na B, a disputa do visto conta só se o 50 estiver entre os textos da geração (sem ele, lado único da PF); na A, Trump
+  fica fora dos lados, a bancada do PL entra no "Sim" como secundária e Marinho fica no "Não"; o 23 tem disputa; o 38 é
+  oferta. Na coleta 1, o 36 × 73 leva a relação do 11 × 23 da amostra de 12/10, e o lado do 74 é só Kutaragi. Na coleta
+  2, o 5 tem disputa (Meta "Não", News/Media Alliance "Sim"); o 11, o 26 e o 25 são notícia; o 16 fica no lado neutro. O
+  resto como no rascunho.
+- **A validação cega da fonte única:** os 24 itens de fonte única das três coletas, com a sessão de teste e a leitura
+  frase a frase de sempre. O aceite é o de 23/10, proporcional a 24 itens: pelo menos 21 aprovados, nenhuma disputa
+  inventada, frases marcadas até 21%, argumentos atribuídos até 1,7 por episódio no total e 1,8 nos itens com disputa.
+  Vêm também a disputa perdida, a questão errada e as marcas por mil palavras ao lado das de 24/10. Prompt e QA não mudam
+  por causa do resultado.
+- **Sem o modelo:** `testar_agrupamento.py --rotulos` nas etapas 1 e 2 das três coletas; a etapa 3 fica para quando a
+  quarta coleta estiver rotulada.
+- **Para decidir antes de ligar o agrupamento:**
+  - **Sites de quem é parte da história** (governo, MPF, sindicato): se entram como veículo, como "Também noticiaram" ou
+    como ator. Hoje a `master` já os trata como veículo na fonte única (o 77 da coleta 1 é do MPF; a pauta D da coleta 3
+    tem o GOV.BR e o site do Governo Federal; na simulação ligada de 29/10, o GOV.BR entrou como veículo).
+  - **Texto patrocinado com cupom** (o 38 da coleta 3: um texto sobre a falha no PHP que termina oferecendo a Hostinger
+    com cupom), que o filtro do código não pega.
+  - **A quarta coleta**, a partir de 01/11, quando o dono pedir: faltam 6 pautas de várias fontes e 3 com disputa para a
+    meta.
+
+**O gabarito final, em 29/10** (`data/agrupamento/terceira_amostra/`): por coleta, `gabarito_<carimbo>.md` e
+`rotulos_<carimbo>.csv`, a partir dos rascunhos, que ficam como estavam. Cada dúvida do rascunho leva a decisão no começo
+(seção 6). Os 91 trechos citados estão, literalmente, no texto do artigo indicado (conferido por script).
+
+- **Nos pares, mudou um rótulo:** o 36 × 73 da coleta 1, de `sobreposicao_parcial` para `desdobramento`. O 11 × 23 de
+  12/10 está entre os pares que "deveriam ter sido avaliados" no gabarito do dono, juntos; o 73 (13/10) testa o Myna
+  antes do lançamento e o 36 (15/10) é o lançamento do Ubuntu 26.10. Com isso, a coleta 1 ganha uma pauta de 2 artigos
+  (sem disputa, lado único da Canonical, ou relato dos fatos), ambos do Diolinux.
+- **Nos lados e nas listas:** os textos de vários fatos da regra 1; o 83 e o 53 com disputa; o 77 e o 74 com um lado
+  só; a pauta B com as duas respostas, conforme o 50 esteja na geração; a bancada do PL no "Sim" da A e Trump fora; os
+  guias de compra (6, 11 e 24 da coleta 1; 105 da coleta 2) fora das ofertas, porque não trazem preço, cupom nem
+  afiliado; o 70 da coleta 1 é tecnologia; o 89 da coleta 1 e o 11, o 26 e o 25 da coleta 2 são notícia; o 38 da coleta 3
+  é oferta.
+- **A contagem para a meta:** 10 pautas de 2 ou mais artigos (3, 1 e 6), 9 sem a de esporte, e 2 com disputa (A e C),
+  mais a B quando o 50 está na geração. Entre os 24 itens de fonte única da medida cega, 8 têm disputa (55 e 83; 63, 62,
+  5 e 55; 23 e 53).
+
+**As etapas 1 e 2, sem o modelo** (`data/agrupamento/etapas12_20261029/`: a saída do `--rotulos` por coleta, e
+`contar.py` com `saida_contar.txt`, que conta os pares de cada pauta do gabarito):
+
+| Coleta | Pauta (artigos) | Pares juntos | O limiar deixa passar | Forma-se |
+|---|---|---|---|---|
+| 1 | Datafolha (3) | 3 | 0 | inteira |
+| 1 | Ubuntu 26.10 (2) | 1 | 1 (36 × 73, score 0,09) | não |
+| 1 | Copa do Brasil Feminina, esporte (2) | 1 | 0 | inteira |
+| 2 | Combos da Vivo (2) | 1 | 0 | inteira |
+| 3 | A, a carta de Flávio (8) | 28 | 24 | em parte: 44 + 71 + 93 e 30 + 78, em duas pautas; 1, 2 e 49 sozinhos |
+| 3 | B, a fuga de Flávio (4) | 6 | 6 (o 64 × 65 tem 0,18 arredondado, abaixo do limiar) | não |
+| 3 | C, a relação Brasil-EUA (2) | 1 | 1 (16 × 85, score 0,12) | não |
+| 3 | D, a violência política (5) | 10 | 0 | inteira |
+| 3 | E, o Uber Moto (2) | 1 | 0 | inteira |
+| 3 | F, o MacBook Pro (2) | 1 | 0 | inteira |
+
+O limiar junta 7 pares que o gabarito separa, todos `mesmo_tema`: na coleta 1, os dois guias de TV do Tecnoblog (6 × 24,
+textos de vários fatos) e os três textos de IA (29 × 41, 29 × 56, 41 × 56); na coleta 2, 12 × 32, 13 × 49 e 19 × 33. É o
+trabalho da etapa 3, que fica para quando a quarta coleta estiver rotulada.
+
+**A validação cega da fonte única, em 29/10** (de 17:26 a 18:25, 59 minutos para 24 itens, sob `systemd-inhibit` e com
+o vigia de memória, nunca abaixo de 14,9 GiB; código de `b263ac1`; o detalhe em
+`data/agrupamento/validacao_20261029/resultado.md`). A leitura foi feita por um leitor por coleta (Opus, só leitura, com
+a régua e as marcas de 24/10 como calibração, sem o gabarito), com marcas de cada coleta conferidas pelo lead contra o
+texto recebido.
+
+- **O aceite de 23/10, proporcional, não foi atingido:**
+
+  | Critério | Meta | Resultado |
+  |---|---|---|
+  | Aprovados | 21 de 24 ou mais | 19 |
+  | Disputa inventada | nenhuma | 3 (C2.16, C2.87, C3.52), as três reprovadas pelo QA |
+  | Frases marcadas | até 21% | 8% (76 em 962) |
+  | Argumentos atribuídos | até 1,7 por episódio, e 1,8 nos itens com disputa | 0,79, e 1,25 |
+
+- **Disputa perdida em 5 dos 8 itens com disputa no gabarito.** Em três (C1.55, C1.83, C2.63), a primeira resposta do
+  modelo trazia a disputa certa e a conferência do trecho (`lados.traz_a_resposta`) tirou um lado: o substantivo
+  "alegação", "rejeitou" e "proibiu" fora dos verbos de decisão (e "o ministro" sem o nome), e "divulgada pelo jornal".
+  Nos outros dois, o modelo errou: no C3.23 ficou com Lula, e no C3.53 pôs o UOL como ressalva de grupo (a regra 2 de
+  29/10 é posterior ao prompt). Só 3 disputas saíram certas (C2.62, C2.5, C2.55).
+- **Questão errada:** 1, leve (C2.55: os lados certos, a questão é a conclusão antitruste de 2025, não a decisão nova).
+- **Disputas inventadas:** a de planos de governo (C2.16, o caso do N27), a fala de Bolsonaro da pandemia como lado
+  (C2.87) e a fonte anônima da Eurogamer contra o "não discutimos assuntos pessoais" (C3.52). Três das cinco reprovações
+  são esses itens: o lado que o texto não tem fica sem material para o alvo de palavras. As outras duas: um número por
+  extenso que não bate (C1.1) e a ressalva do UOL sem a frase da Helena (C3.53).
+- **Ressalvas:** nenhuma das 8 do gabarito apareceu (detalhe, pelas regras de 14/10).
+- **A leitura:** 5,5 marcas por mil palavras de roteiro, contra 7,4 na regressão de 24/10 (4,9 contra 8,7 nos itens com
+  disputa; 5,8 contra 7,0 nos de um lado); roteiro médio de 572 palavras. Os leitores são outros, o que limita a
+  comparação.
+- **Prompt e QA não mudaram por causa do resultado.** O que fazer com a conferência do trecho e com as disputas
+  inventadas fica com o dono.
+
 ## Números medidos
 
 - **Produção, 07/10/2026** (`master`, execução das 08:09): geração de 208 a 291 s a 11-16 tok/s,
