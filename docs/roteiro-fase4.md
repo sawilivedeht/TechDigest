@@ -1372,7 +1372,9 @@ nova tentativa tira a proporção medida do item; "a menor já vista" fica para 
 
 **Para o roteiro, antes de ligar o agrupamento** (pedido de 29/10):
 
-- **O teste de ponta a ponta do "Também noticiaram" e do excedente marcado como visto.** Proposta: uma simulação de
+- **O teste de ponta a ponta do "Também noticiaram" e do excedente marcado como visto.** Passou na simulação ligada de
+  29/10 (uma pauta com 2 excedentes, aprovada e entregue). Fica a duplicata, que ainda não apareceu. Proposta, se for
+  preciso forçar: uma simulação de
   trabalho sem áudio com `AGRUP_MAX_ARTIGOS=2` (toda pauta confirmada de 3 artigos ou mais tem excedente) e `MAX_NEWS`
   alto o bastante para as pautas de várias fontes caberem nas vagas (na ligada 1 de 25/10, só 1 das 5 coube nas 20),
   com a segunda execução na mesma pasta para conferir que o excedente não volta. A duplicata é mais difícil de forçar:
@@ -1385,6 +1387,20 @@ nova tentativa tira a proporção medida do item; "a menor já vista" fica para 
 - **A prioridade das pautas de várias fontes nas vagas:** na ligada 1, só 1 das 5 coube nas 20 vagas, porque cada
   pauta fica na posição do seu primeiro artigo na lista intercalada. Uma prioridade seria regra nova, para o dono
   decidir depois da terceira amostra.
+
+**Depois da implementação, a sessão de teste e a simulação de 29/10** (o detalhe em
+`data/simulacoes/rodada_20261029/resultado.md`):
+
+- **O texto de tabelas e os itens seguintes da ligada 2, um por um, no mesmo processo:** o de tabelas (proporção 2,44)
+  entrou com 4.231 de 5.000 caracteres, com o aviso da janela; os 13 seguintes receberam o teto, o da Black Friday com
+  4.986 de 5.000 (em 25/10, 669). Nenhuma chamada cortada: a maior entrada teve 4.621 tokens, sem "truncating" nem
+  erro de janela. 13 de 14 aprovados.
+- **A simulação ligada, com as duas execuções na mesma pasta, numa cópia nova do banco:** 20 e 20 entregues (46 e 42
+  min), 3 e 3 pautas de várias fontes geradas. O "Também noticiaram" e o excedente marcado como visto passaram de ponta a
+  ponta (Agência Brasil + GOV.BR + O Globo, com 2 excedentes, que não voltaram na segunda execução); nenhum texto de
+  fonte única cortado pela janela; as pautas de várias fontes entraram com [3.465, 1.788, 1.606] e [3.846, 2.797]
+  caracteres. No log do Ollama da sessão inteira, 148 entradas, a maior com 4.985 tokens, nenhuma cortada. Uma pauta
+  tem um site do governo (GOV.BR) como veículo, que o filtro não tira.
 
 **A terceira amostra, em 29/10:** a coleta 3 (`amostra_20261029-070905.json`, 105 candidatos; 5 em comum com a coleta 2,
 com o mesmo rótulo) e o rascunho do gabarito das três coletas, para o dono revisar, em
