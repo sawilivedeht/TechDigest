@@ -114,3 +114,13 @@ def test_duas_execucoes_no_mesmo_segundo_ganham_pastas_diferentes(tmp_path):
     agora = datetime.datetime(2026, 10, 25, 8, 0, 0)
     pastas = [registro.RegistroDaExecucao(tmp_path, agora=agora).pasta.name for _ in range(3)]
     assert pastas == ["20261025-080000", "20261025-080000-2", "20261025-080000-3"]
+
+
+def test_o_aviso_da_janela_e_a_proporcao_do_item_vao_para_o_registro(tmp_path):
+    reg = registro.RegistroDaExecucao(tmp_path, agora=datetime.datetime(2026, 10, 29, 8, 0, 0))
+    artigo = {"veiculo": "G1", "titulo": "T", "url": "https://g1.example/t", "texto": "texto " * 2000}
+    aviso = "o texto de G1 entrou na geração com 669 de 4986 caracteres: a janela, e não o teto, cortou o texto (fonte única)"
+    entrada = reg.item([artigo], "aprovado", {"aviso_da_janela": aviso, "proporcao_do_item": 2.3}, None, 1.0)
+    assert (entrada["aviso_da_janela"], entrada["proporcao_do_texto"]) == (aviso, 2.3)
+    sem_aviso = reg.item([artigo], "aprovado", {}, None, 1.0)
+    assert (sem_aviso["aviso_da_janela"], sem_aviso["proporcao_do_texto"]) == ("", None)

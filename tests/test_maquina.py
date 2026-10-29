@@ -148,3 +148,19 @@ def test_o_vigia_mostra_o_provider_por_baixo():
     vigia.chat_json("sistema", "entrada")
     assert vigia.ultimo_uso == provider.ultimo_uso == {"prompt": 10, "saida": 5}
     assert vigia.model == "modelo" and vigia.client is provider.client
+
+
+def test_a_contagem_da_parte_fixa_passa_pelas_travas_como_uma_chamada(monkeypatch):
+    class Contador(ProviderFalso):
+        def contar_tokens_fixos(self, system):
+            self.chamadas += 1
+            return 1573
+    provider = Contador()
+    vigia = ProviderVigiado(provider, local=False)
+    assert vigia.contar_tokens_fixos("sistema") == 1573
+    monkeypatch.setattr(maquina, "memoria_disponivel", lambda: 3.2)
+    with pytest.raises(ExecucaoInterrompida):
+        vigia.contar_tokens_fixos("sistema")
+    assert provider.chamadas == 1
+    with pytest.raises(AttributeError):                  # o provider que não conta tokens
+        ProviderVigiado(ProviderFalso(), local=False).contar_tokens_fixos("sistema")

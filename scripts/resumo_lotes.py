@@ -38,7 +38,7 @@ def _arquivos_de_log(log: str | None = None) -> list[Path]:
 
 def _novo_lote(hora: str) -> dict:
     return {"inicio": hora, "fim": None, "entregues": None, "qa": 0, "descartados": 0, "filtrados": 0, "abandonados": 0,
-            "erros": 0, "falhas_entrega": 0, "orcamento": False, "fatal": False, "interrompida": "", "aviso": "", "pautas": "",
+            "erros": 0, "falhas_entrega": 0, "orcamento": False, "fatal": False, "interrompida": "", "aviso": "", "pautas": "", "janela": 0, "refeitas": 0,
             "toks": [], "ram": [], "swap": [], "cpu": [], "gpu": [], "gpu_mhz": []}
 
 
@@ -75,7 +75,14 @@ def ler_lotes(dia: str, log: str | None = None, nao_comecaram: list | None = Non
             elif "Nenhuma notícia entregue" in msg:
                 atual["fim"], atual["entregues"] = hora, 0
             elif (a := RE_AGRUPAMENTO.search(msg)):
-                atual["pautas"] = f"agrupamento: {a.group(1)} pautas, {a.group(2)} com várias fontes"
+                atual["pautas"] = (f"agrupamento: {a.group(1)} pautas, {a.group(2)} com várias fontes"
+                                   + (" (FALHOU: um por um)" if atual["pautas"].startswith("FALHOU") else ""))
+            elif msg.startswith("Agrupamento falhou"):
+                atual["pautas"] = "FALHOU"
+            elif msg.startswith("Janela: o texto de"):
+                atual["janela"] += 1
+            elif msg.startswith("Janela: ") and "passou da janela" in msg:
+                atual["refeitas"] += 1
             elif "Orçamento de tempo" in msg:
                 atual["orcamento"] = True
             elif "Falha fatal" in msg:
@@ -148,6 +155,10 @@ def main() -> None:
     linhas = []
     for l in lotes:
         obs = [l["pautas"]] if l["pautas"] else []
+        if l["janela"]:
+            obs.append(f"{l['janela']} texto(s) de fonte única cortado(s) pela janela")
+        if l["refeitas"]:
+            obs.append(f"{l['refeitas']} chamada(s) refeita(s) por passar da janela")
         if l["orcamento"]:
             obs.append("orçamento esgotado")
         if l["fatal"]:

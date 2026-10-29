@@ -6,7 +6,21 @@ import re
 import subprocess
 from abc import ABC, abstractmethod
 
+import requests
+
 logger = logging.getLogger("techdigest.ai.llm")
+
+
+class JanelaExcedida(RuntimeError):
+    """O Ollama recusou o pedido: a entrada passa da janela (num_ctx). Nada foi processado nem cortado.
+
+    `tokens` é quantos tokens a entrada tem, como o servidor contou (None se a resposta não disse), e `janela`, o
+    num_ctx. Com "truncate": false o Ollama devolve esse erro em vez de cortar o meio do prompt em silêncio.
+    """
+
+    def __init__(self, tokens: int | None, janela: int | None, mensagem: str):
+        super().__init__(mensagem)
+        self.tokens, self.janela = tokens, janela
 
 
 # ---------------------------------------------------------------- helpers
@@ -144,12 +158,67 @@ class LLMProvider(ABC):
                   temperatura: float | None = None, max_saida: int | None = None) -> dict: ...
 
 
+_ERRO_DE_JANELA = re.compile(r"request \((\d+) tokens\) exceeds the available context size \((\d+) tokens\)")
+
+
+class _ClienteOllama:
+    """O /api/chat do Ollama por HTTP. O cliente Python (0.6) não manda "truncate" nem "shift" (ver `OllamaProvider`).
+
+    Devolve a mesma `ChatResponse` do cliente Python. O pedido que passa da janela vira `JanelaExcedida`; outro erro
+    do servidor, um RuntimeError com a mensagem dele. O resto (`ps`, `generate`, que as conferências da GPU usam) é o
+    do cliente Python.
+    """
+
+    def __init__(self, host: str):
+        from ollama import Client
+        base = host.strip().rstrip("/") or "http://127.0.0.1:11434"
+        self.url = (base if "://" in base else f"http://{base}") + "/api/chat"   # como o cliente Python, que aceita "host:porta"
+        self._ollama = Client(host=host)
+
+    def __getattr__(self, nome):
+        if nome == "_ollama":      # ainda não existe (objeto em construção)
+            raise AttributeError(nome)
+        return getattr(self._ollama, nome)
+
+    def chat(self, **pedido):
+        from ollama import ChatResponse
+        resposta = requests.post(self.url, json={**pedido, "stream": False}, timeout=(10, None))
+        if resposta.ok:
+            return ChatResponse.model_validate(resposta.json())
+        try:
+            erro = resposta.json().get("error", resposta.text)
+        except ValueError:
+            erro = resposta.text
+        if isinstance(erro, str):
+            try:
+                erro = json.loads(erro)
+            except ValueError:
+                pass
+        if isinstance(erro, dict) and "error" in erro:
+            erro = erro["error"]
+        mensagem = erro.get("message", str(erro)) if isinstance(erro, dict) else str(erro)
+        tipo = erro.get("type", "") if isinstance(erro, dict) else ""
+        contagem = _ERRO_DE_JANELA.search(mensagem)
+        if tipo == "exceed_context_size_error" or contagem:
+            tokens = erro.get("n_prompt_tokens") if isinstance(erro, dict) else None
+            janela = erro.get("n_ctx") if isinstance(erro, dict) else None
+            if contagem:
+                tokens, janela = tokens or int(contagem.group(1)), janela or int(contagem.group(2))
+            raise JanelaExcedida(tokens, janela, f"a entrada passa da janela: {mensagem[:200]}")
+        raise RuntimeError(f"Ollama respondeu HTTP {resposta.status_code}: {mensagem[:300]}")
+
+
 class OllamaProvider(LLMProvider):
-    """Local — todos os parâmetros vêm do .env via settings."""
+    """Local — todos os parâmetros vêm do .env via settings.
+
+    Todo pedido vai com "truncate": false e "shift": false (decisão de 29/10/2026): a entrada que passa da janela
+    volta com erro (`JanelaExcedida`), em vez de o Ollama cortar o meio do prompt, e a resposta que chega ao fim da
+    janela para com done_reason "length", em vez de deslocar o contexto. O "shift" é uma opção do servidor do modelo:
+    trocá-lo entre pedidos recarrega o modelo, por isso ele vai igual em todos.
+    """
 
     def __init__(self, model: str, host: str, settings):
-        from ollama import Client
-        self.client = Client(host=host)
+        self.client = _ClienteOllama(host)
         self.model = model
         self.s = settings
         self.think = self._parse_think(getattr(settings, "ollama_think", ""))
@@ -166,10 +235,8 @@ class OllamaProvider(LLMProvider):
                 settings.ollama_num_predict, settings.ollama_num_ctx,
             )
 
-    def chat_json(self, system: str, user: str, chaves=None,
-                  temperatura: float | None = None, max_saida: int | None = None) -> dict:
-        num_predict = self.s.ollama_num_predict if max_saida is None else max_saida
-        resp = self.client.chat(
+    def _pedido(self, system: str, user: str, num_predict: int, temperatura: float | None) -> dict:
+        return dict(
             model=self.model,
             messages=[
                 {"role": "system", "content": system},
@@ -183,8 +250,21 @@ class OllamaProvider(LLMProvider):
                 "num_predict": num_predict,
                 "temperature": self.s.ollama_temperature if temperatura is None else temperatura,
             },
+            truncate=False,
+            shift=False,
             **({} if self.think is None else {"think": self.think}),
         )
+
+    def contar_tokens_fixos(self, system: str) -> int:
+        """Quantos tokens custa a parte fixa de uma chamada: o prompt de sistema e o template do modelo, com a mensagem
+        do usuário vazia. Uma chamada com num_predict 1 e as opções das outras; não entra nas métricas do log."""
+        resp = self.client.chat(**self._pedido(system, "", 1, None))
+        return getattr(resp, "prompt_eval_count", None) or 0
+
+    def chat_json(self, system: str, user: str, chaves=None,
+                  temperatura: float | None = None, max_saida: int | None = None) -> dict:
+        num_predict = self.s.ollama_num_predict if max_saida is None else max_saida
+        resp = self.client.chat(**self._pedido(system, user, num_predict, temperatura))
         prompt_tok = getattr(resp, "prompt_eval_count", None) or 0
         saida_tok = getattr(resp, "eval_count", None) or 0
         self.ultimo_uso = {"prompt": prompt_tok, "saida": saida_tok}

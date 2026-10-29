@@ -121,3 +121,62 @@ def test_openai_registra_erro_quando_corta_a_entrada(caplog):
     assert "Entrada de 500 caracteres cortada em LLM_MAX_PROMPT_CHARS (100)" in caplog.text
     assert pedidos[-1]["messages"][1]["content"].startswith("x" * 100 + "\n\n[TEXTO TRUNCADO")
     assert "temperature" not in pedidos[-1] and provider.ultimo_uso == {"prompt": 900, "saida": 50}
+
+
+def test_todo_pedido_vai_com_truncate_e_shift_desligados(ollama):
+    # decisão de 29/10/2026: a entrada grande demais volta com erro, e a resposta que chega ao fim da janela não desloca
+    # o contexto; o "shift" vai igual em todos os pedidos, porque trocá-lo recarrega o modelo
+    provider = ollama(json.dumps(EPISODIO))
+    provider.chat_json("sistema", "artigo")
+    assert provider.contar_tokens_fixos("sistema") == 1200
+    pedido, contagem = provider.client.chamadas
+    assert pedido["truncate"] is False and pedido["shift"] is False
+    assert contagem["truncate"] is False and contagem["shift"] is False
+    assert contagem["messages"] == [{"role": "system", "content": "sistema"}, {"role": "user", "content": ""}]
+    assert contagem["options"]["num_predict"] == 1 and contagem["options"]["num_ctx"] == 8192
+
+
+class RespostaHttp:
+    def __init__(self, status: int, corpo):
+        self.status_code, self.ok, self._corpo = status, status == 200, corpo
+        self.text = corpo if isinstance(corpo, str) else json.dumps(corpo)
+
+    def json(self):
+        if isinstance(self._corpo, str):
+            raise ValueError("não é JSON")
+        return self._corpo
+
+
+def test_o_pedido_que_passa_da_janela_vira_janela_excedida_com_a_contagem_do_servidor(monkeypatch):
+    # a resposta do Ollama 0.40.2 na sessão de 29/10/2026: o erro do llama-server dentro do "error"
+    erro = {"error": json.dumps({"error": {
+        "code": 400, "message": "request (15329 tokens) exceeds the available context size (8192 tokens), try increasing it",
+        "type": "exceed_context_size_error", "n_prompt_tokens": 15329, "n_ctx": 8192}})}
+    pedidos = []
+    monkeypatch.setattr(llm.requests, "post", lambda url, json, timeout: pedidos.append((url, json)) or RespostaHttp(400, erro))
+    cliente = llm._ClienteOllama("http://127.0.0.1:11434/")
+    with pytest.raises(llm.JanelaExcedida) as e:
+        cliente.chat(model="m", messages=[], truncate=False, shift=False)
+    assert (e.value.tokens, e.value.janela) == (15329, 8192)
+    assert pedidos == [("http://127.0.0.1:11434/api/chat", {"model": "m", "messages": [], "truncate": False, "shift": False,
+                                                            "stream": False})]
+    # só a mensagem, sem o objeto: a contagem sai do texto
+    monkeypatch.setattr(llm.requests, "post", lambda url, json, timeout: RespostaHttp(400, {
+        "error": "request (9000 tokens) exceeds the available context size (8192 tokens), try increasing it"}))
+    with pytest.raises(llm.JanelaExcedida) as e:
+        cliente.chat(model="m", messages=[])
+    assert (e.value.tokens, e.value.janela) == (9000, 8192)
+    # outro erro do servidor não é de janela
+    monkeypatch.setattr(llm.requests, "post", lambda url, json, timeout: RespostaHttp(500, {"error": "model not found"}))
+    with pytest.raises(RuntimeError, match="HTTP 500: model not found") as e:
+        cliente.chat(model="m", messages=[])
+    assert not isinstance(e.value, llm.JanelaExcedida)
+
+
+def test_a_resposta_do_servidor_vira_a_chat_response_do_cliente_python(monkeypatch):
+    corpo = {"model": "m", "created_at": "2026-10-29T10:00:00Z", "done": True, "done_reason": "stop",
+             "message": {"role": "assistant", "content": "{}"}, "prompt_eval_count": 1573, "eval_count": 1,
+             "total_duration": 1, "eval_duration": 1}
+    monkeypatch.setattr(llm.requests, "post", lambda url, json, timeout: RespostaHttp(200, corpo))
+    resposta = llm._ClienteOllama("http://x").chat(model="m", messages=[])
+    assert (resposta.prompt_eval_count, resposta.done_reason, resposta.message.content) == (1573, "stop", "{}")

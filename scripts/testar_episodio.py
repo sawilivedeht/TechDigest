@@ -491,7 +491,6 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
            pasta: Path, carimbo: str) -> dict:
     """Gera o episódio de uma pauta e devolve o relatório dela."""
     relatorio = _apresentar("Episódio", n, caso, pauta, ids)
-    proporcao = summarizer.chars_por_token
     primeira = len(monitor.chamadas)
     inicio = time.perf_counter()
     try:
@@ -508,7 +507,8 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
     diagnostico = summarizer.ultimo_diagnostico
 
     relatorio.update({
-        "situacao": situacao, "segundos": round(segundos, 1), "chars_por_token_no_inicio": round(proporcao, 2),
+        "situacao": situacao, "segundos": round(segundos, 1), "proporcao_do_texto": round(summarizer.proporcao_do_item, 2) if summarizer.proporcao_do_item else None,
+        "aviso_da_janela": summarizer.ultimo_diagnostico.get("aviso_da_janela") or "",
         "chamadas": chamadas,
         "problemas_antes_da_revisao": diagnostico.get("problemas"),
         "tipo_de_correcao": diagnostico.get("correcao"),

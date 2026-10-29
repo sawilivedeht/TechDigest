@@ -1,6 +1,7 @@
 """Summarizer — geração, QA determinístico e uma correção: do título, do resumo, do roteiro ou do episódio inteiro."""
 import json
 import logging
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import timedelta, timezone
@@ -8,7 +9,8 @@ from datetime import timedelta, timezone
 from techdigest.ai.lados import (
     MAX_SAIDA_LADOS, Analise, analisar_lados, bloco_dos_lados, com_mencoes, reserva_do_bloco, trechos_de_evidencia,
 )
-from techdigest.ai.llm import get_provider
+from techdigest.ai.janela import tokens_fixos
+from techdigest.ai.llm import JanelaExcedida, get_provider
 from techdigest.ai.orcamento import Orcamento, orcamento, palavras
 from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
 from techdigest.ai.qa import ELENCO, ESTRUTURA, PAPEL, RESUMO, ROTEIRO, TITULO, Problema, problemas_com_campo, veiculos_distintos
@@ -24,8 +26,15 @@ TETO_RELACIONADO = 3000         # caracteres do recorte de cada relacionado, no 
 MAX_RELACIONADOS = 2            # relacionados que entram na entrada (principal + 2)
 MIN_TRECHO = 400                # relacionado que ficaria com menos que isto sai da entrada
 MARGEM_TOKENS = 256             # folga da janela de contexto, além da reserva de saída
-CHARS_POR_TOKEN_INICIAL = 3.0   # antes da primeira medida: conservador (o medido fica perto de 4)
-FOLGA_DA_MEDIDA = 0.9           # vale 90% da menor proporção medida
+# A janela (decisão do dono de 29/10/2026; ver `Summarizer._limite_da_entrada`). A proporção é a do texto: os caracteres
+# da mensagem do usuário por token, sem a parte fixa (o prompt de sistema e o template), que entra em tokens exatos.
+PROPORCAO_TIPICA = 4.3          # com que a 1ª chamada de cada item começa: a mediana de 64 itens das simulações de 25/10
+                                # (gemma4:26b; de 2,30, numa pauta de tabelas de votos, a 4,79)
+FOLGA_DA_MEDIDA = 0.9           # o limite usa 90% da proporção do texto (a típica ou a medida do item)
+CHARS_POR_TOKEN_DO_PROMPT = 3.0 # a conversão do prompt de sistema quando o provider não conta a parte fixa (os prompts
+                                # medem de 3,2 a 3,8 caracteres por token)
+PROPORCAO_SEM_MEDIDA = 3.0      # a do item depois de um erro de janela que não disse quantos tokens a entrada tinha,
+                                # quando a execução ainda não mediu nenhuma
 
 LEMBRETE = (
     "\nLEMBRETE: só o JSON das 8 chaves. Roteiro no alvo de palavras de cada personagem e do total, "
@@ -63,6 +72,10 @@ class Entrada:
     # caracteres) e os que têm trecho de evidência e ficaram de fora.
     recortes: list[dict] = field(default_factory=list)
     orcamento: Orcamento | None = None                  # o alvo de palavras que o bloco de lados pede (ver `ai/orcamento.py`)
+    # Os textos que a janela, e não o teto, cortou: a posição entre os recebidos, a fonte, quanto o teto deixaria entrar
+    # ("teto": o texto inteiro, se é menor), quanto a janela deixou ("cabe", 0 para o relacionado que saiu da entrada) e
+    # quanto entrou, cortado em fim de parágrafo ("entrou").
+    pela_janela: list[dict] = field(default_factory=list)
 
 
 def _limpar(texto: str) -> str:
@@ -231,7 +244,11 @@ def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limi
         )
         concedidos[0] = min(MIN_TRECHO, desejados[0])
     cabe = {id(a): concedido for a, concedido in zip(artigos, concedidos)}
+    tetos = {id(a): min(len(completos[id(a)]), TETO_PRINCIPAL if i == 0 else TETO_RELACIONADO) for i, a in enumerate(lidos)}
     feitos = {id(a): recortar(completos[id(a)], cabe.get(id(a), 0), evidencias, titulos[id(a)]) for a in lidos}
+    pela_janela = [{"indice": i, "fonte": a["source"], "teto": tetos[id(a)], "cabe": cabe.get(id(a), 0),
+                    "entrou": len(feitos[id(a)].texto) if id(a) in cabe else 0}
+                   for i, a in enumerate(lidos) if cabe.get(id(a), 0) < tetos[id(a)]]
     trechos = [feitos[id(a)].texto for a in artigos]
     for a in lidos:
         if feitos[id(a)].fora:
@@ -252,7 +269,18 @@ def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limi
         recortes=[{"fonte": a["source"], "paragrafos": feitos[id(a)].total, "entraram": feitos[id(a)].entraram, "fora": feitos[id(a)].fora}
                   for a in lidos],
         orcamento=orc,
+        pela_janela=pela_janela,
     )
+
+
+def aviso_da_janela(entrada: Entrada, relacionados: list[dict] | None = None) -> str:
+    """O aviso de quando a janela, e não o teto, cortou o texto de um item de fonte única (decisão de 29/10/2026); vazio
+    se não cortou ou se o item tem várias fontes (nelas a janela é que reparte o espaço entre os textos)."""
+    if relacionados or not entrada.pela_janela:
+        return ""
+    corte = entrada.pela_janela[0]
+    return (f"o texto de {corte['fonte']} entrou na geração com {corte['entrou']} de {corte['teto']} caracteres: a janela, e "
+            f"não o teto, cortou o texto (fonte única)")
 
 
 class Summarizer:
@@ -260,35 +288,82 @@ class Summarizer:
 
     def __init__(self, provider=None):
         self.provider = provider or get_provider(settings)
-        self.chars_por_token = CHARS_POR_TOKEN_INICIAL  # passa a valer a medida do provider depois da 1ª chamada
-        self._medidas = 0
+        self.proporcao_do_item: float | None = None   # a menor medida das chamadas do item; reinicia a cada item
+        self.menor_proporcao: float | None = None     # a menor medida da execução: só para o erro de janela sem contagem
+        self._fixos: dict[str, int] = {}              # a parte fixa de cada prompt de sistema, em tokens
         self.ultimo_diagnostico: dict = {}  # da última chamada a process: entradas montadas e problemas de QA
 
-    def _limite_da_entrada(self, system: str, extra: int = 0, saida: int | None = None) -> int:
-        """Quantos caracteres a entrada pode ter numa chamada com este prompt de sistema.
+    def _fixos_de(self, system: str) -> int:
+        """Os tokens da parte fixa de uma chamada com este prompt de sistema: exatos (ver `ai/janela.py`) ou, se o
+        provider não os conta, o prompt convertido por CHARS_POR_TOKEN_DO_PROMPT."""
+        if system not in self._fixos:
+            exato = tokens_fixos(self.provider, system)
+            self._fixos[system] = exato if exato is not None else math.ceil(len(system) / CHARS_POR_TOKEN_DO_PROMPT)
+        return self._fixos[system]
 
-        No Ollama é a janela (num_ctx) menos a reserva de saída e uma margem, convertida para
-        caracteres pela proporção medida, menos o prompt de sistema. A reserva é o menor entre
-        OLLAMA_NUM_PREDICT e LLM_RESERVA_SAIDA, porque num_predict pode ser maior que a própria
-        janela; a chamada que limita a própria saída (`saida`, em tokens) reserva só isso. No
-        caminho OpenAI vale LLM_MAX_PROMPT_CHARS. `extra` é o que mais vai na mensagem além da
-        entrada (na revisão: os problemas e o episódio original).
+    def proporcao(self) -> float:
+        """A proporção do texto com que o limite é calculado: a medida do item ou, antes da 1ª chamada dele, a típica."""
+        return self.proporcao_do_item or PROPORCAO_TIPICA
+
+    def _limite_da_entrada(self, system: str, extra: int = 0, saida: int | None = None) -> int:
+        """Quantos caracteres a mensagem do usuário pode ter numa chamada com este prompt de sistema.
+
+        No Ollama é a janela (num_ctx) menos a reserva de saída, uma margem e a parte fixa da chamada (o prompt de
+        sistema e o template, em tokens exatos: ver `_fixos_de`), convertida para caracteres por 90% da proporção do
+        texto do item (`proporcao`; decisão de 29/10/2026). A proporção vale por item: os textos de um item nunca
+        mudam o limite de outro. A reserva é o menor entre OLLAMA_NUM_PREDICT e LLM_RESERVA_SAIDA, porque num_predict
+        pode ser maior que a própria janela; a chamada que limita a própria saída (`saida`, em tokens) reserva só
+        isso. No caminho OpenAI vale LLM_MAX_PROMPT_CHARS. `extra` é o que mais vai na mensagem além da entrada (na
+        revisão: os problemas e o episódio original).
         """
         if settings.llm_provider != "ollama":
             return settings.llm_max_prompt_chars - extra
         reserva = min(settings.ollama_num_predict, settings.llm_reserva_saida) if saida is None else saida
-        tokens = settings.ollama_num_ctx - reserva - MARGEM_TOKENS
-        return int(tokens * self.chars_por_token) - len(system) - extra
+        tokens = settings.ollama_num_ctx - reserva - MARGEM_TOKENS - self._fixos_de(system)
+        return int(tokens * self.proporcao() * FOLGA_DA_MEDIDA) - extra
+
+    def _medir(self, system: str, user: str, tokens: int | None) -> None:
+        """Mede a proporção do texto numa chamada do item: os caracteres da mensagem do usuário pelos tokens dela, sem a
+        parte fixa. Vale a menor medida do item; a chamada sem contagem não muda nada."""
+        if not tokens:
+            return
+        do_texto = tokens - self._fixos_de(system)
+        if do_texto <= 0 or not user:
+            return
+        medida = len(user) / do_texto
+        self.proporcao_do_item = medida if self.proporcao_do_item is None else min(self.proporcao_do_item, medida)
+        self.menor_proporcao = medida if self.menor_proporcao is None else min(self.menor_proporcao, medida)
 
     def _chamar(self, system: str, user: str, **opcoes) -> dict:
-        """Chama o provider e aproveita os tokens que ele contou para medir caracteres por token."""
-        result = self.provider.chat_json(system, user, **opcoes)
-        tokens = (getattr(self.provider, "ultimo_uso", None) or {}).get("prompt", 0)
-        if tokens > 0:
-            medida = (len(system) + len(user)) / tokens * FOLGA_DA_MEDIDA
-            self.chars_por_token = medida if self._medidas == 0 else min(self.chars_por_token, medida)
-            self._medidas += 1
+        """Chama o provider e aproveita os tokens que ele contou para medir a proporção do texto do item.
+
+        O pedido que passa da janela volta com erro (`JanelaExcedida`, com a contagem do servidor): a chamada não é
+        cortada, a medida fica com o item e quem montou a mensagem a refaz (ver `_na_janela`).
+        """
+        self._fixos_de(system)   # contada antes da 1ª chamada com este prompt: o prefixo dela nunca está em cache
+        try:
+            result = self.provider.chat_json(system, user, **opcoes)
+        except JanelaExcedida as e:
+            antes = self.proporcao()
+            if e.tokens:
+                self._medir(system, user, e.tokens)
+            else:   # o erro não disse quantos tokens: a menor proporção da execução, ou PROPORCAO_SEM_MEDIDA
+                self.proporcao_do_item = min(antes, self.menor_proporcao or PROPORCAO_SEM_MEDIDA)
+            if self.proporcao() >= antes:   # a nova tentativa sairia igual: encolhe de qualquer jeito
+                self.proporcao_do_item = antes * 0.8
+            raise
+        self._medir(system, user, (getattr(self.provider, "ultimo_uso", None) or {}).get("prompt", 0))
         return result
+
+    def _na_janela(self, fazer, o_que: str):
+        """Faz uma etapa que monta a mensagem pelo limite e chama o modelo. Se a chamada passa da janela, a etapa é
+        refeita uma vez, com o limite da proporção que o erro mediu; um segundo erro de janela sobe."""
+        try:
+            return fazer()
+        except JanelaExcedida as e:
+            logger.warning("Janela: %s passou da janela (%s de %s tokens); refeita com a proporção %.2f do item.",
+                           o_que, e.tokens if e.tokens is not None else "?", e.janela if e.janela is not None else "?", self.proporcao())
+            return fazer()
 
     def _montar_entrada(self, principal: dict, relacionados: list[dict] | None = None) -> str:
         return montar_entrada(principal, relacionados, self._limite_da_entrada(PROMPT_SISTEMA)).texto
@@ -302,21 +377,28 @@ class Summarizer:
         o bloco é reservado no tamanho maior que poderia ter, e a mesma reserva vale para a entrada
         final, que por isso leva o mesmo recorte. O orçamento fica em `Entrada.orcamento`.
         """
+        self.proporcao_do_item = None   # a 1ª chamada do item começa da proporção típica
         completos = textos_da_pauta(principal, relacionados)
         logger.info(
             "Resumindo: %r (fonte: %s, %d caracteres de texto, %d relacionado(s))",
             str(principal["title"])[:80], principal["source"],
             len(principal["text"]), len(completos) - 1,
         )
-        analise = analisar_lados(self._chamar, completos, self._limite_da_entrada(PROMPT_LADOS, saida=MAX_SAIDA_LADOS))
+        analise = self._na_janela(
+            lambda: analisar_lados(self._chamar, completos, self._limite_da_entrada(PROMPT_LADOS, saida=MAX_SAIDA_LADOS)),
+            "a análise de lados",
+        )
+        return self._montar_geracao(principal, relacionados, analise), analise
+
+    def _montar_geracao(self, principal: dict, relacionados: list[dict] | None, analise: Analise) -> Entrada:
+        """A entrada da geração, no limite de agora: o recorte de cada texto, o lado fino e o orçamento de palavras."""
         limite = self._limite_da_entrada(PROMPT_SISTEMA)
         reserva = reserva_do_bloco(analise.lados, analise.questao, analise.ressalvas)
         previa = montar_entrada(principal, relacionados, limite, analise.lados, analise.questao, analise.ressalvas, reserva=reserva)
         analise.lados = com_mencoes(analise.lados, previa.textos)
         orc = orcamento(analise.lados, palavras(previa.textos))
-        entrada = montar_entrada(principal, relacionados, limite, analise.lados, analise.questao, analise.ressalvas,
-                                 reserva=reserva, orc=orc)
-        return entrada, analise
+        return montar_entrada(principal, relacionados, limite, analise.lados, analise.questao, analise.ressalvas,
+                              reserva=reserva, orc=orc)
 
     def _corrigir_titulo(self, analise: Analise, result: dict, reprovados: list[dict]) -> dict:
         """Reescreve só o título, a partir do resumo: a chamada leva os atores dos lados e não leva os textos.
@@ -356,11 +438,14 @@ class Summarizer:
             + "\n\nPROBLEMAS DETECTADOS:\n- " + "\n- ".join(probs)
             + "\n\nROTEIRO ORIGINAL:\n" + json.dumps(result[ROTEIRO], ensure_ascii=False)
         )
-        fonte = montar_entrada(
-            principal, relacionados, self._limite_da_entrada(PROMPT_ROTEIRO, extra=len(FONTE_ANTES) + len(depois)),
-            analise.lados, analise.questao, analise.ressalvas, lembrete=LEMBRETE_DO_ROTEIRO, orc=orc,
-        )
-        resposta = self._chamar(PROMPT_ROTEIRO, FONTE_ANTES + fonte.texto + depois, chaves=(ROTEIRO,))
+        def montar_e_chamar() -> tuple[dict, Entrada]:
+            fonte = montar_entrada(
+                principal, relacionados, self._limite_da_entrada(PROMPT_ROTEIRO, extra=len(FONTE_ANTES) + len(depois)),
+                analise.lados, analise.questao, analise.ressalvas, lembrete=LEMBRETE_DO_ROTEIRO, orc=orc,
+            )
+            return self._chamar(PROMPT_ROTEIRO, FONTE_ANTES + fonte.texto + depois, chaves=(ROTEIRO,)), fonte
+
+        resposta, fonte = self._na_janela(montar_e_chamar, "a revisão do roteiro")
         personagens = _com_os_papeis(result[ELENCO], resposta.get(ELENCO))
         return {**result, ELENCO: personagens, ROTEIRO: resposta[ROTEIRO]}, fonte
 
@@ -375,11 +460,14 @@ class Summarizer:
             "\n\nPROBLEMAS DETECTADOS:\n- " + "\n- ".join(probs)
             + "\n\nEPISÓDIO ORIGINAL:\n" + json.dumps(result, ensure_ascii=False)
         )
-        fonte = montar_entrada(
-            principal, relacionados, self._limite_da_entrada(PROMPT_REVISOR, extra=len(FONTE_ANTES) + len(depois)),
-            analise.lados, analise.questao, analise.ressalvas, orc=orc,
-        )
-        return self._chamar(PROMPT_REVISOR, FONTE_ANTES + fonte.texto + depois), fonte
+        def montar_e_chamar() -> tuple[dict, Entrada]:
+            fonte = montar_entrada(
+                principal, relacionados, self._limite_da_entrada(PROMPT_REVISOR, extra=len(FONTE_ANTES) + len(depois)),
+                analise.lados, analise.questao, analise.ressalvas, orc=orc,
+            )
+            return self._chamar(PROMPT_REVISOR, FONTE_ANTES + fonte.texto + depois), fonte
+
+        return self._na_janela(montar_e_chamar, "a revisão")
 
     def process(self, principal: dict, relacionados: list[dict] | None = None) -> dict:
         """Devolve um episódio que passou no QA; do contrário levanta QAReprovado (item é pulado).
@@ -393,13 +481,25 @@ class Summarizer:
         diagnostico = self.ultimo_diagnostico = {
             "entrada": entrada, "lados": analise, "orcamento": entrada.orcamento, "episodio": None, "primeira_versao": None,
             "problemas": None, "correcao": None, "revisao": None, "problemas_da_revisao": None, "titulos_reprovados": [],
+            "aviso_da_janela": "", "proporcao_do_item": self.proporcao_do_item,
         }
         logger.debug("Início da entrada enviada ao LLM: %r", entrada.texto[:600])
 
         def qa(episodio: dict) -> list[Problema]:
             return _qa(episodio, entrada.fontes, analise.lados, analise.ressalvas, pauta, entrada.orcamento)
 
-        result = self._chamar(PROMPT_SISTEMA, entrada.texto)
+        try:
+            result = self._chamar(PROMPT_SISTEMA, entrada.texto)
+        except JanelaExcedida as e:
+            logger.warning("Janela: a geração passou da janela (%s de %s tokens); refeita com a proporção %.2f do item.",
+                           e.tokens if e.tokens is not None else "?", e.janela if e.janela is not None else "?", self.proporcao())
+            entrada = diagnostico["entrada"] = self._montar_geracao(principal, relacionados, analise)
+            diagnostico["orcamento"] = entrada.orcamento
+            result = self._chamar(PROMPT_SISTEMA, entrada.texto)
+        diagnostico["aviso_da_janela"] = aviso_da_janela(entrada, relacionados)
+        if diagnostico["aviso_da_janela"]:
+            logger.warning("Janela: %s", diagnostico["aviso_da_janela"])
+        diagnostico["proporcao_do_item"] = self.proporcao_do_item
         diagnostico["primeira_versao"] = diagnostico["episodio"] = result
         problemas = qa(result)
         probs = diagnostico["problemas"] = [p.texto for p in problemas]
@@ -419,6 +519,8 @@ class Summarizer:
                 corrigido, fonte = self._revisar_roteiro(principal, relacionados, analise, result, probs, entrada.orcamento)
             else:
                 corrigido, fonte = self._revisar(principal, relacionados, analise, result, probs, entrada.orcamento)
+        except JanelaExcedida:   # erro do item, não reprovação: não conta para o limite de tentativas
+            raise
         except Exception as e:
             raise QAReprovado(
                 f"{CORRECOES[tipo]} falhou ({type(e).__name__}: {str(e)[:200]}); "

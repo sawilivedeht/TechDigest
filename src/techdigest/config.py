@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     ollama_think: str = ""             # "" = padrão do modelo | "true"/"false" liga/desliga o raciocínio (thinking)
     ollama_log: str = str(PASTA_DE_ESTADO / "ollama_serve.log")   # a saída do `ollama serve` da unit ollama.service, onde
                                        # as conferências da GPU (ai/gpu.py) leem a placa e a carga do modelo
+    tokens_fixos: str = str(PASTA_DE_ESTADO / "tokens_fixos.json")   # a parte fixa de cada prompt em tokens exatos,
+                                       # pelo hash do modelo e do prompt (ai/janela.py)
     openai_model: str = ""
     openai_api_key: str = ""
     openai_base_url: str = ""          #ex.: https://api.groq.com/openai/v1

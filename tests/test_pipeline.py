@@ -409,3 +409,5 @@ def test_o_agrupamento_que_quebra_deixa_os_candidatos_um_por_um(agrupando, monke
         "Feira do livro abre no sábado", "Ponte de Serra Quieta é entregue", "Serra Quieta ganha a ponte",
         "Ponte de Serra Quieta é entregue", "A ponte nova de Serra Quieta"]
     assert any(r.getMessage() == "Agrupamento falhou: os 5 candidato(s) seguem um por um" for r in caplog.records)
+    [relatorio] = _relatorios(agrupando)                  # e no registro, para o dono ver nos primeiros dias
+    assert relatorio["agrupamento_falhou"] == "ValueError: erro de programação; os 5 candidato(s) seguiram um por um"

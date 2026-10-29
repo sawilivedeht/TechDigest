@@ -73,11 +73,12 @@ def lados_para_registro(analise, chamadas: list[dict] | None = None) -> dict:
 
 
 def cortes_para_registro(entrada) -> list[dict]:
-    """Por artigo da pauta: quanto do texto entrou na mensagem, que parágrafos entraram, por quê, e os que ficaram de fora
-    tendo trecho de evidência."""
+    """Por artigo da pauta: quanto do texto entrou na mensagem, se a janela (e não o teto) o cortou, que parágrafos
+    entraram, por quê, e os que ficaram de fora tendo trecho de evidência."""
     recortes = dict(enumerate(entrada.recortes))   # na mesma ordem dos cortes, só os que a análise leu
+    pela_janela = {c["indice"] for c in getattr(entrada, "pela_janela", [])}
     return [
-        {**corte, "teto": TETO_PRINCIPAL if i == 0 else TETO_RELACIONADO,
+        {**corte, "teto": TETO_PRINCIPAL if i == 0 else TETO_RELACIONADO, "cortado_pela_janela": i in pela_janela,
          "cortado_pelo_orcamento": max(min(corte["texto"], TETO_PRINCIPAL if i == 0 else TETO_RELACIONADO) - corte["incluido"], 0),
          "paragrafos_do_texto": recortes.get(i, {}).get("paragrafos"),
          "paragrafos_que_entraram": recortes.get(i, {}).get("entraram", []),
@@ -141,6 +142,7 @@ class RegistroDaExecucao:
         self.filtrados: list[dict] = []
         self.abandonados: list[dict] = []
         self.etapa3: list[dict] | None = None   # com o agrupamento ligado: o veredito de cada pauta provisória
+        self.agrupamento_falhou = ""             # com o agrupamento ligado: o erro que deixou os candidatos um por um
         self.gravar()
 
     def filtrado(self, url: str, titulo: str, motivo: str, depois_da_extracao: bool, url_resolvida: str = "") -> None:
@@ -152,6 +154,11 @@ class RegistroDaExecucao:
     def agrupamento(self, etapa3: list[dict]) -> None:
         """As pautas provisórias de 2 artigos ou mais e o que a etapa 3 fez de cada uma (com o agrupamento ligado)."""
         self.etapa3 = etapa3
+        self.gravar()
+
+    def falha_do_agrupamento(self, motivo: str) -> None:
+        """O agrupamento falhou por um erro inesperado e os candidatos seguiram um por um (leitura 7 de 29/10/2026)."""
+        self.agrupamento_falhou = motivo
         self.gravar()
 
     def abandonado(self, url: str, titulo: str, motivo: str) -> None:
@@ -188,6 +195,7 @@ class RegistroDaExecucao:
             "titulos_reprovados": diagnostico.get("titulos_reprovados") or [],
             "problemas_depois_da_revisao": diagnostico.get("problemas_da_revisao"),
             "nomes_do_bloco": nomes_do_bloco, "vozes": vozes,
+            "proporcao_do_texto": diagnostico.get("proporcao_do_item"), "aviso_da_janela": diagnostico.get("aviso_da_janela") or "",
         }
         for chave, lista in (outros or {}).items():
             if lista:
@@ -221,5 +229,6 @@ class RegistroDaExecucao:
         self.relatorio.write_text(json.dumps(
             {"amostra": str(self.amostra), "limiar": None, "num_ctx": self.num_ctx, "episodios": self.episodios,
              "filtrados": self.filtrados, "abandonados": self.abandonados,
-             **({} if self.etapa3 is None else {"etapa3": self.etapa3})},
+             **({} if self.etapa3 is None else {"etapa3": self.etapa3}),
+             **({"agrupamento_falhou": self.agrupamento_falhou} if self.agrupamento_falhou else {})},
             ensure_ascii=False, indent=1, default=str), encoding="utf-8")

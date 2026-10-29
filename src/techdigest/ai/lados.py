@@ -13,6 +13,7 @@ import unicodedata
 from dataclasses import dataclass, field, replace
 
 from techdigest.ai.elenco import VAGAS, nomes_dos_analistas
+from techdigest.ai.llm import JanelaExcedida
 from techdigest.ai.orcamento import MAX_ALVO, Orcamento, orcamento
 from techdigest.ai.prompt import PROMPT_LADOS
 from techdigest.ai.qa import (
@@ -948,6 +949,8 @@ def _tentar(chamar, entrada: str, textos) -> Analise:
         resposta = chamar(
             PROMPT_LADOS, entrada, chaves=CHAVES_LADOS, temperatura=TEMPERATURA_LADOS, max_saida=MAX_SAIDA_LADOS,
         )
+    except JanelaExcedida:   # na 1ª tentativa, quem refaz é o Summarizer, com a proporção medida (ver `analisar_lados`)
+        raise
     except Exception as e:  # resposta vazia, cortada, sem a chave, servidor fora do ar...
         return Analise(lado_unico(t["fonte"] for t in textos), problemas=[f"a chamada falhou ({type(e).__name__}: {str(e)[:200]})"])
     return analise_da_resposta(resposta, textos)
@@ -981,12 +984,20 @@ def analisar_lados(chamar, textos, limite: int | None = None) -> Analise:
             )
         return entrada_dos_lados(lidos) + (f"\n\n{pedido}" if pedido else ""), cortes
 
+    def segunda(pedido: str) -> Analise:
+        """A nova tentativa. O erro de janela dela (o pedido traz a resposta recusada, com menos caracteres por token
+        que o texto) vale como a chamada que falha: não derruba a primeira resposta, se ela valeu."""
+        mensagem, cortes = entrada(pedido)
+        try:
+            return replace(_tentar(chamar, mensagem, textos), cortes=cortes)
+        except JanelaExcedida as e:
+            return Analise(lado_unico(t["fonte"] for t in textos), problemas=[f"a chamada passou da janela ({e})"], cortes=cortes)
+
     mensagem, cortes = entrada()
     analise = replace(_tentar(chamar, mensagem, textos), cortes=cortes)
     if analise.problemas:
         logger.warning("Análise de lados: a resposta não valeu (%s). Nova tentativa, com o erro anexado.", "; ".join(analise.problemas))
-        mensagem, cortes = entrada(pedido_de_correcao(analise))
-        analise = replace(_tentar(chamar, mensagem, textos), cortes=cortes, primeira=analise)
+        analise = replace(segunda(pedido_de_correcao(analise)), primeira=analise)
     elif analise.faltam or analise.recusados or analise.sem_sim_e_nao:
         if analise.faltam:
             logger.warning('Análise de lados: ator sem entrada em "respostas_por_ator" (%s). Nova tentativa, pedindo a entrada.',
@@ -996,8 +1007,7 @@ def analisar_lados(chamar, textos, limite: int | None = None) -> Analise:
                            "; ".join(f"{r.ator}: {r.motivo}" for r in analise.recusados))
         if analise.sem_sim_e_nao:
             logger.warning('Análise de lados: %s. Nova tentativa, pedindo "Sim" e "Não".', analise.sem_sim_e_nao)
-        mensagem, cortes = entrada(pedido_das_respostas(analise))
-        nova = replace(_tentar(chamar, mensagem, textos), cortes=cortes)
+        nova = segunda(pedido_das_respostas(analise))
         sem_disputa_de_sim_e_nao = analise.sem_sim_e_nao and (len(nova.lados) != 2 or bool(nova.sem_sim_e_nao))
         if nova.problemas:
             logger.warning("Análise de lados: a nova tentativa não valeu (%s). Fica a primeira resposta%s.",

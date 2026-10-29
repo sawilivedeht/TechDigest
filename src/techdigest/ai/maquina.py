@@ -167,3 +167,16 @@ class ProviderVigiado:
             raise
         self.conferir_depois_da_carga()
         return resposta
+
+    def contar_tokens_fixos(self, system: str) -> int:
+        """A parte fixa de uma chamada em tokens (ver `OllamaProvider.contar_tokens_fixos`), com as travas de uma
+        chamada: ela também pode ser a que carrega o modelo. AttributeError se o provider não conta tokens."""
+        contar = self.provider.contar_tokens_fixos
+        self.antes_da_chamada()
+        try:
+            tokens = contar(system)
+        except Exception:
+            self.depois_da_falha()
+            raise
+        self.conferir_depois_da_carga()
+        return tokens

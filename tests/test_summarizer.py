@@ -13,7 +13,11 @@ from techdigest.ai.lados import (
 )
 from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
 from techdigest.ai.recorte import cortar_em_paragrafo
-from techdigest.ai.summarizer import LEMBRETE, QAReprovado, Summarizer, _repartir, montar_entrada, textos_da_pauta
+from techdigest.ai.llm import JanelaExcedida
+from techdigest.ai.summarizer import (
+    FOLGA_DA_MEDIDA, LEMBRETE, PROPORCAO_TIPICA, QAReprovado, Summarizer, _repartir, aviso_da_janela, montar_entrada,
+    textos_da_pauta,
+)
 
 UTC = datetime.timezone.utc
 
@@ -87,6 +91,25 @@ class ProviderFalso:
         return self.respostas.pop(0)
 
 
+# A parte fixa de cada prompt, como a sessão de teste de 29/10/2026 a contou (o prompt de sistema e o template).
+FIXOS = {PROMPT_SISTEMA: 2591, PROMPT_LADOS: 1573, PROMPT_REVISOR: 1124, PROMPT_ROTEIRO: 1041, PROMPT_TITULO: 335,
+         PROMPT_RESUMO: 242}
+
+
+class ProviderQueConta(ProviderFalso):
+    """O ProviderFalso que conta a parte fixa, como o OllamaProvider: cada chamada custa a parte fixa do prompt mais 1
+    token a cada 4 caracteres da mensagem do usuário (a proporção do texto é 4)."""
+    model = "modelo-que-conta"
+
+    def contar_tokens_fixos(self, system):
+        return FIXOS.get(system, len(system) // 4)
+
+    def chat_json(self, *args, **kwargs):
+        resposta = super().chat_json(*args, **kwargs)
+        self.ultimo_uso = {"prompt": self.contar_tokens_fixos(args[0]) + len(args[1]) // 4, "saida": 2000}
+        return resposta
+
+
 @pytest.fixture
 def ollama_8192(monkeypatch):
     monkeypatch.setattr(summarizer, "settings", SimpleNamespace(
@@ -101,11 +124,10 @@ def ollama_8192(monkeypatch):
 def test_fonte_unica_leva_o_bloco_de_lados_antes_do_lembrete(caracteres, ollama_8192):
     principal = {"source": "G1", "title": "Um  título\tcom espaços", "text": "\x00Sujeira  no começo.\n\n\n\n" + _texto(caracteres)}
     sem_bloco = _entrada_antiga(principal)
-    resumidor = Summarizer(provider=ProviderFalso())
-    # A geração vem depois da análise de lados, que já mede a proporção de caracteres por token: a menor medida nas
-    # rodadas de 23 e 24/10/2026 foi 3,26. Com a inicial de 3,0, que só valeria se a análise falhasse, o plano das falas
-    # no bloco deixa um texto de 5.000 caracteres sem o último parágrafo.
-    resumidor.chars_por_token = 3.26
+    resumidor = Summarizer(provider=ProviderQueConta())
+    # A geração vem depois da análise de lados, que já mede a proporção do texto do item: a menor dos itens comuns de
+    # fonte única nas simulações de 25/10/2026 foi 3,63 (as tabelas de votos deram 2,30).
+    resumidor.proporcao_do_item = 3.63
     limite = resumidor._limite_da_entrada(PROMPT_SISTEMA)    # o limite real de num_ctx=8192
 
     # sem os lados, a entrada é a de sempre: o limite não chega a cortar um texto de fonte única
@@ -224,33 +246,104 @@ def test_aviso_de_mesmo_veiculo_e_de_desdobramento():
 
 # ── Limite da entrada e proporção medida ──────────────────────────────────────────────────
 
-def test_limite_no_ollama_desconta_reserva_margem_e_prompt_de_sistema(ollama_8192):
-    s = Summarizer(provider=ProviderFalso())
-    assert s._limite_da_entrada(PROMPT_SISTEMA) == int((8192 - 3000 - 256) * 3.0) - len(PROMPT_SISTEMA)
-    assert s._limite_da_entrada(PROMPT_REVISOR, extra=7000) == int((8192 - 3000 - 256) * 3.0) - len(PROMPT_REVISOR) - 7000
+def test_limite_no_ollama_desconta_reserva_margem_e_a_parte_fixa_em_tokens_exatos(ollama_8192):
+    s = Summarizer(provider=ProviderQueConta())
+    tipica = PROPORCAO_TIPICA * FOLGA_DA_MEDIDA           # antes da 1ª chamada do item: a proporção típica, com a folga
+    assert s._limite_da_entrada(PROMPT_SISTEMA) == int((8192 - 3000 - 256 - 2591) * tipica)
+    assert s._limite_da_entrada(PROMPT_REVISOR, extra=7000) == int((8192 - 3000 - 256 - 1124) * tipica) - 7000
     # a chamada que limita a própria saída reserva só isso: é o caso da análise de lados
-    assert s._limite_da_entrada(PROMPT_LADOS, saida=MAX_SAIDA_LADOS) == int((8192 - 1200 - 256) * 3.0) - len(PROMPT_LADOS)
+    assert s._limite_da_entrada(PROMPT_LADOS, saida=MAX_SAIDA_LADOS) == int((8192 - 1200 - 256 - 1573) * tipica)
 
     summarizer.settings.ollama_num_predict = 2000        # num_predict menor que a reserva: vale ele
-    assert s._limite_da_entrada("") == int((8192 - 2000 - 256) * 3.0)
+    assert s._limite_da_entrada(PROMPT_SISTEMA) == int((8192 - 2000 - 256 - 2591) * tipica)
+
+    # o provider que não conta a parte fixa: o prompt de sistema convertido por CHARS_POR_TOKEN_DO_PROMPT (3,0)
+    sem_contagem = Summarizer(provider=ProviderFalso())
+    assert sem_contagem._limite_da_entrada(PROMPT_SISTEMA) == int((8192 - 2000 - 256 - math.ceil(9661 / 3.0)) * tipica)
 
     summarizer.settings.llm_provider = "openai"          # no caminho OpenAI o limite é LLM_MAX_PROMPT_CHARS
     assert s._limite_da_entrada(PROMPT_SISTEMA, extra=96) == 4000
 
 
-def test_proporcao_de_caracteres_por_token_vem_do_que_o_provider_mediu(ollama_8192):
-    provider = ProviderFalso({}, {}, {})
+def test_proporcao_do_texto_vem_do_que_o_provider_contou_sem_a_parte_fixa(ollama_8192):
+    provider = ProviderQueConta({}, {}, {})
     s = Summarizer(provider=provider)
-    assert s.chars_por_token == 3.0                      # antes de medir: conservador
+    assert s.proporcao() == PROPORCAO_TIPICA             # antes de medir: a típica
 
-    s._chamar("s" * 1000, "u" * 3000)                    # 4000 caracteres, 1000 tokens
-    assert s.chars_por_token == pytest.approx(4.0 * 0.9)
-    provider.chat_json = lambda system, user: provider.__dict__.update(ultimo_uso={"prompt": 2000}) or {}
-    s._chamar("s" * 1000, "u" * 5000)                    # 3 caracteres por token: fica a menor medida
-    assert s.chars_por_token == pytest.approx(3.0 * 0.9)
+    s._chamar(PROMPT_SISTEMA, "u" * 3000)                # o falso conta 2591 tokens fixos + 750 do texto
+    assert s.proporcao() == pytest.approx(4.0)
+    provider.chat_json = lambda system, user: provider.__dict__.update(ultimo_uso={"prompt": 2591 + 2500}) or {}
+    s._chamar(PROMPT_SISTEMA, "u" * 5000)                # 2 caracteres por token: fica a menor medida do item
+    assert s.proporcao() == pytest.approx(2.0)
     provider.chat_json = lambda system, user: provider.__dict__.update(ultimo_uso={}) or {}
-    s._chamar("s" * 1000, "u" * 9000)                    # provider sem contagem: nada muda
-    assert s.chars_por_token == pytest.approx(3.0 * 0.9)
+    s._chamar(PROMPT_SISTEMA, "u" * 9000)                # provider sem contagem: nada muda
+    assert s.proporcao() == pytest.approx(2.0) and s.menor_proporcao == pytest.approx(2.0)
+
+
+def test_a_proporcao_vale_por_item_e_a_do_anterior_nao_corta_os_textos_do_seguinte(ollama_8192):
+    # o item anterior era de tabelas (2,0); a análise de lados do item seguinte começa da típica e lê o texto inteiro
+    provider = ProviderQueConta(lados={"questao": "", "lados": [{"posicao": "relato", "atores": [], "veiculos": ["G1"]}]})
+    s = Summarizer(provider=provider)
+    s.proporcao_do_item = s.menor_proporcao = 2.0
+    principal = _artigo("G1", 12000)
+    s.preparar(principal)
+    [(args, _)] = provider.analises
+    assert summarizer._limpar(principal["text"]) in args[1]
+    assert s.proporcao() == pytest.approx(4.0)           # a medida deste item, e não a do anterior
+
+
+class ProviderDaJanela(ProviderQueConta):
+    """Recusa a 1ª chamada de cada prompt de `recusar` como o Ollama com "truncate": false: JanelaExcedida, com a
+    contagem do servidor (o falso conta 1 token a cada 2 caracteres da mensagem do usuário, como um texto de tabelas)."""
+
+    def __init__(self, *respostas, recusar=(), **kwargs):
+        super().__init__(*respostas, **kwargs)
+        self.recusar, self.recusadas = set(recusar), []
+
+    def chat_json(self, *args, **kwargs):
+        if args[0] in self.recusar:
+            self.recusar.discard(args[0])
+            self.recusadas.append(args)
+            raise JanelaExcedida(FIXOS[args[0]] + len(args[1]) // 2, 8192, "a entrada passa da janela")
+        return super().chat_json(*args, **kwargs)
+
+
+def test_a_analise_que_passa_da_janela_e_refeita_com_a_proporcao_que_o_erro_mediu(ollama_8192, caplog):
+    provider = ProviderDaJanela(recusar={PROMPT_LADOS},
+                                lados={"questao": "", "lados": [{"posicao": "relato", "atores": [], "veiculos": ["G1"]}]})
+    s = Summarizer(provider=provider)
+    principal = _artigo("G1", 15000)
+    s.preparar(principal)
+    [recusada] = provider.recusadas
+    [(refeita, _)] = provider.analises                   # a recusada não virou tentativa que falhou nem lado neutro
+    assert len(refeita[1]) < len(recusada[1])            # refeita com menos texto, na proporção de 2 caracteres por token
+    assert s.proporcao_do_item == pytest.approx(len(recusada[1]) / (len(recusada[1]) // 2))
+    assert any("Janela: a análise de lados passou da janela" in r.getMessage() for r in caplog.records)
+
+
+def test_a_geracao_que_passa_da_janela_e_refeita_com_a_entrada_remontada(ollama_8192, caplog):
+    principal = _artigo("G1", 4000)
+    provider = ProviderDaJanela(_episodio(["G1"]), recusar={PROMPT_SISTEMA})
+    s = Summarizer(provider=provider)
+    s.process(principal)
+    [recusada] = provider.recusadas
+    [(gerada, _)] = provider.chamadas
+    assert len(gerada[1]) < len(recusada[1])
+    assert s.ultimo_diagnostico["entrada"].texto == gerada[1]
+    assert s.ultimo_diagnostico["orcamento"] is s.ultimo_diagnostico["entrada"].orcamento   # o orçamento também foi refeito
+    assert any("Janela: a geração passou da janela" in r.getMessage() for r in caplog.records)
+
+
+def test_a_janela_que_corta_o_texto_de_fonte_unica_deixa_aviso():
+    principal = _artigo("G1", 9000)
+    com_espaco, apertada = montar_entrada(principal, limite=20000), montar_entrada(principal, limite=2500)
+    assert com_espaco.pela_janela == [] and aviso_da_janela(com_espaco) == ""   # o teto de 5.000 cortou, não a janela
+    [corte] = apertada.pela_janela
+    assert (corte["indice"], corte["fonte"], corte["teto"]) == (0, "G1", 5000)
+    assert corte["entrou"] == apertada.cortes[0]["incluido"] <= corte["cabe"] < 5000   # o que entrou, em fim de parágrafo
+    assert aviso_da_janela(apertada) == (f"o texto de G1 entrou na geração com {corte['entrou']} de 5000 caracteres: a janela, "
+                                         f"e não o teto, cortou o texto (fonte única)")
+    assert aviso_da_janela(apertada, [_artigo("Folha", 3000)]) == ""          # com várias fontes a janela reparte
 
 
 # ── process ───────────────────────────────────────────────────────────────────────────────
@@ -278,19 +371,19 @@ def test_process_com_dois_veiculos_cobra_as_fontes_e_revisa_dentro_do_orcamento(
     principal = _artigo("O Globo", 9000)
     relacionados = [_artigo("G1", 6000, relacao="desdobramento"), _artigo("Agência Brasil", 6000, relacao="desdobramento")]
     sem_uma_fonte, completo = _episodio(["O GLOBO", "g1"]), _episodio(["O Globo", "G1", "Agência Brasil"])
-    provider = ProviderFalso(sem_uma_fonte, completo)
+    provider = ProviderQueConta(sem_uma_fonte, completo)
     s = Summarizer(provider=provider)
 
     assert s.process(principal, relacionados) is completo
     (sistema, entrada), (revisor, revisao) = (args for args, _ in provider.chamadas)
     assert (sistema, revisor) == (PROMPT_SISTEMA, PROMPT_REVISOR)
-    # o limite da geração é calculado depois da análise, já com a proporção que ela mediu (4 caracteres por token × 0,9)
-    assert len(entrada) <= int((8192 - 3000 - 256) * 3.6) - len(PROMPT_SISTEMA)
+    # o limite da geração é calculado depois da análise, já com a proporção que ela mediu (4): cabe na janela, em tokens
+    assert FIXOS[PROMPT_SISTEMA] + len(entrada) // 4 <= 8192 - 3000 - 256
     trechos = s.ultimo_diagnostico["entrada"].textos
     assert [len(t["texto"]) for t in trechos] < [5000, 3000, 3000] and all(t["texto"] in entrada for t in trechos)
     # a análise de lados lê os textos inteiros; estes 21 mil caracteres não cabem na chamada dela e foram cortados, com o registro
     completos = textos_da_pauta(principal, relacionados)
-    espaco = int((8192 - 1200 - 256) * 3.0) - len(PROMPT_LADOS)
+    espaco = int((8192 - 1200 - 256 - FIXOS[PROMPT_LADOS]) * PROPORCAO_TIPICA * FOLGA_DA_MEDIDA)   # a 1ª chamada: a típica
     lidos, cortes = textos_que_cabem(completos, espaco)
     assert provider.analises[0][0][1] == entrada_dos_lados(lidos) and len(provider.analises[0][0][1]) <= espaco
     analise = s.ultimo_diagnostico["lados"]                           # inválida duas vezes: a nova tentativa leva o pedido e lê menos texto
@@ -305,8 +398,8 @@ def test_process_com_dois_veiculos_cobra_as_fontes_e_revisa_dentro_do_orcamento(
     assert revisao.startswith("ARTIGO-FONTE (use somente fatos deste texto; não invente informações):\nARTIGO PRINCIPAL\n")
     assert "\n\nPROBLEMAS DETECTADOS:\n- fontes_citadas sem Agência Brasil" in revisao
     assert revisao.endswith("\n\nEPISÓDIO ORIGINAL:\n" + json.dumps(sem_uma_fonte, ensure_ascii=False))
-    # a revisão leva o episódio original e cabe na janela pela proporção já medida (4 caracteres por token × 0,9)
-    assert len(revisor) + len(revisao) <= int((8192 - 3000 - 256) * 3.6)
+    # a revisão leva o episódio original e cabe na janela pela proporção já medida
+    assert FIXOS[PROMPT_REVISOR] + len(revisao) // 4 <= 8192 - 3000 - 256
     assert s.ultimo_diagnostico["problemas_da_revisao"] == []
 
 
@@ -484,14 +577,14 @@ def test_as_revisoes_levam_o_recorte_por_relevancia_no_espaco_de_cada_uma(tipo, 
         reprovado["roteiro_podcast"][2]["fala"] = "A Agência Brasil registra que a Meta nega."            # Otávio fala pouco: problema só no roteiro
     else:
         reprovado["fontes_citadas"] = ["Agência Brasil"]                                                 # campo sem correção própria
-    provider = ProviderFalso(reprovado, debate if tipo == "completa" else {"roteiro_podcast": debate["roteiro_podcast"]}, lados=DISPUTA_NO_FIM)
+    provider = ProviderQueConta(reprovado, debate if tipo == "completa" else {"roteiro_podcast": debate["roteiro_podcast"]}, lados=DISPUTA_NO_FIM)
     s = Summarizer(provider=provider)
 
     assert s.process(principal, relacionados) == debate
     diagnostico = s.ultimo_diagnostico
     assert diagnostico["correcao"] == tipo and diagnostico["problemas_da_revisao"] == []
     (_, geracao), (sistema, revisao) = (args for args, _ in provider.chamadas)
-    assert sistema == prompt and len(sistema) + len(revisao) <= int((8192 - 3000 - 256) * 3.6)
+    assert sistema == prompt and FIXOS[prompt] + len(revisao) // 4 <= 8192 - 3000 - 256
     fonte = diagnostico["revisao"]
     # a revisão completa tem menos espaço que a geração, e mesmo assim leva o parágrafo do trecho de cada lado, depois da marca
     incluido, na_geracao = (sum(c["incluido"] for c in e.cortes) for e in (fonte, diagnostico["entrada"]))
@@ -811,3 +904,51 @@ def test_process_levanta_qareprovado_se_a_revisao_tambem_falha(ollama_8192):
     s = Summarizer(provider=ProviderFalso(_episodio(["G1"]), _episodio(["G1"])))
     with pytest.raises(QAReprovado, match="fontes_citadas sem Folha"):
         s.process(_artigo("G1", 2000), [_artigo("Folha", 2000)])
+
+
+def test_a_resposta_sem_contagem_nao_muda_a_proporcao_nem_traz_a_de_outro_item(ollama_8192):
+    provider = ProviderQueConta({})
+    s = Summarizer(provider=provider)
+    s.menor_proporcao = 2.0                              # um item anterior, de tabelas
+    provider.chat_json = lambda system, user: provider.__dict__.update(ultimo_uso={}) or {}
+    s._chamar(PROMPT_SISTEMA, "u" * 3000)
+    assert s.proporcao_do_item is None and s.proporcao() == PROPORCAO_TIPICA
+
+
+def test_o_erro_de_janela_sem_contagem_usa_a_menor_da_execucao_e_sempre_encolhe(ollama_8192):
+    def janela(system, user):
+        raise JanelaExcedida(None, 8192, "a entrada passa da janela")
+    provider = ProviderQueConta()
+    provider.chat_json = janela
+    s = Summarizer(provider=provider)
+    with pytest.raises(JanelaExcedida):
+        s._chamar(PROMPT_SISTEMA, "u" * 3000)
+    assert s.proporcao() == 3.0                          # sem medida na execução: PROPORCAO_SEM_MEDIDA
+    with pytest.raises(JanelaExcedida):
+        s._chamar(PROMPT_SISTEMA, "u" * 3000)            # a menor já vista não encolheria: encolhe 20%
+    assert s.proporcao() == pytest.approx(2.4)
+
+
+def test_a_revisao_que_passa_da_janela_e_refeita(ollama_8192, caplog):
+    principal, relacionados = _artigo("O Globo", 9000), [_artigo("G1", 6000, relacao="desdobramento")]
+    sem_uma_fonte, completo = _episodio(["O Globo"]), _episodio(["O Globo", "G1"])
+    provider = ProviderDaJanela(sem_uma_fonte, completo, recusar={PROMPT_REVISOR})
+    s = Summarizer(provider=provider)
+    assert s.process(principal, relacionados) is completo
+    [recusada] = provider.recusadas
+    (_, _), (revisada, _) = provider.chamadas
+    assert len(revisada[1]) < len(recusada[1])
+    assert any("Janela: a revisão passou da janela" in r.getMessage() for r in caplog.records)
+
+
+def test_o_erro_de_janela_na_correcao_nao_conta_como_reprovacao_do_qa(ollama_8192):
+    principal, relacionados = _artigo("O Globo", 9000), [_artigo("G1", 6000, relacao="desdobramento")]
+
+    class SempreNaJanela(ProviderQueConta):
+        def chat_json(self, *args, **kwargs):
+            if args[0] == PROMPT_REVISOR:
+                raise JanelaExcedida(9000, 8192, "a entrada passa da janela")
+            return super().chat_json(*args, **kwargs)
+    s = Summarizer(provider=SempreNaJanela(_episodio(["O Globo"])))
+    with pytest.raises(JanelaExcedida):                  # o segundo erro de janela sobe como erro do item
+        s.process(principal, relacionados)

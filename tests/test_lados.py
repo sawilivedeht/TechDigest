@@ -1147,3 +1147,23 @@ def test_bloco_nunca_passa_do_espaco_reservado():
     cortado = bloco_dos_lados(exagerados, "O canal deve ser suspenso?")
     assert len(cortado) <= modulo.MAX_BLOCO
     assert cortado.startswith("\nLADOS DA PAUTA: 3 lados.\nQUESTÃO: O canal deve ser suspenso?\nELENCO: Helena e exatamente 3 analistas")   # o elenco nunca é cortado
+
+
+def test_o_erro_de_janela_atravessa_a_analise_e_nao_vira_tentativa_que_falhou():
+    # quem refaz é o Summarizer, com a proporção medida: a nova tentativa, com o pedido de correção, seria maior ainda
+    from techdigest.ai.llm import JanelaExcedida
+
+    def chamar(system, user, **opcoes):
+        raise JanelaExcedida(9000, 8192, "a entrada passa da janela")
+    with pytest.raises(JanelaExcedida):
+        analisar_lados(chamar, TEXTOS)
+
+
+def test_o_erro_de_janela_na_nova_tentativa_vale_como_chamada_que_falhou_e_fica_a_primeira():
+    from techdigest.ai.llm import JanelaExcedida
+    sem_entrada = {**DOIS_LADOS, "respostas_por_ator": [e for e in DOIS_LADOS["respostas_por_ator"] if e["ator"] != "PT"]}
+    chamada = Chamada(sem_entrada, JanelaExcedida(9000, 8192, "a entrada passa da janela"))
+    analise = analisar_lados(chamada, TEXTOS)
+    assert len(chamada.recebido) == 2 and analise.segunda is not None
+    assert "a chamada passou da janela" in analise.segunda.problemas[0]
+    assert [l.atores for l in analise.lados] == [("campanha de Lula",), ("Meta",)]   # a primeira, sem o ator sem entrada

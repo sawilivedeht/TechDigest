@@ -1316,6 +1316,85 @@ e com o vigia de memória, que nunca viu menos de 16,3 GiB disponíveis; o detal
   0,10 a 0,12, abaixo do limiar); a história do NYT saiu de novo na segunda execução, por outro veículo (o artigo que
   chega depois forma outra pauta).
 
+## A janela por item: as decisões de 29/10 e a medida
+
+O dono aprovou em 29/10 a medida por item, com cinco requisitos, e mandou medir antes e implementar se a medida
+confirmasse o desenho: (1) a parte fixa de cada chamada entra no limite pelo número exato de tokens; (2) a proporção do
+texto vale por item, e a folga de 0,9 fica, só no texto; (3) nenhuma chamada é cortada em silêncio (`truncate` e
+`shift` desligados, conferidos na sessão de teste); (4) a primeira chamada de cada item começa da proporção típica e,
+com erro de janela, é refeita com a proporção medida do item ou, sem medida, com a menor já vista; (5) quando a janela, e
+não o teto, corta o texto de um item de fonte única, um aviso no log e no registro. As leituras 1 a 9 de 25/10 foram
+confirmadas; na 7, a falha do agrupamento passa a ir também para o registro da execução.
+
+**A sessão de teste de 29/10** (`data/agrupamento/correcoes_20261029/`, `saida_sessao_janela.txt` e
+`saida_sessao_shift.txt`; memória disponível sempre acima de 17,3 GiB):
+
+- Ollama 0.40.2, sem `/api/tokenize`. O cliente Python (0.6.3) não manda `truncate` nem `shift`.
+- A parte fixa exata (o prompt e o template, com a mensagem do usuário vazia e num_predict 1): `PROMPT_SISTEMA` 2.591
+  tokens, `PROMPT_LADOS` 1.573, `PROMPT_REVISOR` 1.124, `PROMPT_ROTEIRO` 1.041, `PROMPT_TITULO` 335, `PROMPT_RESUMO`
+  242, `PROMPT_AGRUPADOR` 879; o template sozinho, 18.
+- `"truncate": false`: o pedido maior que a janela volta na hora com HTTP 400 e a contagem exata (15.329 de 8.192
+  tokens), sem processar nada. `"shift": false`: a resposta parou em 8.189 de 8.192 tokens, com `done_reason`
+  "length". O `shift` é opção do servidor do modelo: trocá-lo entre pedidos recarrega o modelo (uns 10 s), e repeti-lo
+  não; por isso vai igual em todos os pedidos.
+
+**A medida nas três simulações de 25/10** (`medir_janela.py`, `saida_medir_janela.txt`; resumo em
+`resultado_medida.md`):
+
+- A proporção do texto por item (sem a parte fixa) vai de 2,30 (a pauta CartaCapital + BBC, tabelas de votos) a 4,79,
+  com mediana 4,31 em 64 itens; o prompt de sistema mede de 3,2 a 3,8.
+- Fonte única: dos 60 itens, recebem o teto com a regra de hoje 52 e com a nova os 60. As pautas de várias fontes
+  recebem muito mais texto (a do Zanin, de 206, 0 e 0 caracteres para 2.751, 1.375 e 1.046).
+- Com a proporção típica (4,31 × 0,9), uma primeira chamada passa da conta (a das tabelas, 7.250 tokens) e nenhuma
+  passa da janela.
+- A maior saída de cada etapa: lados 953 tokens (o menor espaço que sobrou, 942, foi o da pauta das tabelas, cuja
+  resposta saiu inteira: 289 tokens, done=stop), geração 1.797, correção completa 1.377, do roteiro 1.148, do resumo
+  219; nenhuma chamada terminou fora de done=stop. Na geração, a reserva (3.000) e a margem (256) somam 3.256 tokens,
+  e a maior saída foi 1.797: é o próximo espaço a estudar para a janela dos outros veículos, sem mudança agora.
+- A parte fixa na regra de hoje: com a proporção 2,34 o limite descontava 4.129 tokens pelo `PROMPT_SISTEMA` (exato:
+  2.591); com 3,3, 2.928.
+- **As rodadas de validação desde 17/10 não foram afetadas:** a proporção no início de cada pauta ficou entre 3,22 e
+  3,46 (3,0 só antes da primeira medida de cada rodada), e com ela o teto de 5.000 caracteres do principal cabe na
+  janela. No 92+97+63 da prévia valia 3,3 (o início da pauta seguinte também foi 3,3, então nenhuma chamada dela mediu
+  menos): os 3.828 caracteres de texto vêm do que o bloco de lados e os cabeçalhos ocupam, não de uma proporção de 3,0.
+
+**A implementação** (o detalhe no CLAUDE.md, "The input budget"): `ai/janela.py` (a parte fixa contada uma vez e
+guardada em `TOKENS_FIXOS`, pelo hash do modelo e do prompt), `OllamaProvider` por HTTP com `truncate` e `shift`
+desligados (`llm._ClienteOllama`; `ps` e `generate` seguem do cliente Python), `JanelaExcedida` com a contagem do
+servidor, a proporção por item no `Summarizer` (começa de `PROPORCAO_TIPICA`, 4,3), a nova tentativa depois de um erro de
+janela (com a proporção que o erro mediu; sem contagem, a menor da execução, ou 3,0), o aviso da janela na fonte única
+(log e registro, com `cortado_pela_janela` em cada corte e `proporcao_do_texto` em cada item) e a falha do agrupamento
+no registro (`agrupamento_falhou`). O `resumo_lotes.py` mostra a falha do agrupamento e a contagem dos avisos da janela
+nas observações.
+
+**Leitura minha no requisito 4:** o erro de janela traz a contagem exata da entrada (`n_prompt_tokens`), e é dela que a
+nova tentativa tira a proporção medida do item; "a menor já vista" fica para o erro que não traz a contagem.
+
+**Para o roteiro, antes de ligar o agrupamento** (pedido de 29/10):
+
+- **O teste de ponta a ponta do "Também noticiaram" e do excedente marcado como visto.** Proposta: uma simulação de
+  trabalho sem áudio com `AGRUP_MAX_ARTIGOS=2` (toda pauta confirmada de 3 artigos ou mais tem excedente) e `MAX_NEWS`
+  alto o bastante para as pautas de várias fontes caberem nas vagas (na ligada 1 de 25/10, só 1 das 5 coube nas 20),
+  com a segunda execução na mesma pasta para conferir que o excedente não volta. A duplicata é mais difícil de forçar:
+  a de texto aparece sozinha quando dois feeds trazem a mesma matéria; a da URL canônica, quando o Google Notícias e o
+  feed do veículo trazem o mesmo link. Se nenhuma aparecer em duas coletas, um teste com uma amostra gravada em que o
+  mesmo artigo entra duas vezes, com links diferentes.
+- **O explicativo do mesmo fato que a etapa 1 não junta** ("Entenda por que a votação foi prorrogada", da Folha, com
+  score de 0,10 a 0,12 contra a pauta do Zanin) e **a história que volta na execução seguinte por outro veículo** (o
+  NYT, na segunda ligada): os dois entram na leitura da terceira amostra.
+- **A prioridade das pautas de várias fontes nas vagas:** na ligada 1, só 1 das 5 coube nas 20 vagas, porque cada
+  pauta fica na posição do seu primeiro artigo na lista intercalada. Uma prioridade seria regra nova, para o dono
+  decidir depois da terceira amostra.
+
+**A terceira amostra, em 29/10:** a coleta 3 (`amostra_20261029-070905.json`, 105 candidatos; 5 em comum com a coleta 2,
+com o mesmo rótulo) e o rascunho do gabarito das três coletas, para o dono revisar, em
+`data/agrupamento/terceira_amostra/` (`especificacao_do_rascunho.md`; por coleta, `rascunho_<carimbo>.md` e
+`rotulos_rascunho_<carimbo>.csv`, no formato do `--rotulos`). Feito por três workers de leitura, um por coleta; os CSVs
+e os trechos citados foram conferidos por script (ids, relações, todo par do CSV de pares rotulado, os artigos
+repetidos). Pelo rascunho, a meta do protocolo não fecha: 9 pautas de 2 ou mais artigos nas três coletas (2, 1 e 6; uma
+de esporte), contra 15, e 3 com disputa (todas na coleta 3), contra 6; 8 itens de fonte única com disputa. Se o
+gabarito do dono confirmar, falta uma quarta coleta.
+
 ## Números medidos
 
 - **Produção, 07/10/2026** (`master`, execução das 08:09): geração de 208 a 291 s a 11-16 tok/s,

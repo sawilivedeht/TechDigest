@@ -379,8 +379,10 @@ def _pautas_da_execucao(artigos: list, seen: SeenStore, registro, provider) -> l
 
     try:
         pautas = _agrupar(candidatos, provider, registro)
-    except Exception:   # a trava da máquina (ExecucaoInterrompida, um SystemExit) passa e para a execução
+    except Exception as e:   # a trava da máquina (ExecucaoInterrompida, um SystemExit) passa e para a execução
         logger.exception("Agrupamento falhou: os %d candidato(s) seguem um por um", len(candidatos))
+        _anotar(registro, "falha_do_agrupamento", f"{type(e).__name__}: {str(e)[:300]}; os {len(candidatos)} candidato(s) "
+                                                   f"seguiram um por um")
         pautas = [ag.Pauta(principal=c) for c in candidatos]
     pautas.sort(key=lambda p: min(posicao[c.url] for c in (*p.artigos, *p.duplicatas, *p.excedentes)))
     logger.info("Agrupamento: %d candidato(s) em %d pauta(s), %d com várias fontes", len(candidatos), len(pautas),
