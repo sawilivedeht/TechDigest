@@ -244,6 +244,9 @@ descumpriu o contrato?"). Ela resume a disputa no fato: acusação contra defesa
 contra negação.
 A questão trata do FATO NOVO da pauta: o que os textos relatam como acontecido agora. Episódios \
 anteriores que os textos recapitulam (o que já tinha acontecido, o histórico do caso) são contexto, não a questão.
+Uma fala que o texto situa antes do fato novo (dita em outra época, num episódio anterior) também é contexto e \
+não dá lado a ninguém: numa história sobre a inauguração da ponte de Vila Serena, o que o vereador Otaviano Brás \
+disse contra a obra três anos antes não é o lado "Não".
 Se a questão do fato novo só tem um lado com ator nomeado, verifique se os textos trazem, sobre o MESMO \
 fato, outra questão em que atores nomeados tomam posições opostas. Se trouxerem, use essa.
 NÃO criam disputa: informação complementar, detalhes diferentes entre os textos, a simples sequência dos \
@@ -268,6 +271,11 @@ na disputa, inclusive quem pediu ou tomou a decisão em disputa. Cada entrada tr
 que comprove essa resposta. Copie, não resuma nem corrija;
 - "veiculo": o veículo de onde o trecho saiu.
 Quem pede ou toma uma decisão responde a favor dela; quem a critica responde contra.
+Um veículo que o texto cita, e que não é um dos recebidos, é ator quando afirma o fato que outro ator nega: \
+se o texto diz que o jornal Gazeta Ventaneira publicou que a Construtora Alfa atrasou a obra, e a construtora nega, \
+a Gazeta Ventaneira responde "Sim" e a Construtora Alfa, "Não".
+Recusar-se a comentar não é resposta: quem "não comenta", "não discute" o assunto ou "não se pronunciou" não \
+entra em "respostas_por_ator" por isso.
 Com questão, cada lado com atores é uma das respostas dessa lista, com as mesmas palavras, e reúne os \
 atores que a deram. Todo ator de um lado tem a sua entrada na lista; ator sem trecho que comprove a \
 resposta não entra em lado nenhum.
@@ -283,6 +291,8 @@ Não expanda para o nome completo.
 - Grupo é um coletivo sem nome (economistas, especialistas, analistas, críticos, observadores) ou uma \
 designação vaga sem qualificador ("o governo", "a empresa"). Grupo vai em "grupos", NUNCA em "atores". \
 Com qualificador a designação é ator: "governo do Espírito Santo" e "prefeitura de Curitiba".
+- Fonte sem nome também é grupo, mesmo com o veículo que a ouviu: "uma fonte", "fontes do setor", "pessoas \
+próximas ao prefeito", "interlocutores do governo", "uma fonte ouvida pela Gazeta Ventaneira".
 - A posição que só um grupo sustenta é uma RESSALVA: escreva-a como um lado com "atores": [], o grupo \
 em "grupos" e, em "trecho", um trecho de até 200 caracteres, copiado AO PÉ DA LETRA do texto de um dos \
 veículos dela, que traga o alerta do grupo. A ressalva não conta para a questão nem para o número de \

@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-from techdigest.ai import qa
+from techdigest.ai import numeros, qa
 from techdigest.ai.elenco import nomes_dos_analistas
 from techdigest.ai.lados import Lado, Ressalva, lado_unico
 from techdigest.ai.verbos import FORMAS_DE_POSICAO, VERBOS_DE_POSICAO, verbos_de_posicao
@@ -570,6 +570,7 @@ def test_percentual_que_nenhum_texto_da_pauta_traz_reprova():
     ("Elas são cinquenta e oito vírgula oito por cento das vítimas.", True),                     # decimal dito com "vírgula"
     ("Elas são trinta e quatro vírgula oitenta e cinco por cento das candidaturas.", True),
     ("Houve mil quinhentas e sessenta e quatro denúncias no Disque cento e oitenta em 2026.", True),
+    ("Houve mil, quinhentas e sessenta e quatro denúncias no Disque 180.", True),               # a vírgula depois da escala (29/10)
     ("Quase 60% das vítimas são mulheres.", True),                                               # 58,8% está abaixo do dito e a até 5%
     ("Mais de 60% das vítimas são mulheres.", False),                                            # "mais de" pede a fonte acima do dito
     ("Mais de 58% das vítimas são mulheres.", True),
@@ -587,6 +588,15 @@ def test_percentual_que_nenhum_texto_da_pauta_traz_reprova():
 ])
 def test_numero_vale_pelo_que_a_pauta_traz_e_arredonda_so_com_qualificador(fala, passa):
     assert (qa.problemas_dos_numeros(_com_fala(fala), TEXTOS_DA_VIOLENCIA) == []) is passa
+
+
+def test_a_virgula_depois_da_escala_junta_o_numero_e_separa_a_enumeracao():
+    # com 1.000 e 500 na pauta, "mil, quinhentas" é 1.500 (antes de 29/10, eram dois números com fonte)
+    textos = ["Foram 1.000 inscritos e 500 vagas; depois, 10.000, 20.000 e 30.000 visitantes."]
+    assert qa.problemas_dos_numeros(_com_fala("Houve mil, quinhentas inscrições."), textos) != []
+    # a vírgula antes de outra escala do mesmo tamanho separa dois números: "dez mil, vinte mil"
+    assert [n.valor for n in numeros.numeros("dez mil, vinte mil visitantes")] == [10000, 20000]
+    assert qa.problemas_dos_numeros(_com_fala("Foram dez mil, vinte mil visitantes."), textos) == []
 
 
 def test_numero_sem_fonte_e_cobrado_em_cada_campo_e_diz_o_mais_proximo():

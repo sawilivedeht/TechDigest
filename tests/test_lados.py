@@ -395,6 +395,111 @@ def test_o_verbo_de_decisao_so_vale_na_frase_que_nomeia_o_ator():
     assert modulo.traz_a_resposta("Edson Lacerda", "A feira foi suspensa por tempo indeterminado", texto, VILA) == ""
 
 
+# As aceitações de 29/10/2026 (decisões do dono depois da validação cega), numa pauta inventada: o pedido da
+# cooperativa contra a associação, a decisão do juiz, a reportagem de um jornal citado e a nota da cooperativa.
+PEDIDO = [{"fonte": VILA, "titulo": "Juiz nega o pedido da cooperativa contra a feira", "texto": (
+    "A alegação da Cooperativa Raízes do Campo é a de que a feira ocupa a praça sem licença.\n"
+    "A decisão é do juiz Teodoro Lins, da 2ª Vara de Vila Serena. O juiz rejeitou o pedido de retirada das barracas.\n"
+    "O juiz rejeitou também o pedido de multa, sem o nome de ninguém neste parágrafo.\n"
+    "A versão foi divulgada pelo jornal Gazeta Ventaneira com base em documentos da prefeitura.\n"
+    "De acordo com a Gazeta Ventaneira, a licença venceu em março.\n"
+    "Marta Quaresma publicou que a feira vai continuar.\n"
+    "“Não comentamos processos em andamento”, disse a assessoria da cooperativa.\n"
+    "A Justiça Federal proibiu a venda de bebidas na praça."
+)}]
+
+
+@pytest.mark.parametrize("ator, trecho, prova", [
+    ("Cooperativa Raízes do Campo", "a feira ocupa a praça sem licença", "substantivo de posição com o ator (alegação)"),
+    ("juiz Teodoro Lins", "O juiz rejeitou o pedido de retirada das barracas", "verbo de decisão de quem decidiu, pelo cargo (rejeitou, juiz)"),
+    ("juiz Teodoro Lins", "O juiz rejeitou também o pedido de multa", ""),                       # sem o nome no parágrafo
+    ("Gazeta Ventaneira", "A versão foi divulgada pelo jornal Gazeta Ventaneira", "relato do veículo citado (divulgada pelo)"),
+    ("Gazeta Ventaneira", "a licença venceu em março", "relato do veículo citado (de acordo com)"),
+    ("Marta Quaresma", "Marta Quaresma publicou que a feira vai continuar", ""),                   # pessoa: só com verbo de posição
+    ("Justiça Federal", "A Justiça Federal proibiu a venda de bebidas na praça", "verbo de decisão de quem decidiu (proibiu)"),
+    ("Cooperativa Raízes do Campo", "Não comentamos processos em andamento", ""),                # recusa de comentar, mesmo entre aspas
+])
+def test_as_aceitacoes_de_29_10_e_a_recusa_de_comentar(ator, trecho, prova):
+    assert modulo.traz_a_resposta(ator, trecho, PEDIDO, VILA) == prova
+
+
+def test_a_recusa_de_comentar_com_uma_negacao_no_trecho_continua_resposta():
+    texto = [{"fonte": VILA, "titulo": "Feira", "texto": (
+        "Procurada, a cooperativa não comentou o caso, mas negou ter recebido a notificação.\n"
+        "A cooperativa disse que não comenta processos em andamento."
+    )}]
+    assert modulo.traz_a_resposta("Cooperativa Raízes do Campo", "não comentou o caso, mas negou ter recebido a notificação",
+                                  texto, VILA) == "verbo de posição no trecho (negou)"
+    assert modulo.traz_a_resposta("Cooperativa Raízes do Campo", "A cooperativa disse que não comenta processos", texto, VILA) == ""
+
+
+# O que a revisão de 29/10 achou que passava: o trecho que só descreve a conduta de quem é acusado ou perdeu.
+@pytest.mark.parametrize("ator, trecho, texto", [
+    ("Construtora Alfa", "superfaturou a obra", "A acusação de improbidade contra a Construtora Alfa é a de que superfaturou a obra."),
+    ("Construtora Alfa", "a Construtora Alfa superfaturou a obra", "De acordo com o Ministério Público, a Construtora Alfa superfaturou a obra."),
+    ("Construtora Alfa", "a Construtora Alfa atrasou a obra", "No segundo semestre, a Construtora Alfa atrasou a obra."),
+    ("Construtora Alfa", "a Construtora Alfa atrasou a obra", "A Gazeta Ventaneira revelou que a Construtora Alfa atrasou a obra."),
+    ("Construtora Alfa", "teve o pedido negado pela Justiça", "A Construtora Alfa teve o pedido negado pela Justiça."),
+    ("Construtora Alfa", "teve o recurso rejeitado", "A Construtora Alfa teve o recurso rejeitado na sexta."),
+    ("ministro Paulo Cueva", "O ministro Gilmar Mendes rejeitou o recurso", "O ministro Cueva votou com a maioria. O ministro Gilmar Mendes rejeitou o recurso."),
+    ("senador Flávio Bolsonaro", "O senador rejeitou a proposta", "Jair Bolsonaro falou na véspera. O senador rejeitou a proposta."),
+    ("Cooperativa Raízes", "limitou-se a dizer que não comenta processos", "A Cooperativa Raízes limitou-se a dizer que não comenta processos."),
+    ("prefeitura de Vila Serena", "questionou a prefeitura de Vila Serena, que não respondeu aos pedidos de entrevista",
+     "A reportagem questionou a prefeitura de Vila Serena, que não respondeu aos pedidos de entrevista."),
+    ("prefeitura de Vila Serena", "A prefeitura de Vila Serena não respondeu", "A prefeitura de Vila Serena não respondeu."),
+    ("Cooperativa Raízes", "disse que a empresa não vai se manifestar", "A assessoria disse que a empresa não vai se manifestar."),
+    ("Cooperativa Raízes", "A Cooperativa Raízes recusou-se a comentar", "A Cooperativa Raízes recusou-se a comentar o caso."),
+    ("Cooperativa Raízes", "processos em andamento", "“Não comentamos processos em andamento”, disse a assessoria da Cooperativa Raízes."),
+])
+def test_o_que_so_descreve_quem_foi_acusado_ou_perdeu_nao_traz_resposta(ator, trecho, texto):
+    assert modulo.traz_a_resposta(ator, trecho, [{"fonte": VILA, "titulo": "Obra", "texto": texto}], VILA) == ""
+
+
+def test_o_participio_novo_vale_com_o_ator_como_agente_e_o_veiculo_antes_do_verbo():
+    texto = [{"fonte": VILA, "titulo": "Obra", "texto": (
+        "O pedido da construtora foi negado pelo relator Teodoro Lins.\n"
+        "O jornal Gazeta Ventaneira revelou que a Construtora Alfa atrasou a obra."
+    )}]
+    assert modulo.traz_a_resposta("Teodoro Lins", "O pedido da construtora foi negado", texto, VILA) == (
+        "verbo de decisão de quem decidiu (negado)")
+    assert modulo.traz_a_resposta("Gazeta Ventaneira", "a Construtora Alfa atrasou a obra", texto, VILA) == (
+        "relato do veículo citado (revelou)")
+
+
+def test_o_veiculo_da_pauta_nao_vale_pelo_relato():
+    # a análise do próprio veículo não é lado: "de acordo com a Folha de Vila Serena" num texto dela não traz resposta
+    texto = [{"fonte": VILA, "titulo": "Feira", "texto": "De acordo com a Folha de Vila Serena, a licença venceu em março."}]
+    assert modulo.traz_a_resposta(VILA, "a licença venceu em março", texto, VILA) == ""
+
+
+@pytest.mark.parametrize("ator", ["uma fonte da Gazeta Ventaneira", "fontes do setor", "pessoas próximas ao prefeito",
+                                  "interlocutores do governo", "uma pessoa ligada à cooperativa"])
+def test_fonte_anonima_e_grupo_mesmo_com_o_veiculo_que_a_ouviu(ator):
+    assert ator_generico(ator)
+
+
+def test_fonte_anonima_contra_quem_nao_comenta_nao_e_disputa():
+    # o caso do C3.52 de 29/10: "uma fonte" afirma, a porta-voz "não discute assuntos pessoais"
+    texto = [{"fonte": VILA, "titulo": "Diretora deixa a cooperativa", "texto": (
+        "Uma fonte da Gazeta Ventaneira afirmou que a diretora foi afastada por violar regras internas.\n"
+        "“Não discutimos assuntos pessoais”, disse a porta-voz Iara Mendes.\n"
+        "A diretora Lúcia Porto deixou a Cooperativa Raízes do Campo nesta semana."
+    )}]
+    resposta = {"questao": "A diretora foi afastada por violar regras?", "respostas_por_ator": [
+        _evidencia("uma fonte da Gazeta Ventaneira", "Sim", "a diretora foi afastada por violar regras internas", VILA),
+        _evidencia("Iara Mendes", "Não", "Não discutimos assuntos pessoais", VILA),
+    ], "lados": [_lado("Foi afastada.", ["uma fonte da Gazeta Ventaneira"], [VILA], "Sim"),
+                 _lado("Não confirma.", ["Iara Mendes"], [VILA], "Não")]}
+    analise = analise_da_resposta(resposta, texto)
+    assert [lado.atores for lado in analise.lados] == [("Iara Mendes",)] and analise.questao == ""
+    assert "ator genérico do lado 1 passou a grupo (uma fonte da Gazeta Ventaneira)" in analise.ajustes
+    # com dois lados nomeados, quem só se recusa a comentar sai
+    com_dois = {**resposta, "respostas_por_ator": [_evidencia("Lúcia Porto", "Sim", "A diretora Lúcia Porto deixou a Cooperativa", VILA),
+                                                    resposta["respostas_por_ator"][1]],
+                "lados": [_lado("Saiu.", ["Lúcia Porto"], [VILA], "Sim"), _lado("Não confirma.", ["Iara Mendes"], [VILA], "Não")]}
+    assert "Iara Mendes" in [r.ator for r in analise_da_resposta(com_dois, texto).recusados]
+
+
 def test_ator_cujo_trecho_nao_traz_a_resposta_sai_e_fica_entre_os_recusados():
     resposta = {"questao": "A feira deve fechar?", "respostas_por_ator": [
         _evidencia("Cooperativa Raízes do Campo", "Sim", "A Cooperativa Raízes do Campo decidiu fechar a feira de domingo", VILA),

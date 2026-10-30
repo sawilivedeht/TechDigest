@@ -21,7 +21,9 @@ from techdigest.ai.qa import (
     veiculos_distintos,
 )
 from techdigest.ai.recorte import cortar_em_paragrafo, literal, localizar_trecho, procurado
-from techdigest.ai.verbos import verbos_de_decisao, verbos_de_posicao
+from techdigest.ai.verbos import (
+    PARTICIPIOS_SO_COM_AGENTE, VERBOS_DE_POSICAO, agentes_da_decisao, verbos_de_decisao, verbos_de_posicao,
+)
 
 logger = logging.getLogger("techdigest.ai.lados")
 
@@ -59,8 +61,10 @@ TERMOS_GENERICOS = frozenset({
 }) | QUANTIFICADORES
 # Coletivos de pessoas, sem acento: o ator cuja palavra principal é um deles é grupo mesmo com qualificador
 # ("comunidade de programação", "usuários do Reddit"), a não ser que ela venha com maiúscula, como nome
-# próprio ("Comunidade Europeia"). Ver `ator_generico`.
+# próprio ("Comunidade Europeia"). Ver `ator_generico`. A fonte anônima também é grupo, mesmo com o veículo que a
+# ouviu ("uma fonte da Eurogamer", "pessoas próximas ao ministro", "interlocutores do governo"; decisão de 29/10/2026).
 COLETIVOS_DE_PESSOAS = frozenset({
+    "fonte", "pessoa", "pessoas", "interlocutor", "interlocutores",
     "comunidade", "comunidades", "especialista", "especialistas", "usuario", "usuarios", "critico", "criticos",
     "economista", "economistas", "analista", "analistas", "observador", "observadores", "pesquisador", "pesquisadores",
     "estudioso", "estudiosos", "cientista", "cientistas", "jurista", "juristas", "tecnico", "tecnicos", "comentarista",
@@ -109,6 +113,47 @@ _ABRE_DUPLAS, _FECHA_DUPLAS = "“«„", "”»"
 _MARCADOR_DE_ATRIBUICAO = re.compile(
     r"\b(?:segundo (?:ele|ela|eles|elas)|de acordo com (?:ele|ela|eles|elas)|na (?:avaliacao|visao|opiniao) (?:dele|dela|deles|delas))\b"
 )
+# O que a conferência do trecho aceita desde 29/10/2026 (decisões do dono depois da validação cega; ver `traz_a_resposta`).
+# O substantivo de posição seguido do ator: "a alegação de Flávio é a de que...", "a versão da emissora".
+_SUBSTANTIVO_DE_POSICAO = re.compile(
+    r"\b(alegaç(?:ão|ões)|vers(?:ão|ões)|posiç(?:ão|ões)|avaliaç(?:ão|ões)|acusaç(?:ão|ões)|argumentos?|entendimento|"
+    r"críticas?|negativa|contestaç(?:ão|ões)|tese|opinião|interpretação|afirmaç(?:ão|ões)|declaraç(?:ão|ões)|justificativa)"
+    r"\s+(?:de|do|da|dos|das)\s+", re.IGNORECASE)
+# Os cargos pelos quais o texto retoma quem já nomeou ("O ministro rejeitou...", com o nome no mesmo parágrafo).
+CARGOS = frozenset({
+    "presidente", "presidenta", "ministro", "ministra", "senador", "senadora", "deputado", "deputada", "governador",
+    "governadora", "prefeito", "prefeita", "vereador", "vereadora", "juiz", "juíza", "desembargador", "desembargadora",
+    "relator", "relatora", "procurador", "procuradora", "promotor", "promotora", "delegado", "delegada", "diretor",
+    "diretora", "secretário", "secretária", "comandante", "chanceler", "corregedor", "corregedora", "magistrado",
+    "magistrada", "reitor", "reitora", "superintendente",
+})
+# O relato de um veículo citado, que não é veículo da pauta: "divulgada pelo jornal X", "de acordo com o X", "X publicou".
+_RELATO = re.compile(
+    r"\b(?:de acordo com|segundo|conforme|(?:divulgad|publicad|noticiad|revelad|reportad)[oa]s?\s+(?:\S+\s+){0,2}?"
+    r"(?:por|pelo|pela|pelos|pelas))\s+", re.IGNORECASE)
+_RELATO_ATIVO = re.compile(
+    r"\b(?:publicou|publicaram|noticiou|noticiaram|divulgou|divulgaram|revelou|revelaram|reportou|reportaram)\b", re.IGNORECASE)
+# O tipo de veículo logo antes do nome ("o jornal Aftonbladet"): com ele, o nome vale como veículo mesmo sem artigo.
+TIPOS_DE_VEICULO = frozenset({"jornal", "site", "revista", "portal", "agência", "agencia", "emissora", "canal", "rede", "tv",
+                              "blog", "newsletter", "podcast", "diário", "diario"})
+_ARTIGOS_DO_RELATO = frozenset({"o", "a", "os", "as"})
+# A recusa de comentar não traz resposta: "não comentamos", "não discutimos assuntos pessoais", "não se pronunciou",
+# "não vai se manifestar", "não respondeu" (sozinho ou aos pedidos da reportagem), "recusou-se a comentar".
+_RECUSA_DE_COMENTAR = re.compile(
+    r"\bn[aã]o\s+(?:\w+\s+){0,2}?(?:se\s+)?(?:coment\w*|pronunci\w*|manifest\w*)"
+    r"|\bn[aã]o\s+(?:\w+\s+){0,2}?(?:discutimos|discute|discutem|discutiu|discutiram|discutir)\b"
+    r"|\bn[aã]o\s+(?:\w+\s+)?(?:respondeu|responderam|responde|respondem|retornou|retornaram)\b"
+    r"(?=\s*(?:[.,;:]|$)|\s+(?:a|à|ao|aos|às|o|os)\s+(?:\S+\s+){0,3}?(?:contatos?|pedidos?|questionamentos?|reportagem|"
+    r"e-mails?|mensagens?|procura)\b)"
+    r"|\b(?:preferiu|prefere|preferiram|optou\s+por)\s+n[aã]o\s+(?:se\s+)?(?:comentar|manifestar|pronunciar|falar)\b"
+    r"|\brecus\w*(?:-se)?\s+a\s+(?:comentar|falar|se\s+manifestar|se\s+pronunciar)\b"
+    r"|\bn[aã]o\s+quis\s+(?:se\s+)?(?:comentar|manifestar|pronunciar|falar)\b",
+    re.IGNORECASE)
+# Os verbos de posição que só relatam a recusa ("disse que não comenta", "limitou-se a dizer", "tinha informado"): com
+# eles, o trecho continua sem resposta. O pretérito composto conta pela última palavra.
+_VERBOS_DE_RELATO = frozenset(
+    {forma for verbo in ("dizer", "informar", "declarar", "afirmar", "responder") for forma in VERBOS_DE_POSICAO[verbo]}
+    | {"dizer", "informar", "declarar", "afirmar", "responder", "dito", "informado", "declarado", "afirmado", "respondido"})
 # O que a nova tentativa lembra ao LLM, depois do erro da primeira.
 LEMBRETE_DA_CORRECAO = (
     "Responda de novo, com o JSON completo. Uma questão só; cada lado é uma resposta diferente a ela; agrupe os "
@@ -407,6 +452,126 @@ def _sem_acento(texto: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", texto) if not unicodedata.combining(c)).lower()
 
 
+def paragrafo_do_trecho(trecho: str, textos, veiculo: str) -> str:
+    """O parágrafo (ou o título) do texto do veículo em que o trecho está, pela comparação de `recorte.literal`; vazio
+    se o trecho não está, ao pé da letra, num parágrafo desse veículo."""
+    alvo = procurado(trecho)
+    return next((linha for linha in _linhas_do_veiculo(textos, veiculo) if alvo and alvo in literal(linha)), "")
+
+
+def _palavras_minusculas(texto) -> list[str]:
+    return re.findall(r"[^\W\d_]+", unicodedata.normalize("NFC", str(texto)).lower())
+
+
+def _limpa(palavra: str) -> str:
+    return _sem_acento(re.sub(r"[^\w\-]", "", palavra))
+
+
+def _nome_logo_depois(ator: str, palavras: list[str]) -> list[str]:
+    """As palavras do nome do ator logo no começo de `palavras` (as da frase depois de um marcador): a sequência de
+    palavras do nome dele e das partículas, até a primeira que não é ou até a pontuação. Vazia se o nome não começa ali."""
+    do_ator, seguidas = palavras_do_ator(ator), []
+    for palavra in palavras:
+        limpa = _limpa(palavra)
+        if not limpa or (limpa not in do_ator and limpa not in _PARTICULAS_DO_NOME):
+            break
+        seguidas.append(limpa)
+        if re.search(r"[,.;:!?)”\"]$", palavra):
+            break
+    while seguidas and seguidas[-1] in _PARTICULAS_DO_NOME:
+        seguidas.pop()
+    return seguidas
+
+
+def _nome_logo_antes(ator: str, palavras: list[str]) -> list[str]:
+    """As palavras do nome do ator logo no fim de `palavras` (as da frase antes de um verbo de relato): "o jornal Gazeta
+    Ventaneira" antes de "publicou" dá ["gazeta", "ventaneira"]. Vazia se o nome não termina ali."""
+    do_ator, seguidas = palavras_do_ator(ator), []
+    for palavra in reversed(palavras):
+        limpa = _limpa(palavra)
+        if not limpa or re.search(r"[,.;:!?(]$", palavra) or (limpa not in do_ator and limpa not in _PARTICULAS_DO_NOME):
+            break
+        seguidas.insert(0, limpa)
+    while seguidas and seguidas[0] in _PARTICULAS_DO_NOME:
+        seguidas.pop(0)
+    return seguidas
+
+
+def _substantivo_de_posicao(ator: str, frase: str, paragrafo: str) -> str:
+    """O substantivo de posição seguido logo do ator, na frase: o nome inteiro ("a alegação da campanha de Flávio"), ou
+    uma palavra do nome dele ("a alegação de Flávio") com o ator nomeado na frase ou no parágrafo. "A acusação de
+    improbidade contra a Construtora Alfa" não vale para a construtora. Vazio se não há."""
+    proprias = palavras_do_ator(ator) - TERMOS_GENERICOS
+    for achado in _SUBSTANTIVO_DE_POSICAO.finditer(frase):
+        nome = _nome_logo_depois(ator, frase[achado.end():].split()[:8])
+        if nome and (ator_citado(ator, " ".join(nome)) or (
+                any(p in proprias for p in nome) and (ator_citado(ator, frase) or ator_citado(ator, paragrafo)))):
+            return achado.group(1)
+    return ""
+
+
+def _pelo_cargo(ator: str, frase: str, paragrafo: str, textos) -> str:
+    """O cargo pelo qual a frase retoma o ator ("O ministro rejeitou..."), quando o ator da análise traz esse cargo
+    ("ministro Ricardo Villas Bôas Cueva") e o nome dele está no mesmo parágrafo, inteiro ou pelo sobrenome (que não pode
+    ser também de outra pessoa dos textos). O cargo seguido do nome de outra pessoa ("o ministro Gilmar Mendes
+    rejeitou") não vale."""
+    cargos = [p for p in _palavras_minusculas(ator) if p in CARGOS]
+    if not cargos or not any(c in _palavras_minusculas(frase) for c in cargos):
+        return ""
+    do_ator = palavras_do_ator(ator)
+    for cargo in cargos:
+        for achado in re.finditer(rf"(?<![^\W\d_]){re.escape(cargo)}\s+([^\W\d_][\w\-]*)", paragrafo, re.IGNORECASE):
+            seguinte = achado.group(1)
+            if seguinte[:1].isupper() and _limpa(seguinte) not in do_ator and f"{cargo} {seguinte.casefold()}" in frase:
+                return ""
+    nome = " ".join(p for p in str(ator).split() if p.lower() not in CARGOS)
+    sob = sobrenome(nome)
+    pelo_sobrenome = bool(sob) and not outro_com_o_sobrenome(nome, textos) and bool(
+        re.search(rf"(?<![^\W\d_]){re.escape(sob)}(?![^\W\d_])", paragrafo, re.IGNORECASE))
+    return cargos[0] if ator_citado(nome, paragrafo) or pelo_sobrenome else ""
+
+
+def _veiculo_citado(ator: str, frase: str, textos) -> str:
+    """O relato com que a frase atribui o fato a um veículo citado, que não é veículo da pauta: "divulgada pelo jornal
+    X", "de acordo com o X", "segundo o X", "X publicou". O nome vem logo depois do marcador (só com o artigo e o tipo de
+    veículo no meio) ou logo antes do verbo ativo: "de acordo com o Ministério Público, a Construtora Alfa..." não vale
+    para a construtora. Nome de pessoa (`nome_de_pessoa`) não vale por aqui, a não ser logo depois do tipo de veículo
+    ("o jornal Aftonbladet"): a pessoa responde com verbo de posição."""
+    if any(mesmo_veiculo(ator, v) for v in veiculos_distintos(t["fonte"] for t in textos)):
+        return ""
+    for achado in _RELATO.finditer(frase):
+        depois = frase[achado.end():].split()[:9]
+        while depois and depois[0] in _ARTIGOS_DO_RELATO:
+            depois = depois[1:]
+        do_tipo = bool(depois) and depois[0] in TIPOS_DE_VEICULO
+        nome = _nome_logo_depois(ator, depois[1:] if do_tipo else depois)
+        if nome and ator_citado(ator, " ".join(nome)) and (do_tipo or not nome_de_pessoa(ator, textos)):
+            return " ".join(achado.group().split())
+    for ativo in _RELATO_ATIVO.finditer(frase):
+        antes = frase[:ativo.start()].split()[-9:]
+        nome = _nome_logo_antes(ator, antes)
+        if not nome or not ator_citado(ator, " ".join(nome)):
+            continue
+        do_tipo = len(antes) > len(nome) and antes[-len(nome) - 1] in TIPOS_DE_VEICULO
+        if do_tipo or not nome_de_pessoa(ator, textos):
+            return ativo.group()
+    return ""
+
+
+def _decisoes_do_ator(ator: str, frase: str) -> list[str]:
+    """Os verbos de decisão da frase que valem para o ator: os particípios de 29/10 (`verbos.PARTICIPIOS_SO_COM_AGENTE`)
+    só com o ator como agente da passiva ("o pedido foi negado pelo relator"); "teve o pedido negado" não decide nada."""
+    verbos = verbos_de_decisao(frase)
+    if any(v in PARTICIPIOS_SO_COM_AGENTE for v in verbos):
+        do_ator = any(ator_citado(ator, agente) for agente in agentes_da_decisao(frase))
+        verbos = [v for v in verbos if v not in PARTICIPIOS_SO_COM_AGENTE or do_ator]
+    return verbos
+
+
+def _so_relata(verbos) -> bool:
+    return all(verbo.split()[-1] in _VERBOS_DE_RELATO for verbo in verbos)
+
+
 def traz_a_resposta(ator: str, trecho: str, textos, veiculo: str) -> str:
     """O que mostra que o trecho traz a resposta do ator à questão, e não só o descreve; vazio se nada mostra.
 
@@ -416,18 +581,40 @@ def traz_a_resposta(ator: str, trecho: str, textos, veiculo: str) -> str:
     ele", "na avaliação dela"). O trecho que descreve a conduta do ator ("admitido falhas técnicas")
     não traz a resposta dele. A conferência não vê de quem é o verbo da frase nem quem disse a
     citação: o verbo de outro ator na mesma frase também vale.
+
+    Desde 29/10/2026 (decisões do dono depois da validação cega), vale também: o substantivo de posição seguido do
+    ator ("a alegação de Flávio é a de que..."; ver `_substantivo_de_posicao`); o verbo de decisão com o ator retomado
+    pelo cargo que a análise traz, com o nome dele no mesmo parágrafo ("O ministro rejeitou...", ver `_pelo_cargo`); e o
+    relato de um veículo citado que não é da pauta ("divulgada pelo jornal Aftonbladet", "de acordo com o UOL"; ver
+    `_veiculo_citado`). E a recusa de comentar ("não comentamos", "não discutimos", "não se pronunciou") não traz
+    resposta, mesmo entre aspas: no trecho, a não ser que depois dela venha um verbo de posição que não só relata ("não
+    comentou o caso, mas negou..." responde; "disse que não comenta" e "a reportagem questionou a prefeitura, que não
+    respondeu" não); na frase, quando o trecho não tem verbo próprio e o resto da frase só relata a recusa.
     """
+    frase = frase_do_trecho(trecho, textos, veiculo)
+    if recusa := _RECUSA_DE_COMENTAR.search(trecho):
+        if _so_relata(verbos_de_posicao(trecho[recusa.end():])):
+            return ""
+    elif (recusa := _RECUSA_DE_COMENTAR.search(frase)) and not verbos_de_posicao(trecho) and _so_relata(
+            verbos_de_posicao(frase[recusa.end():])):
+        return ""
     if verbos := verbos_de_posicao(trecho):
         return f"verbo de posição no trecho ({verbos[0]})"
-    frase = frase_do_trecho(trecho, textos, veiculo)
     if verbos := verbos_de_posicao(frase):
         return f"verbo de posição na frase ({verbos[0]})"
     if _citacao_direta(trecho, textos, veiculo):
         return "citação direta"
-    if ator_citado(ator, frase) and (verbos := verbos_de_decisao(frase)):
+    if ator_citado(ator, frase) and (verbos := _decisoes_do_ator(ator, frase)):
         return f"verbo de decisão de quem decidiu ({verbos[0]})"
     if marcador := _MARCADOR_DE_ATRIBUICAO.search(_sem_acento(frase)):
         return f"marcador de atribuição ({marcador.group()})"
+    paragrafo = paragrafo_do_trecho(trecho, textos, veiculo)
+    if substantivo := _substantivo_de_posicao(ator, frase, paragrafo):
+        return f"substantivo de posição com o ator ({substantivo})"
+    if (verbos := _decisoes_do_ator(ator, frase)) and (cargo := _pelo_cargo(ator, frase, paragrafo, textos)):
+        return f"verbo de decisão de quem decidiu, pelo cargo ({verbos[0]}, {cargo})"
+    if relato := _veiculo_citado(ator, frase, textos):
+        return f"relato do veículo citado ({relato})"
     return ""
 
 

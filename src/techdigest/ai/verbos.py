@@ -14,6 +14,9 @@ Os verbos de decisão são outra lista: quem decide responde a favor da decisão
 "mandar" não atribuem uma posição. A análise de lados aceita a frase que nomeia o ator e tem um deles
 (ver `lados.traz_a_resposta`), e o QA aceita o particípio deles na passiva com o ator como agente
 ("a suspensão foi determinada por decisão do presidente do TSE, <ator>"; ver `agentes_da_decisao`).
+"Rejeitar", "proibir" e "acolher" entraram em 29/10/2026 (o "rejeitou" do ministro e o "proibiu" da Justiça do
+Trabalho na validação cega); "negar" já é verbo de posição, e só o particípio dele entra aqui, para a passiva ("o
+pedido foi negado pelo relator").
 """
 import re
 import unicodedata
@@ -75,10 +78,20 @@ FORMAS_DE_DECISAO = frozenset({
     "suspenso", "suspensa", "suspensos", "suspensas",
     "manda", "mandam", "mandou", "mandaram", "mandava", "mandavam", "mandando",
     "mandado", "mandada", "mandados", "mandadas",
+    "rejeita", "rejeitam", "rejeitou", "rejeitaram", "rejeitava", "rejeitavam", "rejeitando",
+    "rejeitado", "rejeitada", "rejeitados", "rejeitadas",
+    "proíbe", "proíbem", "proibiu", "proibiram", "proibia", "proibiam", "proibindo",
+    "proibido", "proibida", "proibidos", "proibidas",
+    "acolhe", "acolhem", "acolheu", "acolheram", "acolhia", "acolhiam", "acolhendo",
+    "acolhido", "acolhida", "acolhidos", "acolhidas",
+    "negado", "negada", "negados", "negadas",
 })
 
 # O particípio dos verbos de decisão, que faz a passiva ("foi determinada por..."), e o que pode vir no lugar do agente.
 PARTICIPIOS_DE_DECISAO = frozenset(f for f in FORMAS_DE_DECISAO if re.search(r"(?:ad|id|s)[oa]s?$", f) and not f.endswith("ia"))
+# Os particípios dos verbos que entraram em 29/10/2026: na análise de lados, só valem com o ator como agente da passiva
+# ("o pedido foi negado pelo relator"), porque "a construtora teve o pedido negado" nomeia quem perdeu, não quem decidiu.
+PARTICIPIOS_SO_COM_AGENTE = frozenset(f for f in PARTICIPIOS_DE_DECISAO if f.startswith(("rejeit", "proib", "acolh", "neg")))
 _DO_AGENTE = frozenset({"por", "pelo", "pela", "pelos", "pelas"})
 _ATE_O_AGENTE = 3             # palavras, no máximo, entre o particípio e o "por" ("determinada na sexta-feira pelo...")
 # Onde o agente acaba: no próximo verbo (de posição, de decisão ou de ligação), na conjunção que abre outra oração ou

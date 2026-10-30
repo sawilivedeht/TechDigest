@@ -46,7 +46,10 @@ ele está; este arquivo guarda o que foi decidido e o que falta, e é atualizado
    do agrupamento: o plano de 25/10"). Implementada em 25/10, desligada por padrão, com
    `AGRUP_MAX_PROVISORIA` em 6; faltam as simulações de trabalho.
 6. **Simulação de ponta a ponta.** A que libera o merge roda com `AGRUPAMENTO_ATIVO=false`, que é o
-   que vai para produção, e com áudio. A rodada com o agrupamento ligado é uma prévia.
+   que vai para produção, e com áudio. A rodada com o agrupamento ligado é uma prévia. Antes do merge
+   vem também a validação cega da fonte única na quarta coleta (decisão de 29/10/2026): a terceira
+   amostra deixou de ser cega com as correções da análise de lados feitas olhando para ela (ver "O
+   gabarito da terceira amostra e a validação cega: as decisões de 29/10").
 7. **Merge** das fases 1 a 4 na `master`, com `AGRUPAMENTO_ATIVO=false`. A fonte única muda já no
    merge, porque a análise de lados, o recorte por relevância e as regras novas do QA vivem em
    `Summarizer.process`; por isso a validação da etapa 4 vem antes.
@@ -1512,6 +1515,78 @@ texto recebido.
   comparação.
 - **Prompt e QA não mudaram por causa do resultado.** O que fazer com a conferência do trecho e com as disputas
   inventadas fica com o dono.
+
+Em 29/10/2026, ao ler a validação cega (a fidelidade generalizou, com 5,5 marcas por mil e 8% das frases; o que falhou
+foi a análise de lados; as leituras 1 a 4 do relatório certas):
+
+- **Gabarito:** o C2.16 passa a disputa ("O próximo governo deve retomar as privatizações?", Flávio Bolsonaro "Sim",
+  Lula "Não"). A regra do N27 vale para planos diferentes sem respostas opostas; aqui elas são opostas. Com isso, o
+  aceite continua não atingido: 19 de 24 aprovados, 2 disputas inventadas (C2.87, C3.52), 8% de frases marcadas,
+  0,79 atribuídos por episódio e 1,22 nos 9 com disputa; das 9 disputas do gabarito, 4 certas e 5 perdidas
+  (`data/agrupamento/validacao_20261029/resultado.md`, `saida_tabela.txt`).
+- **Correções, medidas antes sem o modelo nas análises gravadas desde 17/10, com a medida entregue junto da
+  implementação** (a que reabrir uma disputa inventada fica de fora):
+  1. conferência do trecho (`lados.traz_a_resposta`), relaxamentos: os verbos de decisão que faltam (rejeitar,
+     proibir, acolher, negar um pedido e os da mesma família que a medida mostrar); o substantivo de posição com o ator
+     ("a alegação de X", "a versão de X"); o ator pelo cargo ("o ministro"), com o nome no mesmo parágrafo e o cargo na
+     análise; o veículo citado que não é da pauta, com verbo de relato ("divulgada pelo jornal X", "de acordo com o X"),
+     que pela regra 2 de 29/10 é ator;
+  2. fonte anônima não é lado: o ator sem nome ("uma fonte", "fontes", "pessoas próximas", "interlocutores") é grupo e
+     vai para a ressalva;
+  3. recusa de comentar não é resposta ("não comentamos", "não discutimos", "não se pronunciou");
+  4. o prompt da análise de lados, com exemplos inventados: o veículo citado que afirma o fato que o ator nega é ator; a
+     fala que o texto situa antes do fato novo, como contexto, não é lado (o C2.87); fonte anônima e recusa de comentar;
+  5. QA, relaxamento direto, com teste: o número por extenso composto vale pelo número inteiro (9.544).
+- **As rodadas depois das correções:** os 24 da validação e os 20 de 16/10, com a mesma leitura e as mesmas medidas. Os
+  24 passam a ser regressão, porque as correções foram feitas olhando para eles; o aceite é o mesmo, com o C2.16 como
+  disputa. Nos 20, o critério de 23/10. Nada muda por causa do resultado.
+- **A nova validação cega, que libera o merge, é a da quarta coleta:** a partir de 01/11, quando o dono pedir, com o
+  rascunho do gabarito para ele, como nas três primeiras. Motivo: a terceira amostra deixou de ser cega com estas
+  correções, feitas olhando para os itens dela.
+- **Para estudar antes de ligar o agrupamento, o primeiro problema:** a etapa 1 pelos títulos não forma a fuga (B) nem
+  a pauta C e só junta parte da carta (A) da coleta 3: na cobertura pós-eleição, os títulos variam demais. Sem mudança
+  agora.
+
+**A medida, em 29/10** (`data/agrupamento/correcoes_20261029b/`, o resumo em `resultado_medida.md`): as 236 análises
+gravadas desde 17/10 (as rodadas de fonte única de 17 a 24/10, a prévia de 25/10, as cinco execuções das simulações de 25
+e 29/10, a sessão da janela e a validação), reaplicadas com as respostas gravadas do modelo (`replay.py`: um `chamar` que
+devolve a primeira resposta, a final e a nova tentativa recusada, na ordem). Cada mudança sozinha, todas juntas e todas
+menos uma (`variantes.py`, `medir.py`):
+
+- **Com todas, mudam 4 das 236:** o C1.55 sai com a campanha de Flávio no "Sim" e Cueva e Magu Haddad no "Não" (precisa
+  do substantivo, do cargo e do verbo novo juntos); o C1.83 com o Aftonbladet no "Sim" (o veículo citado); o C2.63 com a
+  Justiça do Trabalho no "Sim" ("proibiu"); e o C3.52 fica com um lado só, de Kari Perez (a fonte anônima). São as 3
+  disputas perdidas pela conferência e a disputa inventada da fonte anônima. **Nenhuma disputa inventada reaberta;
+  nenhuma outra análise muda.** O A46, o N55 e o N69 ficam com o lado único em todas as rodadas. O C2.87 não muda: a fala
+  de Bolsonaro tem verbo de posição, e o que a separa do fato novo é o tempo, que só o prompt trata.
+- **A família dos verbos de decisão:** entre os 18 trechos recusados das respostas gravadas, só "rejeitou" e "proibiu".
+  "Negar" já é verbo de posição; entra o particípio, para a passiva. A passiva nova aparece em 2 episódios (o N92, no
+  resumo), onde o QA não procura a apresentação dos lados: nada muda no QA.
+- **A recusa de comentar:** com a fonte anônima, não muda o resultado; sozinha, tira a Kari Perez do C3.52 e deixa a
+  disputa com Asha Sharma. Entra, porque não reabre nada.
+- **O veículo citado:** "segundo o X" e "de acordo com o X" valem nos textos para qualquer ator, e o código não separa
+  um veículo de outra organização (o UOL nem está entre os veículos das amostras). A regra aceita o relato para o ator
+  que não é nome de pessoa nem veículo da pauta, ou que vem logo depois do tipo de veículo ("o jornal Aftonbladet").
+- **O número por extenso:** o C1.1 dizia "nove mil, quinhentas e quarenta e quatro"; a vírgula depois de "mil" partia o
+  número. Com a vírgula aceita depois da escala, antes de uma parcela menor, muda 1 dos 236 episódios gravados, o C1.1,
+  cujos dois problemas de número somem.
+- **A conferência da implementação:** a reaplicação com o código antigo (`b263ac1`) e com o novo, em processos
+  separados (`resumos.py`, e `numeros_dump.py` para os números), dá as mesmas 4 mudanças da medida e só o C1.1 nos
+  números, nos 236 episódios.
+- **A revisão do diff antes do commit** (Claude Opus, só leitura; o Agy, escolhido quando o Claude estava em 99% da
+  janela, não conseguiu ler arquivos no modo sem interface): 9 achados, todos corrigidos e com teste. Os 2 altos deixavam
+  passar o trecho que só descreve quem é acusado ou perdeu: o ator em qualquer ponto das seis palavras depois do
+  substantivo ou do marcador ("a acusação de improbidade contra a Construtora Alfa", "de acordo com o Ministério
+  Público, a Construtora Alfa...", o ordinal "no segundo semestre", "A Gazeta revelou que a Construtora...") e os
+  particípios novos sem agente ("teve o pedido negado"). Agora o nome tem de vir logo depois do marcador ou logo antes do
+  verbo ativo, e o particípio novo só vale com o ator como agente. Os médios: a recusa com "limitou-se a dizer", com
+  "questionou a prefeitura, que não respondeu", com "não respondeu" sozinho, "não vai se manifestar" e "recusou-se a
+  comentar", e na frase quando o trecho não a traz; o cargo seguido do nome de outra pessoa e o sobrenome de outra
+  pessoa. Os baixos: "dez mil, vinte mil" lido como um número só, e um teste que passava sem a mudança. A medida com o
+  código corrigido é a mesma.
+- **Achados fora do pedido, sem mudança:** "Para o cientista político Maurício Santoro, ..." e "Para Brownlee, ..."
+  ("Para X," não é marcador), "acredita" e "explicou" (não são verbos de posição), "Segundo o órgão" (o ator por um
+  substantivo genérico) e "A conclusão foi que..." (a Assessoria do TSE no N71+85).
 
 ## Números medidos
 

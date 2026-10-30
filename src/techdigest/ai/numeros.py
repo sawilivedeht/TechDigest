@@ -84,6 +84,15 @@ class Numero:
     escala: int = 1   # a escala em que é dito: 10**6 em "245 milhões" e "duzentos milhões"; 1 em "mil e quinhentos"
 
 
+def _continua(texto: str, a: Token, b: Token) -> bool:
+    """Se `b` continua o número por extenso que vai até `a`: só espaço entre os dois, ou uma vírgula depois da escala,
+    antes de uma parcela menor que ela ("nove mil, quinhentas e quarenta e quatro" vale 9.544; decisão de 29/10/2026)."""
+    if junto(texto, a, b):
+        return True
+    return (a.norm in _ESCALAS and texto[a.fim:b.inicio].strip(" \t") == "," and b.norm in _PARCELAS
+            and b.norm not in ("um", "uma") and _PARCELAS[b.norm] < _ESCALAS[a.norm])
+
+
 def _pode_somar(atual: float, parcela: int) -> bool:
     """Se `parcela` continua o grupo já lido ("duzentos" + "noventa", "vinte" + "um"); "dois e três" são dois números."""
     if atual == 0:
@@ -99,9 +108,15 @@ def _ler_por_extenso(lidos: list[Token], i: int, texto: str) -> tuple[int, float
     total = atual = 0
     escala = 1
     j = i
+    virgula = None   # onde a leitura atravessou a vírgula depois de uma escala: (índice, total, atual, escala, a escala)
     while j < len(lidos):
         t = lidos[j]
         if j > i and not junto(texto, lidos[j - 1], t):
+            if not _continua(texto, lidos[j - 1], t):
+                break
+            virgula = (j, total, atual, escala, _ESCALAS[lidos[j - 1].norm])
+        if virgula and t.norm in _ESCALAS and _ESCALAS[t.norm] >= virgula[4]:
+            j, total, atual, escala = virgula[:4]   # "dez mil, vinte mil": a vírgula separava dois números
             break
         if t.norm == "e" and j > i:
             proxima = lidos[j + 1] if j + 1 < len(lidos) and junto(texto, t, lidos[j + 1]) else None
