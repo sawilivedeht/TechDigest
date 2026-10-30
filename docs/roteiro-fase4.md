@@ -1588,6 +1588,33 @@ menos uma (`variantes.py`, `medir.py`):
   ("Para X," não é marcador), "acredita" e "explicou" (não são verbos de posição), "Segundo o órgão" (o ator por um
   substantivo genérico) e "A conclusão foi que..." (a Assessoria do TSE no N71+85).
 
+**As rodadas depois das correções, de 22:55 de 29/10 a 00:30 de 30/10** (código de fae6910; 95 minutos para 44 itens,
+sob `systemd-inhibit` e com o vigia de memória, nunca abaixo de 15,6 GiB; o detalhe em
+`data/agrupamento/regressao_20261029/resultado.md`). A leitura foi de um worker Opus por pasta, com a régua e as marcas
+de 24/10 como calibração, e marcas de cada leitor conferidas pelo lead contra o texto. Nada mudou por causa do resultado.
+
+- **Os 24 da terceira amostra, como regressão: o aceite não foi atingido.**
+
+  | Critério | Meta | Validação cega | Regressão |
+  |---|---|---|---|
+  | Aprovados | 21 de 24 ou mais | 19 | 19 (o C3.48 sem episódio) |
+  | Disputa inventada | nenhuma | 2 (C2.87, C3.52) | 2 (C1.77, C2.87) |
+  | Frases marcadas | até 21% | 8% | 9% |
+  | Atribuídos por episódio | até 1,7, e 1,8 nas disputas | 0,79 e 1,22 | 1,17 e 1,89 |
+
+  Disputas do gabarito: 6 de 9 certas (eram 4), 3 perdidas (C2.63, C3.23, C3.53), nenhuma questão errada. O C1.55 e o
+  C1.83 saíram com a disputa e o C3.52 sem a inventada, como na medida. O C2.87 não mudou com o prompt, nem o UOL do C3.53
+  virou lado. O C1.77 saiu com a disputa inventada da 33ª Zona Eleitoral, pelo "questionou" do MP Eleitoral no mesmo
+  trecho (o limite conhecido: o verbo de outro ator na frase também vale). O C2.63 perdeu de novo: o modelo pôs o MPT,
+  com o trecho da decisão da Justiça do Trabalho, e a conferência o recusou. O C3.48 falhou na geração: o modelo fechou o
+  JSON depois do resumo, e não há nova tentativa nesse caso. Os atribuídos nas disputas subiram com os lados recuperados
+  (7 no C2.62, 4 no C1.55). 6,3 marcas por mil palavras de roteiro (5,5 na validação).
+- **Os 20 de 16/10: o critério de 23/10 foi atingido**, com 17 de 20 aprovados (19 em 24/10), nenhuma disputa
+  inventada, 11% de frases marcadas (10%) e 22 atribuídos, 3 nas disputas (16 e 7). As 5 disputas do gabarito certas. As
+  3 reprovações, por palavras, são de itens com disputa (A92, A79, N92). 7,7 marcas por mil palavras (7,4).
+- **O limite da comparação:** os leitores são outros nas três leituras (o lead em 24/10, três workers na validação,
+  cinco workers agora).
+
 ## Números medidos
 
 - **Produção, 07/10/2026** (`master`, execução das 08:09): geração de 208 a 291 s a 11-16 tok/s,
