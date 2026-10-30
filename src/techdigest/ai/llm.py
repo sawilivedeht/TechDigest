@@ -34,6 +34,11 @@ def _ascii(value: str, campo: str) -> str:
     return value
 
 
+class JSONIncompleto(ValueError):
+    """A resposta é um JSON válido sem todas as chaves pedidas (decisão de 30/10/2026: o C3.48 da regressão de 29/10 fechou
+    o JSON logo depois do resumo). O Summarizer repete a mesma chamada uma vez (ver `Summarizer._chamar_inteiro`)."""
+
+
 def parse_json(text: str, chaves=None) -> dict:
     """Parse defensivo: mensagem clara para vazio, cercas e JSON quebrado.
 
@@ -52,7 +57,7 @@ def parse_json(text: str, chaves=None) -> dict:
 
     faltando = (REQUIRED_KEYS if chaves is None else set(chaves)) - data.keys()
     if faltando:
-        raise ValueError(
+        raise JSONIncompleto(
             f"LLM retornou JSON sem as chaves {sorted(faltando)}. "
             f"Chaves recebidas: {sorted(data.keys())}. Bruto: {text[:300]!r}"
         )

@@ -509,6 +509,7 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
     relatorio.update({
         "situacao": situacao, "segundos": round(segundos, 1), "proporcao_do_texto": round(summarizer.proporcao_do_item, 2) if summarizer.proporcao_do_item else None,
         "aviso_da_janela": summarizer.ultimo_diagnostico.get("aviso_da_janela") or "",
+        "json_incompleto_refeito": summarizer.json_incompleto_refeito,   # chamadas refeitas por JSON incompleto (30/10/2026)
         "chamadas": chamadas,
         "problemas_antes_da_revisao": diagnostico.get("problemas"),
         "tipo_de_correcao": diagnostico.get("correcao"),

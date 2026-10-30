@@ -17,12 +17,15 @@ from techdigest.ai.prompt import PROMPT_LADOS
 VEICULOS = ["Agência Brasil", "CartaCapital"]
 TEXTOS = [
     {"fonte": "Agência Brasil", "titulo": "Meta alega problemas técnicos",
-     "texto": "A Meta respondeu às acusações da campanha e negou favorecimento."},
+     "texto": "A Meta respondeu às acusações da campanha e negou favorecimento. Os dois lados mantiveram o que afirmaram na sexta."},
     {"fonte": "CartaCapital", "titulo": "Campanha de Lula acusa Meta",
      "texto": "A campanha acusou a empresa de favorecer um candidato."},
 ]
 # Um trecho de cada texto, para servir de evidência nas respostas por ator.
 DA_AB, DA_CARTA = "A Meta respondeu às acusações da campanha", "A campanha acusou a empresa de favorecer"
+# Uma frase com verbo de posição e sem ator nomeado: a prova que serve a qualquer ator, de qualquer lado. Desde 30/10/2026
+# o verbo de um ator do outro lado não vale (a frase da Meta não prova a resposta de quem a acusa).
+SEM_DONO = "Os dois lados mantiveram o que afirmaram na sexta"
 EMERGENCIA = [Lado("relato dos fatos, sem lados definidos", (), ("Agência Brasil", "CartaCapital"))]
 
 
@@ -40,9 +43,10 @@ def _evidencia(ator, resposta, trecho=DA_AB, veiculo="Agência Brasil") -> dict:
 
 
 def _com_evidencias(resposta: dict) -> dict:
-    """A resposta com "respostas_por_ator": cada ator dá a resposta do seu lado, com um trecho que existe no texto."""
+    """A resposta com "respostas_por_ator": cada ator dá a resposta do seu lado, com um trecho que existe no texto e
+    cujo verbo não é de ninguém (`SEM_DONO`)."""
     return {**resposta, "respostas_por_ator": [
-        _evidencia(ator, lado.get("resposta", "")) for lado in resposta["lados"] for ator in lado["atores"]
+        _evidencia(ator, lado.get("resposta", ""), SEM_DONO) for lado in resposta["lados"] for ator in lado["atores"]
     ]}
 
 
@@ -53,7 +57,7 @@ def _disputa(*lados, questao="A Meta favoreceu um candidato?") -> dict:
 
 DOIS_LADOS = {
     "questao": " A Meta favoreceu um candidato? ",
-    "respostas_por_ator": [_evidencia("campanha de Lula", "Sim", DA_CARTA, "cartacapital"), _evidencia("PT", "sim"),
+    "respostas_por_ator": [_evidencia("campanha de Lula", "Sim", DA_CARTA, "cartacapital"), _evidencia("PT", "sim", SEM_DONO),
                            _evidencia("Meta", "Não")],
     "lados": [_lado("A campanha acusa a Meta.", ["campanha de Lula", "PT"], ["cartacapital", "Agencia Brasil"], "Sim"),
               _lado("A Meta nega.", ["Meta"], ["AGÊNCIA BRASIL"], "Não.")],
@@ -90,14 +94,14 @@ def test_resposta_valida_vira_a_questao_e_os_lados_com_a_grafia_da_pauta():
     assert analise.questao == "A Meta favoreceu um candidato?"
     assert analise.lados == [
         # um veículo pode relatar dois lados, e cada ator comprovado deixa o seu trecho
-        Lado("A campanha acusa a Meta.", ("campanha de Lula", "PT"), ("Agência Brasil", "CartaCapital"), "Sim", (DA_CARTA, DA_AB)),
+        Lado("A campanha acusa a Meta.", ("campanha de Lula", "PT"), ("Agência Brasil", "CartaCapital"), "Sim", (DA_CARTA, SEM_DONO)),
         Lado("A Meta nega.", ("Meta",), ("Agência Brasil",), "Não.", (DA_AB,)),
     ]
     # a contagem das frases em que os atores aparecem vem depois, sobre os textos que a geração recebe
     assert [lado.mencoes for lado in com_mencoes(analise.lados, TEXTOS)] == [1, 3]
     assert analise.respostas == [
         Evidencia("campanha de Lula", "Sim", DA_CARTA, "cartacapital", True, prova="verbo de posição no trecho (acusou)"),
-        Evidencia("PT", "sim", DA_AB, "Agência Brasil", True, prova="verbo de posição no trecho (respondeu)"),
+        Evidencia("PT", "sim", SEM_DONO, "Agência Brasil", True, prova="verbo de posição no trecho (afirmaram)"),
         Evidencia("Meta", "Não", DA_AB, "Agência Brasil", True, prova="verbo de posição no trecho (respondeu)"),
     ]
     assert analise.motivo == "Acusação contra defesa." and analise.problemas == [] and analise.faltam == []
@@ -431,6 +435,142 @@ def test_a_recusa_de_comentar_com_uma_negacao_no_trecho_continua_resposta():
     assert modulo.traz_a_resposta("Cooperativa Raízes do Campo", "não comentou o caso, mas negou ter recebido a notificação",
                                   texto, VILA) == "verbo de posição no trecho (negou)"
     assert modulo.traz_a_resposta("Cooperativa Raízes do Campo", "A cooperativa disse que não comenta processos", texto, VILA) == ""
+
+
+def test_o_verbo_de_um_ator_do_outro_lado_nao_vale_para_o_ator():
+    # o C1.77 da regressão de 29/10: o "questionou" do MP Eleitoral dava resposta à zona eleitoral (decisão de 30/10)
+    texto = [{"fonte": VILA, "titulo": "Governo ajudou assim que o estado decretou emergência, diz ministro", "texto": (
+        "O Ministério Público Eleitoral questionou a amplitude de uma determinação expedida pela 33ª Zona Eleitoral.\n"
+        "A diretora de programação da TV Serena, Iara Mendes, contestou essa informação.\n"
+        "Lula disse que vai recorrer da suspensão do canal, determinada por decisão do presidente do TSE, Kassio Nunes Marques."
+    )}]
+    zona = {"Ministério Público Eleitoral": "Não", "33ª Zona Eleitoral": "Sim"}
+    trecho = "O Ministério Público Eleitoral questionou a amplitude de uma determinação expedida pela 33ª Zona Eleitoral"
+    assert modulo.traz_a_resposta("33ª Zona Eleitoral", trecho, texto, VILA, zona) == ""
+    assert modulo.traz_a_resposta("Ministério Público Eleitoral", trecho, texto, VILA, zona) == "verbo de posição no trecho (questionou)"
+    assert modulo.traz_a_resposta("33ª Zona Eleitoral", trecho, texto, VILA) == "verbo de posição no trecho (questionou)"   # sem as respostas
+    # quem fala pela organização está do mesmo lado: o verbo vale para ela
+    tv = {"TV Serena": "Não", "Iara Mendes": "Não", "Gazeta Ventaneira": "Sim"}
+    assert modulo.traz_a_resposta("TV Serena", "Iara Mendes, contestou essa informação", texto, VILA, tv) == (
+        "verbo de posição no trecho (contestou)")
+    # o agente da passiva é o dono da decisão, mesmo depois do verbo de outro
+    canal = {"Kassio Nunes Marques": "Sim", "Lula": "Não"}
+    suspensao = "a suspensão do canal, determinada por decisão do presidente do TSE, Kassio Nunes Marques"
+    assert modulo.traz_a_resposta("Kassio Nunes Marques", suspensao, texto, VILA, canal) == "verbo de decisão de quem decidiu (determinada)"
+    assert modulo.traz_a_resposta("Kassio Nunes Marques", suspensao, texto, VILA) == "verbo de posição na frase (disse)"
+    # no título, o sujeito vem depois do verbo de fala: "..., diz ministro" não é do comandante do outro lado
+    estado = {"Waldez Góes": "Não", "comandante dos Bombeiros do estado": "Sim"}
+    assert modulo.traz_a_resposta("Waldez Góes", "Governo ajudou assim que o estado decretou emergência, diz ministro", texto, VILA,
+                                  estado) == "verbo de posição no trecho (diz)"
+
+
+def test_a_fala_que_o_texto_situa_antes_do_fato_novo_nao_traz_resposta():
+    # o C2.87 de 29/10: o que Bolsonaro declarou na pandemia não é lado na pauta da vacinação de agora (decisão de 30/10)
+    texto = [{"fonte": VILA, "titulo": "Vacina", "data": "2026-10-23T10:00:00+00:00", "texto": (
+        "O diretor Ícaro Mendes afirma que a baixa cobertura vem dos ataques feitos durante a pandemia.\n"
+        "O conselho, à época, chegou a propor uma regra. O ex-prefeito Rui Tavares também declarou que não vacinaria a filha.\n"
+        "Em 2021, o vereador Caio Lemos disse que a vacina era desnecessária.\n"
+        "Nesta sexta, o vereador Caio Lemos disse que mudou de ideia.\n"
+        "A empresa afirmou que conhecia o problema desde 2018."
+    )}]
+    assert modulo.traz_a_resposta("Ícaro Mendes", "a baixa cobertura vem dos ataques feitos durante a pandemia", texto, VILA) == (
+        "verbo de posição na frase (afirma)")                                  # fala de agora sobre o passado
+    assert modulo.traz_a_resposta("Rui Tavares", "também declarou que não vacinaria a filha", texto, VILA) == ""   # "à época" antes
+    assert modulo.traz_a_resposta("Caio Lemos", "a vacina era desnecessária", texto, VILA) == ""                   # 2021, antes de 2026
+    assert modulo.traz_a_resposta("Caio Lemos", "mudou de ideia", texto, VILA) == "verbo de posição na frase (disse)"
+    assert modulo.traz_a_resposta("Broadcom", "conhecia o problema desde 2018", texto, VILA) == (
+        "verbo de posição na frase (afirmou)")                                 # "desde 2018" é o conteúdo da fala
+    sem_data = [{**texto[0], "data": None}]
+    assert modulo.traz_a_resposta("Caio Lemos", "a vacina era desnecessária", sem_data, VILA) == "verbo de posição na frase (disse)"
+
+
+@pytest.mark.parametrize("presente", ["Nesta terça", "Hoje", "Ontem", "Nesta semana"])
+def test_a_marca_de_presente_na_frase_mantem_a_resposta_mesmo_com_o_passado_na_frase_de_antes(presente):
+    # decisão de 30/10: com "nesta terça", "hoje", "ontem" ou "nesta semana" na própria frase, a fala é do fato novo
+    texto = [{"fonte": VILA, "titulo": "Vacina", "data": "2026-10-23T10:00:00+00:00", "texto": (
+        "O conselho, à época, chegou a propor uma regra. "
+        f"{presente}, o ex-prefeito Rui Tavares declarou que não vacinaria a filha.\n"
+        "Em 2021, a cooperativa fechou a feira. "
+        f"{presente}, a presidente Marta Quaresma afirmou que a feira volta em março."
+    )}]
+    assert modulo.traz_a_resposta("Rui Tavares", "declarou que não vacinaria a filha", texto, VILA) == "verbo de posição no trecho (declarou)"
+    assert modulo.traz_a_resposta("Marta Quaresma", "afirmou que a feira volta em março", texto, VILA) == (
+        "verbo de posição no trecho (afirmou)")
+    sem_marca = [{**texto[0], "texto": texto[0]["texto"].replace(f"{presente}, ", "")}]
+    # sem a marca, o "à época" da frase de antes conta; o ano da frase de antes, não: é a recapitulação do caso
+    assert modulo.traz_a_resposta("Rui Tavares", "declarou que não vacinaria a filha", sem_marca, VILA) == ""
+    assert modulo.traz_a_resposta("Marta Quaresma", "afirmou que a feira volta em março", sem_marca, VILA) == (
+        "verbo de posição no trecho (afirmou)")
+
+
+# O que a revisão de 30/10 achou nas regras do dono do verbo e da fala do passado: (ator, trecho, texto, respostas, vale).
+_CONTRA = {"Prefeitura de Vila Nova": "Sim", "Construtora Alfa": "Não"}
+_META = {"Meta": "Não", "Lula": "Sim"}
+
+
+@pytest.mark.parametrize("ator, trecho, texto, respostas, vale", [
+    # a marca de passado no conteúdo da fala não a faz passada
+    ("Construtora Alfa", "afirmou que o contrato assinado em 2021 é válido",
+     "A Construtora Alfa, em nota, afirmou que o contrato assinado em 2021 é válido.", None, True),
+    ("Lula", "disse nesta sexta que em 2022 o TSE errou", "Lula disse nesta sexta que em 2022 o TSE errou naquele caso.", None, True),
+    ("Construtora Alfa", "Não houve fraude em 2021", "“Não houve fraude em 2021”, afirmou a Construtora Alfa.", None, True),
+    ("Ícaro Mendes", "o estudo apontou queda durante a pandemia", "Ícaro Mendes afirma que o estudo apontou queda durante a pandemia.",
+     None, True),
+    ("Construtora Alfa", "afirmou ontem que vai recorrer da decisão",
+     "A Construtora Alfa assinou o contrato em 2021. A empresa afirmou ontem que vai recorrer da decisão.", None, True),
+    ("Construtora Alfa", "afirmou em 12 de março de 2021 que a obra acabou",
+     "A Construtora Alfa afirmou em 12 de março de 2021 que a obra acabou.", None, False),
+    # o verbo de fala e o que vem depois dele
+    ("Meta", "disse que Lula errou feio", "A Meta, em nota, disse que Lula errou feio.", _META, True),
+    ("Lula", "disse que Lula errou feio", "A Meta, em nota, disse que Lula errou feio.", _META, False),
+    ("Lula", "O prazo será mantido, disse Lula", "O prazo será mantido, disse Lula sobre a Meta.", _META, True),
+    ("Meta", "O prazo será mantido, disse Lula", "O prazo será mantido, disse Lula sobre a Meta.", _META, False),
+    # o sujeito da oração anterior, e o objeto de outro verbo que não vira sujeito
+    ("Construtora Alfa", "questionou a Construtora Alfa e disse que a obra atrasou",
+     "A Prefeitura de Vila Nova questionou a Construtora Alfa e disse que a obra atrasou.", _CONTRA, False),
+    ("Construtora Alfa", "que questionou a Construtora Alfa",
+     "A Prefeitura de Vila Nova, que questionou a Construtora Alfa, pediu a rescisão.", _CONTRA, False),
+    ("Construtora Alfa", "disse que questionou a Construtora Alfa na Justiça",
+     "A Prefeitura de Vila Nova disse que questionou a Construtora Alfa na Justiça.", _CONTRA, False),
+    # o aposto: o primeiro nome da oração
+    ("Construtora Alfa", "em resposta à Prefeitura de Vila Nova, negou o atraso",
+     "A Construtora Alfa, em resposta à Prefeitura de Vila Nova, negou o atraso.", _CONTRA, True),
+    ("Prefeitura de Vila Nova", "em resposta à Prefeitura de Vila Nova, negou o atraso",
+     "A Construtora Alfa, em resposta à Prefeitura de Vila Nova, negou o atraso.", _CONTRA, False),
+    # o cargo não fura a regra, e cada particípio tem o seu agente
+    ("ministro Rui Tavares", "O TSE determinou a medida ao ministro",
+     "O ministro Rui Tavares é o relator do caso. O TSE determinou a medida ao ministro.", {"TSE": "Sim", "ministro Rui Tavares": "Não"}, False),
+    ("Lula", "foi rejeitada por Lula", "A suspensão determinada pelo TSE foi rejeitada por Lula.", {"TSE": "Sim", "Lula": "Não"}, True),
+    ("Lula", "Kassio determinou a suspensão", "Lula disse que vai recorrer. Kassio determinou a suspensão do canal.",
+     {"Kassio": "Sim", "Lula": "Não"}, False),
+    # o mesmo lado com respostas escritas de jeitos diferentes; o nome com algarismo; a sigla; o sobrenome dividido
+    ("TV Serena", "A diretora Iara Mendes contestou a informação do jornal", "A diretora Iara Mendes contestou a informação do jornal.",
+     {"TV Serena": "Não, a emissora cumpriu", "Iara Mendes": "Não, o texto foi fiel", "Jornal Sul": "Sim"}, True),
+    ("Jornal Sul", "A TV4 negou a acusação do jornal", "A TV4 negou a acusação do jornal.", {"TV4": "Não", "Jornal Sul": "Sim"}, False),
+    ("33ª Zona Eleitoral", "O MP Eleitoral questionou a amplitude de uma ordem",
+     "O MP Eleitoral questionou a amplitude de uma ordem da 33ª Zona Eleitoral.",
+     {"Ministério Público Eleitoral": "Não", "33ª Zona Eleitoral": "Sim"}, False),
+    ("Flávio Bolsonaro", "Bolsonaro negou a acusação da campanha", "Bolsonaro negou a acusação da campanha.",
+     {"Flávio Bolsonaro": "Sim", "Jair Bolsonaro": "Não"}, False),
+])
+def test_o_dono_do_verbo_e_a_fala_do_passado_nos_casos_da_revisao(ator, trecho, texto, respostas, vale):
+    textos = [{"fonte": VILA, "titulo": "Obra", "texto": texto, "data": "2026-10-23T10:00:00+00:00"}]
+    assert bool(modulo.traz_a_resposta(ator, trecho, textos, VILA, respostas)) is vale
+
+
+def test_a_data_do_artigo_vale_como_datetime_e_o_mes_perto_da_virada_do_ano_e_recente():
+    import datetime
+    em_2021 = "Em 2021, o vereador Caio Lemos disse que a vacina era desnecessária."
+    textos = [{"fonte": VILA, "titulo": "Vacina", "texto": em_2021, "data": datetime.datetime(2026, 10, 23)}]
+    assert modulo.traz_a_resposta("Caio Lemos", "a vacina era desnecessária", textos, VILA) == ""
+    virada = [{"fonte": VILA, "titulo": "Meta", "texto": "A Meta afirmou em dezembro de 2025 que a falha foi corrigida.",
+               "data": "2026-01-02T10:00:00+00:00"}]
+    assert modulo.traz_a_resposta("Meta", "afirmou em dezembro de 2025 que a falha foi corrigida", virada, VILA) == (
+        "verbo de posição no trecho (afirmou)")
+    julho = [{"fonte": VILA, "titulo": "Roteadores", "data": "2026-10-20T10:00:00+00:00", "texto": (
+        "Quando Kaiser comunicou a vulnerabilidade, em julho de 2026, a empresa afirmou que conhecia o problema desde 2018.")}]
+    assert modulo.traz_a_resposta("Broadcom", "a empresa afirmou que conhecia o problema", julho, VILA,
+                                  {"Broadcom": "Sim", "Quentin Kaiser": "Não"}) == "verbo de posição no trecho (afirmou)"
 
 
 # O que a revisão de 29/10 achou que passava: o trecho que só descreve a conduta de quem é acusado ou perdeu.
@@ -858,7 +998,7 @@ def test_a_chamada_leva_os_textos_com_veiculo_e_titulo_e_temperatura_baixa():
     assert system == PROMPT_LADOS
     assert user == entrada_dos_lados(TEXTOS) == (
         "TEXTO 1\nVeículo: Agência Brasil\nTítulo: Meta alega problemas técnicos\nTexto:\n"
-        "A Meta respondeu às acusações da campanha e negou favorecimento.\n\n"
+        "A Meta respondeu às acusações da campanha e negou favorecimento. Os dois lados mantiveram o que afirmaram na sexta.\n\n"
         "TEXTO 2\nVeículo: CartaCapital\nTítulo: Campanha de Lula acusa Meta\nTexto:\n"
         "A campanha acusou a empresa de favorecer um candidato.\n\n"
         "VEÍCULOS DA PAUTA: Agência Brasil, CartaCapital"

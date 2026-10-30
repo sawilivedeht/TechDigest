@@ -1615,6 +1615,88 @@ de 24/10 como calibração, e marcas de cada leitor conferidas pelo lead contra 
 - **O limite da comparação:** os leitores são outros nas três leituras (o lead em 24/10, três workers na validação,
   cinco workers agora).
 
+Em 30/10/2026, ao ler as rodadas (a medida e a revisão aprovadas; as leituras 2, 3 e 4 certas):
+
+- **Leitura 1 (o veículo citado):** contar nas análises gravadas quantos lados vêm de "segundo o X" com um órgão que só
+  fornece dados (como o INPE no C1.1), para saber se o risco é real.
+- **Três consertos, sem rodar o modelo,** cada um medido nas análises e nos episódios gravados, e implementado se não
+  tirar nenhum lado certo nem reabrir uma disputa inventada:
+  1. o dono do verbo: em `lados.traz_a_resposta`, o verbo vale para o ator só quando ele é o sujeito (nomeado antes do
+     verbo, na mesma oração, sem outro ator no meio) ou o agente da passiva; o C1.77 tem de deixar de ter a zona
+     eleitoral como lado;
+  2. a fala do passado: a frase que o texto situa antes do fato novo (um ano anterior ao da data do artigo, "durante a
+     pandemia", "à época", "no ano passado") não conta como resposta; o caso do C2.87;
+  3. o JSON incompleto na geração: uma nova tentativa da mesma chamada, que não conta como reprovação do QA nem para o
+     limite de duas execuções; se a segunda também vier incompleta, o caminho de erro de hoje; o caso do C3.48.
+  Não rodar de novo os 24 nem os 20.
+- **A quarta coleta, que libera o merge:** a partir de 01/11, quando o dono pedir, a coleta e o rascunho do gabarito para
+  ele revisar, como nas três primeiras, com uns 24 itens de fonte única e pelo menos 8 com disputa. Com o gabarito
+  fechado, a validação cega.
+  - **A leitura** do mesmo jeito que a de 29/10: três leitores (um worker Opus por terço dos itens, só leitura), a mesma
+    régua (`data/agrupamento/validacao_20261029/leitura/regua.md`) e a mesma calibração (as marcas de 24/10,
+    `correcoes_20261024d/leitura_regressao2.py`), com a conferência do lead, para a comparação valer.
+  - **O aceite é proporcional ao número de itens, com uma mudança: a barreira passa a ser nenhuma disputa inventada
+    aprovada.** As inventadas que o QA reprova vão para o relatório à parte, porque já pesam no critério de aprovados.
+  - **Também no relatório:** os argumentos atribuídos nos lados recuperados pela conferência nova (o substantivo de
+    posição, o cargo, o veículo citado, os verbos de decisão novos).
+- **Para o roteiro:** as formas que a conferência não aceita ("Para X, ...", "acredita", "explicou", "Segundo o órgão")
+  ficam como estão, até a quarta coleta mostrar se fazem falta. **Daqui em diante, a configuração da leitura fica fixa**
+  (os leitores mudaram a cada rodada: o lead em 24/10, três workers na validação, cinco na regressão).
+
+**A medida e a implementação, em 30/10** (`data/agrupamento/correcoes_20261030/`, o resumo em `resultado_medida.md`): as
+280 análises gravadas (as 236 de antes e as 44 da regressão), reaplicadas com as respostas gravadas do modelo.
+
+- **Leitura 1:** nas 318 respostas gravadas, um só trecho vale apenas pelo relato, o do Aftonbladet no C1.83, que é
+  jornal. Nenhum órgão que só fornece dados entrou como ator numa resposta com disputa (o único entre os atores foi a
+  Abras, no C3.86, num lado único); o INPE do C1.1 e o UOL do C3.53 nunca foram atores. O risco não apareceu.
+- **O dono do verbo:** a versão literal mudaria 42 análises e tiraria o lado certo de 9 itens com disputa no gabarito (N13,
+  A63, A79, A92, C2.55, C2.5, C2.16, C1.83, C2.62): o sujeito muitas vezes é uma designação ("a empresa afirmou"), vem
+  depois do verbo ("..., diz ministro"), é o agente depois do verbo de outro ("determinada por decisão do presidente do
+  TSE, Kassio") ou é quem fala pela organização (a TV4 pela diretora). Entrou a versão "do outro lado": o verbo não vale
+  para o ator quando o sujeito (o nome logo antes do verbo, desde a última vírgula da oração; logo depois do verbo de fala
+  que abre a oração; ou o mais perto antes, no aposto) ou o agente da passiva é um ator da resposta com resposta
+  diferente. Ela muda só o C1.77, que fica com o lado único do MP Eleitoral, o do gabarito.
+- **A fala do passado:** com a marca só na frase, nada muda (a de Bolsonaro não tem marca; o "à época" está na frase
+  anterior). Entrou com a frase anterior do mesmo parágrafo, quando a do trecho não tem marca de presente, e só com o verbo
+  de posição no pretérito (a fala de agora sobre o passado continua resposta; "desde 2018" é conteúdo). Muda só o C2.87,
+  nas duas rodadas, que fica com o lado único de Eder Gatti, o do gabarito. A regra do ano usa a data do artigo, que os
+  textos da pauta passaram a levar.
+- **Os dois juntos:** 3 análises mudam (C1.77 e o C2.87 duas vezes), todas para o lado único do gabarito; nenhum lado
+  certo tirado, nenhuma disputa inventada reaberta. A reaplicação com o código de fae6910 e com o novo, em processos
+  separados, dá as mesmas 3.
+- **O JSON incompleto:** no log de produção de 05 a 26/10 (382 itens), nenhuma resposta sem chaves; nas rodadas gravadas,
+  só o C3.48. A nova tentativa entrou na geração e nas quatro correções (`Summarizer._chamar_inteiro`), com o JSON quebrado
+  fora dela.
+
+Em 30/10/2026, ao ler a medida (os três consertos aprovados, com a versão estreita do dono do verbo; as três leituras
+certas):
+
+- **A marca de presente na própria frase** ("nesta terça", "hoje", "ontem", "nesta semana") mantém a resposta, mesmo com
+  "à época" ou um ano anterior na frase de antes. Entrou "ontem" (as outras já estavam), com teste; a medida continua com
+  as mesmas 3 mudanças.
+- **Por que o JSON quebrado não é repetido e o incompleto é:** com o Ollama, as chamadas vão com `format="json"`, e o
+  servidor só deixa sair JSON válido; a resposta cortada pela janela ou pelo `num_predict` para com `done_reason` "length"
+  e já sai como saída truncada, antes do `parse_json`, e a mesma chamada, com a mesma entrada e os mesmos limites, seria
+  cortada no mesmo ponto (o conserto é no orçamento da entrada). O JSON válido que fecha antes de todas as chaves é
+  escolha do modelo, sorteada na temperatura do provider (0,5 por padrão), e a mesma chamada pode vir inteira. O caminho
+  da OpenAI já repete o JSON inservível dentro do provider. No log de produção de 05 a 26/10, nenhum JSON quebrado.
+- **A quarta coleta** fica para quando o dono pedir, a partir de 01/11, como está acima.
+
+**A revisão do diff antes do commit** (Claude Opus, só leitura; ele gravou por descuido uma cópia do diff em `/tmp/x`,
+que o lead conferiu e apagou): 15 achados, todos corrigidos com teste. Os 4 altos: a marca de passado tirada do conteúdo da
+fala ("afirmou que o contrato assinado em 2021 é válido") ou de um ano na frase anterior (a recapitulação do caso); o nome
+depois do verbo de fala lido de trás para a frente ("A Meta, em nota, disse que Lula errou" dava o verbo a Lula); e o
+objeto de um verbo anterior tomado como sujeito ("A prefeitura questionou a construtora e disse..."). Agora a marca vale só
+na moldura da fala (o que vem antes do verbo da fala, sem as aspas, e até oito palavras depois dele, antes do "que"); a
+frase anterior passa só a marca que remete a um tempo já dito ("à época"); a marca de presente inclui "ontem", "na sexta" e
+"no domingo"; o sujeito é o nome antes do primeiro verbo da oração, o primeiro nome do aposto ou o da oração anterior
+depois do "que"; cada particípio tem o seu agente; o caminho do cargo usa os verbos filtrados; as respostas do mesmo lado se
+comparam pelo "Sim" ou "Não" do começo; contam os nomes com algarismo, a sigla em maiúsculas no parágrafo e, como dúvida
+que vai para o outro lado, o sobrenome dividido. Com a data com o mês, um ano anterior a mais de três meses do artigo (a
+virada do ano) — a primeira versão disso, por mês, tirou a Broadcom do C2.62 ("em julho de 2026", num artigo de outubro) e
+foi trocada antes do commit. A medida com o código final: as mesmas 3 mudanças (C1.77 e o C2.87 duas vezes). A contagem das
+chamadas refeitas por JSON incompleto entrou no registro e no relatório do `testar_episodio.py`.
+
 ## Números medidos
 
 - **Produção, 07/10/2026** (`master`, execução das 08:09): geração de 208 a 291 s a 11-16 tok/s,

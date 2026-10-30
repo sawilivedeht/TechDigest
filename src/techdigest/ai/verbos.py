@@ -127,6 +127,20 @@ def verbos_de_decisao(texto) -> list[str]:
     return [palavra for palavra in _palavras(texto) if palavra in FORMAS_DE_DECISAO]
 
 
+def agente_da_passiva(texto, fim: int) -> str:
+    """O agente da passiva do particípio que termina na posição `fim` do texto: o que vem depois do "por" (ou "pelo",
+    "pela"...) que o segue em até _ATE_O_AGENTE palavras, até o próximo verbo, conjunção ou ponto e vírgula, como em
+    `agentes_da_decisao`; vazio se não há. Com dois particípios na frase ("determinada pelo TSE, foi rejeitada por
+    Lula"), cada um tem o seu agente."""
+    texto = unicodedata.normalize("NFC", str(texto))
+    achadas = [(m.group().lower(), m.start(), m.end()) for m in re.finditer(r"[^\W\d_]+|;", texto[fim:])]
+    por = next((k for k in range(min(1 + _ATE_O_AGENTE, len(achadas))) if achadas[k][0] in _DO_AGENTE), None)
+    if por is None:
+        return ""
+    ate = next((k for k in range(por + 1, len(achadas)) if achadas[k][0] in _FIM_DO_AGENTE), len(achadas))
+    return texto[fim + achadas[por + 1][1]:fim + achadas[ate - 1][2]] if ate > por + 1 else ""
+
+
 def agentes_da_decisao(texto) -> list[str]:
     """Os agentes da passiva dos verbos de decisão no texto, como estão escritos: o que vem depois do "por" (ou "pelo",
     "pela"...) que segue o particípio, em até _ATE_O_AGENTE palavras, até o próximo verbo, conjunção ou ponto e vírgula.

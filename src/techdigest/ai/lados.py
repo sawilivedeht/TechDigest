@@ -22,7 +22,8 @@ from techdigest.ai.qa import (
 )
 from techdigest.ai.recorte import cortar_em_paragrafo, literal, localizar_trecho, procurado
 from techdigest.ai.verbos import (
-    PARTICIPIOS_SO_COM_AGENTE, VERBOS_DE_POSICAO, agentes_da_decisao, verbos_de_decisao, verbos_de_posicao,
+    AUXILIARES, FORMAS_DE_DECISAO, FORMAS_DE_POSICAO, PARTICIPIOS, PARTICIPIOS_DE_DECISAO, PARTICIPIOS_SO_COM_AGENTE,
+    VERBOS_DE_POSICAO, agente_da_passiva, agentes_da_decisao, verbos_de_decisao, verbos_de_posicao,
 )
 
 logger = logging.getLogger("techdigest.ai.lados")
@@ -154,6 +155,30 @@ _RECUSA_DE_COMENTAR = re.compile(
 _VERBOS_DE_RELATO = frozenset(
     {forma for verbo in ("dizer", "informar", "declarar", "afirmar", "responder") for forma in VERBOS_DE_POSICAO[verbo]}
     | {"dizer", "informar", "declarar", "afirmar", "responder", "dito", "informado", "declarado", "afirmado", "respondido"})
+# O dono do verbo (decisão de 30/10/2026; ver `_verbo_do_outro_lado`): onde a oração começa, para achar o sujeito, e os
+# verbos de fala que podem vir antes do sujeito ("..., diz ministro").
+_LIMITE_DA_ORACAO = re.compile(r"[.;:!?—–]|\b(?:que|mas|porém|enquanto|embora|quando|onde|pois|porque)\b")
+_VERBOS_DE_FALA = frozenset(f for verbo in ("dizer", "afirmar", "declarar", "informar", "responder") for f in VERBOS_DE_POSICAO[verbo])
+# A fala do passado (decisão de 30/10/2026; ver `fala_do_passado`): o pretérito dos verbos de posição, as marcas de
+# passado na moldura da fala, a data dita ("em 2021", "em março de 2021", "em 12 de março de 2021"; "desde 2018" não: é o
+# conteúdo da fala), as marcas que a frase anterior pode passar à do trecho (só as que remetem a um tempo já dito: "à
+# época"; um ano na frase anterior é a recapitulação do caso, não o tempo da fala) e as marcas de presente.
+PRETERITOS = frozenset(formas[i] for formas in VERBOS_DE_POSICAO.values() for i in (2, 3, 4, 5))
+_PARTICIPIOS_DE_POSICAO = frozenset(PARTICIPIOS.values())
+_MARCA_DO_PASSADO = re.compile(
+    r"\b(?:durante a pandemia|na pandemia|à época|a época|na época|naquela época|no ano passado|anos atrás|há (?:\w+ )?anos)\b",
+    re.IGNORECASE)
+_MARCA_ANAFORICA = re.compile(r"\b(?:à época|a época|na época|naquela época|durante a pandemia|na pandemia)\b", re.IGNORECASE)
+_MESES = ("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro",
+          "dezembro")
+_DATA_DITA = re.compile(rf"\b(?:em|no ano de)\s+(?:\d{{1,2}}º?\s+de\s+)?(?:({'|'.join(_MESES)})\s+de\s+)?((?:19|20)\d\d)\b",
+                        re.IGNORECASE)
+_DIAS_DA_SEMANA = "segunda|terça|terca|quarta|quinta|sexta"
+_MARCA_DO_PRESENTE = re.compile(   # "nesta terça", "nesta semana", "na sexta-feira", "no domingo"
+    rf"\b(?:nesta|neste|hoje|ontem|agora|atualmente|na (?:{_DIAS_DA_SEMANA})(?:-feira)?|no (?:sábado|sabado|domingo))\b",
+    re.IGNORECASE)
+_ENTRE_ASPAS = re.compile(r'"[^"]*"|“[^”]*”|«[^»]*»')
+_DEPOIS_DA_FALA = 8   # palavras depois do verbo da fala que ainda são a moldura dela ("afirmou em 12 de março de 2021 que...")
 # O que a nova tentativa lembra ao LLM, depois do erro da primeira.
 LEMBRETE_DA_CORRECAO = (
     "Responda de novo, com o JSON completo. Uma questão só; cada lado é uma resposta diferente a ela; agrupe os "
@@ -572,7 +597,199 @@ def _so_relata(verbos) -> bool:
     return all(verbo.split()[-1] in _VERBOS_DE_RELATO for verbo in verbos)
 
 
-def traz_a_resposta(ator: str, trecho: str, textos, veiculo: str) -> str:
+def _verbos_com_lugar(frase: str) -> list[tuple[str, int, int, str]]:
+    """Os verbos de posição e de decisão da frase, com o início, o fim e o tipo ("posicao" ou "decisao"); o pretérito
+    composto vem como o par ("havia afirmado"), como em `verbos.verbos_de_posicao`."""
+    palavras = [(m.group().lower(), m.start(), m.end()) for m in re.finditer(r"[^\W\d_]+", frase)]
+    achados = []
+    for i, (palavra, inicio, fim) in enumerate(palavras):
+        if palavra in FORMAS_DE_POSICAO:
+            achados.append((palavra, inicio, fim, "posicao"))
+        elif palavra in _PARTICIPIOS_DE_POSICAO and i and palavras[i - 1][0] in AUXILIARES:
+            achados.append((f"{palavras[i - 1][0]} {palavra}", palavras[i - 1][1], fim, "posicao"))
+        if palavra in FORMAS_DE_DECISAO:
+            achados.append((palavra, inicio, fim, "decisao"))
+    return achados
+
+
+def _lado_da_resposta(resposta: str) -> str:
+    """A resposta reduzida ao lado: "sim" ou "nao" quando começa por eles ("Não, a emissora cumpriu" é "nao")."""
+    palavras = re.findall(r"\w+", _sem_acento(resposta))
+    return palavras[0] if palavras and palavras[0] in ("sim", "nao") else " ".join(palavras)
+
+
+def _mesmo_lado(a: str, b: str) -> bool:
+    la, lb = _lado_da_resposta(a), _lado_da_resposta(b)
+    if la in ("sim", "nao") or lb in ("sim", "nao"):
+        return la == lb
+    return _responde(a, b) or _responde(b, a)
+
+
+def _do_outro_lado(ator: str, respostas) -> list[str]:
+    """Os atores da resposta do LLM do outro lado da questão: com resposta, e nenhuma do mesmo lado de uma do ator
+    (`_mesmo_lado`: "Não" e "Não, o texto foi fiel" são do mesmo lado). Cada ator pode ter várias entradas; as do ator
+    vêm pelo nome exato e, sem ele, pelos nomes iguais pela comparação tolerante (`mesmo_ator`)."""
+    por_ator = {a: ({r} if isinstance(r, str) else set(r)) - {""} for a, r in (respostas or {}).items()}
+    minhas = por_ator.get(ator) or set().union(*(r for a, r in por_ator.items() if mesmo_ator(a, ator)))
+    if not minhas:
+        return []
+    return [a for a, rs in por_ator.items() if rs and a != ator and not mesmo_ator(a, ator)
+            and not any(_mesmo_lado(r, m) for r in rs for m in minhas)]
+
+
+def _palavras_com_lugar(texto: str) -> list[str]:
+    """As palavras do texto como `qa.palavras_do_ator` as escreve (sem acento nem caixa, com os algarismos: "tv4")."""
+    return [_sem_acento(m.group()) for m in re.finditer(r"[^\W_]+", texto)]
+
+
+def _siglas(ator: str, paragrafo: str) -> set[str]:
+    """As siglas do ator que o parágrafo escreve em maiúsculas: as iniciais do nome ("MPE") ou das duas primeiras palavras
+    dele ("MP Eleitoral" para "Ministério Público Eleitoral")."""
+    palavras = [p for p in _palavras_do_nome_sem_particulas(ator)]
+    candidatas = {"".join(p[0] for p in palavras), "".join(p[0] for p in palavras[:2])}
+    return {s for s in candidatas if len(s) >= 2 and re.search(rf"(?<![^\W\d_]){s.upper()}(?![^\W\d_])", paragrafo)}
+
+
+def _palavras_do_nome_sem_particulas(nome: str) -> list[str]:
+    return [p for p in re.findall(r"[^\W_]+", _sem_acento(nome)) if p not in _PARTICULAS_DO_NOME]
+
+
+def _quem(ator: str, opostos: list[str], trecho_da_frase: str, paragrafo: str, de_tras: bool) -> str | None:
+    """Quem o trecho da frase nomeia, lendo de trás para a frente (o nome logo antes do verbo) ou da frente para trás (o
+    nome logo depois do verbo de fala, o primeiro nome do aposto): "ator", "outro" (um ator do outro lado) ou None (nenhum
+    nome de ator: "a empresa", "o ministro" sem o cargo do ator). Contam as palavras que só um deles tem, o cargo que a
+    análise dá ao ator e a sigla que o parágrafo escreve; a palavra que o ator divide com um do outro lado ("Bolsonaro"
+    para Flávio e Jair), sem palavra que só um deles tenha, é dúvida, e na dúvida o verbo fica com o outro lado."""
+    minhas = palavras_do_ator(ator) - TERMOS_GENERICOS or palavras_do_ator(ator)
+    alheias = set().union(*(palavras_do_ator(o) for o in opostos))
+    proprias, divididas = minhas - alheias, minhas & alheias
+    cargos = {_sem_acento(p) for p in _palavras_minusculas(ator) if p in CARGOS} - {
+        _sem_acento(p) for o in opostos for p in _palavras_minusculas(o)}
+    deles = set().union(*((palavras_do_ator(o) - TERMOS_GENERICOS or palavras_do_ator(o)) - palavras_do_ator(ator)
+                          for o in opostos)) | set().union(*(_siglas(o, paragrafo) for o in opostos))
+    do_ator = proprias | cargos | _siglas(ator, paragrafo)
+    palavras = _palavras_com_lugar(trecho_da_frase)
+    duvida = False
+    for palavra in reversed(palavras) if de_tras else palavras:
+        if palavra in do_ator:
+            return "ator"
+        if palavra in deles:
+            return "outro"
+        duvida = duvida or palavra in divididas
+    return "outro" if duvida else None
+
+
+def _comeco_da_oracao(frase: str, inicio: int) -> tuple[int, str]:
+    """Onde começa a oração do verbo que começa em `inicio`, e o limite que a abriu ("que", ".", "" no começo da frase)."""
+    comeco, limite = 0, ""
+    for achado in _LIMITE_DA_ORACAO.finditer(frase, 0, inicio):
+        comeco, limite = achado.end(), achado.group().lower()
+    return comeco, limite
+
+
+def _sujeito_da_oracao_anterior(ator, opostos, frase, ate, paragrafo) -> str | None:
+    """Quem é o sujeito da oração que termina em `ate` (antes do "que" que abre a do verbo): o nome antes do primeiro
+    verbo dela. É o dono do verbo que começa a oração seguinte sem sujeito ("A prefeitura, que questionou...";
+    "A prefeitura disse que questionou...")."""
+    comeco, _ = _comeco_da_oracao(frase, ate)
+    verbos = [v for v in _verbos_com_lugar(frase) if comeco <= v[1] < ate]
+    return _quem(ator, opostos, frase[comeco:verbos[0][1] if verbos else ate], paragrafo, de_tras=True)
+
+
+def _verbo_do_outro_lado(ator: str, opostos: list[str], frase: str, verbo: tuple[str, int, int, str], paragrafo: str = "") -> bool:
+    """Se o verbo é de um ator do outro lado (decisão de 30/10/2026):
+    - o agente da passiva do particípio de decisão, o desta ocorrência (`verbos.agente_da_passiva`);
+    - o sujeito: o nome logo antes do verbo, desde a última vírgula da oração; se outro verbo da oração vem antes, o nome
+      antes desse primeiro verbo ("A prefeitura questionou a construtora e disse...": quem disse é a prefeitura);
+    - com o verbo logo depois de uma vírgula: o nome logo depois do verbo de fala ("..., diz ministro", "..., disse Lula
+      sobre a Meta"), até o "que" ou a pontuação; sem ele, o primeiro nome da oração (o aposto: "A Construtora Alfa, em
+      resposta à prefeitura, negou"; "O conselho, presidido por Edson Lacerda, determinou");
+    - com o verbo logo no começo da oração aberta por "que": o sujeito da oração anterior.
+    """
+    forma, inicio, fim, _ = verbo
+    if forma in PARTICIPIOS_DE_DECISAO and (agente := agente_da_passiva(frase, fim)):
+        if quem := _quem(ator, opostos, agente, paragrafo, de_tras=False):
+            return quem == "outro"
+    comeco, limite = _comeco_da_oracao(frase, inicio)
+    antes_dos_verbos = [v for v in _verbos_com_lugar(frase) if comeco <= v[1] and v[2] <= inicio and v[1] != inicio]
+    antes = frase[comeco:antes_dos_verbos[0][1] if antes_dos_verbos else inicio]
+    grupo = antes.rsplit(",", 1)[-1]
+    if grupo.strip():
+        return _quem(ator, opostos, grupo, paragrafo, de_tras=True) == "outro"
+    if forma in _VERBOS_DE_FALA:
+        depois = re.split(r"[,.;:!?]", _LIMITE_DA_ORACAO.split(frase[fim:], maxsplit=1)[0], maxsplit=1)[0]
+        if depois.strip():
+            return _quem(ator, opostos, depois, paragrafo, de_tras=False) == "outro"
+    if antes.strip():
+        return _quem(ator, opostos, antes, paragrafo, de_tras=False) == "outro"
+    if limite == "que":
+        return _sujeito_da_oracao_anterior(ator, opostos, frase, comeco - len(limite), paragrafo) == "outro"
+    return False
+
+
+def _data_do_artigo(textos, veiculo: str) -> tuple[int, int] | None:
+    """O ano e o mês do artigo do veículo, pela data que os textos da pauta trazem (datetime ou texto ISO)."""
+    for t in textos:
+        data = t.get("data")
+        if data and mesmo_veiculo(t["fonte"], veiculo):
+            if hasattr(data, "year"):
+                return data.year, data.month
+            achado = re.match(r"((?:19|20)\d\d)-(\d\d)", str(data))
+            return (int(achado.group(1)), int(achado.group(2))) if achado else None
+    return None
+
+
+_MESES_DA_VIRADA = 3   # com o mês dito, a data de um ano anterior mais perto do artigo do que isto ainda é recente
+
+
+def _data_anterior(texto: str, data: tuple[int, int] | None) -> bool:
+    """Se o texto diz uma data de um ano anterior ao do artigo ("em 2021"). Com o mês dito, só a mais de _MESES_DA_VIRADA
+    meses do artigo: "em dezembro de 2025" num artigo de janeiro de 2026 é o fato recente. Uma data do mesmo ano não é
+    passado ("em julho de 2026", quando o pesquisador avisou a empresa, num artigo de outubro: é a história do caso)."""
+    if not data:
+        return False
+    for mes, ano in _DATA_DITA.findall(texto):
+        if int(ano) >= data[0]:
+            continue
+        if not mes or data[0] * 12 + data[1] - (int(ano) * 12 + _MESES.index(mes.lower()) + 1) > _MESES_DA_VIRADA:
+            return True
+    return False
+
+
+def _moldura_da_fala(frase: str) -> str | None:
+    """A moldura da fala da frase: o que vem antes do primeiro verbo de posição (o verbo da fala), sem o que está entre
+    aspas, e até _DEPOIS_DA_FALA palavras depois dele, antes do "que", da vírgula ou dos dois-pontos ("afirmou em 2021
+    que..."). None se não há verbo de posição ou ele não está no pretérito. O conteúdo da fala fica de fora: "afirmou que
+    o contrato assinado em 2021 é válido" e "afirma que o estudo apontou queda durante a pandemia" são falas de agora."""
+    sem_aspas = _ENTRE_ASPAS.sub(lambda m: " " * len(m.group()), frase)
+    verbos = [v for v in _verbos_com_lugar(sem_aspas) if v[3] == "posicao"]
+    if not verbos or not (verbos[0][0].split()[-1] in PRETERITOS or " " in verbos[0][0]):
+        return None
+    _, inicio, fim, _ = verbos[0]
+    depois = re.split(r"[,:;]|\bque\b", sem_aspas[fim:], maxsplit=1)[0].split()[:_DEPOIS_DA_FALA]
+    return f"{sem_aspas[:inicio]} {' '.join(depois)}"
+
+
+def fala_do_passado(trecho: str, frase: str, textos, veiculo: str) -> bool:
+    """Se a frase do trecho é uma fala que o texto situa antes do fato novo (decisão de 30/10/2026): o verbo da fala no
+    pretérito, com uma marca de passado na moldura dela (`_moldura_da_fala`: uma data anterior à do artigo, "durante a
+    pandemia", "à época", "no ano passado") ou, na frase anterior do mesmo parágrafo, uma marca que remete a um tempo já
+    dito ("à época", "na época", "durante a pandemia"). A marca de presente na frase ("nesta terça", "hoje", "ontem",
+    "na sexta") faz dela a fala do fato novo, qualquer que seja a frase de antes. O verbo no presente também: "Gatti
+    atribui a baixa cobertura aos ataques feitos durante a pandemia" é fala de agora sobre o passado."""
+    if not frase or _MARCA_DO_PRESENTE.search(frase):
+        return False
+    moldura = _moldura_da_fala(frase)
+    if moldura is None:
+        return False
+    if _MARCA_DO_PASSADO.search(moldura) or _data_anterior(moldura, _data_do_artigo(textos, veiculo)):
+        return True
+    do_paragrafo = [parte for f in frases(literal(paragrafo_do_trecho(trecho, textos, veiculo))) for parte in _partes(f)]
+    primeira = next((i for i, f in enumerate(do_paragrafo) if f and f in frase), None)
+    return bool(primeira) and bool(_MARCA_ANAFORICA.search(do_paragrafo[primeira - 1]))
+
+
+def traz_a_resposta(ator: str, trecho: str, textos, veiculo: str, respostas: dict | None = None) -> str:
     """O que mostra que o trecho traz a resposta do ator à questão, e não só o descreve; vazio se nada mostra.
 
     Vale, nesta ordem: um verbo de posição (`verbos.py`) no trecho; ou na frase do texto em que o
@@ -590,6 +807,11 @@ def traz_a_resposta(ator: str, trecho: str, textos, veiculo: str) -> str:
     resposta, mesmo entre aspas: no trecho, a não ser que depois dela venha um verbo de posição que não só relata ("não
     comentou o caso, mas negou..." responde; "disse que não comenta" e "a reportagem questionou a prefeitura, que não
     respondeu" não); na frase, quando o trecho não tem verbo próprio e o resto da frase só relata a recusa.
+
+    Desde 30/10/2026: o verbo de posição ou de decisão não vale para o ator quando é de um ator do outro lado da
+    resposta (`respostas`: as respostas de cada ator, de todas as entradas dele; ver `_verbo_do_outro_lado`): no C1.77 de 29/10,
+    o "questionou" do MP Eleitoral dava resposta à zona eleitoral cuja ordem ele questionava. E a fala que o texto
+    situa antes do fato novo não traz resposta (`fala_do_passado`: no C2.87, o que Bolsonaro declarou na pandemia).
     """
     frase = frase_do_trecho(trecho, textos, veiculo)
     if recusa := _RECUSA_DE_COMENTAR.search(trecho):
@@ -598,21 +820,30 @@ def traz_a_resposta(ator: str, trecho: str, textos, veiculo: str) -> str:
     elif (recusa := _RECUSA_DE_COMENTAR.search(frase)) and not verbos_de_posicao(trecho) and _so_relata(
             verbos_de_posicao(frase[recusa.end():])):
         return ""
-    if verbos := verbos_de_posicao(trecho):
-        return f"verbo de posição no trecho ({verbos[0]})"
-    if verbos := verbos_de_posicao(frase):
-        return f"verbo de posição na frase ({verbos[0]})"
+    if fala_do_passado(trecho, frase, textos, veiculo):
+        return ""
+    opostos = _do_outro_lado(ator, respostas)
+    onde = frase or literal(trecho)
+    alvo = procurado(trecho)
+    no_inicio = onde.find(alvo) if alvo else -1
+    paragrafo = paragrafo_do_trecho(trecho, textos, veiculo)
+    verbos = [v for v in _verbos_com_lugar(onde) if not (opostos and _verbo_do_outro_lado(ator, opostos, onde, v, paragrafo))]
+    de_posicao = [v for v in verbos if v[3] == "posicao"]
+    if no_trecho := [v for v in de_posicao if no_inicio >= 0 and no_inicio <= v[1] < no_inicio + len(alvo)]:
+        return f"verbo de posição no trecho ({no_trecho[0][0]})"
+    if de_posicao:
+        return f"verbo de posição na frase ({de_posicao[0][0]})"
     if _citacao_direta(trecho, textos, veiculo):
         return "citação direta"
-    if ator_citado(ator, frase) and (verbos := _decisoes_do_ator(ator, frase)):
-        return f"verbo de decisão de quem decidiu ({verbos[0]})"
+    decisoes = [v[0] for v in verbos if v[3] == "decisao" and v[0] in _decisoes_do_ator(ator, onde)]   # sem as do outro lado
+    if ator_citado(ator, onde) and decisoes:
+        return f"verbo de decisão de quem decidiu ({decisoes[0]})"
     if marcador := _MARCADOR_DE_ATRIBUICAO.search(_sem_acento(frase)):
         return f"marcador de atribuição ({marcador.group()})"
-    paragrafo = paragrafo_do_trecho(trecho, textos, veiculo)
     if substantivo := _substantivo_de_posicao(ator, frase, paragrafo):
         return f"substantivo de posição com o ator ({substantivo})"
-    if (verbos := _decisoes_do_ator(ator, frase)) and (cargo := _pelo_cargo(ator, frase, paragrafo, textos)):
-        return f"verbo de decisão de quem decidiu, pelo cargo ({verbos[0]}, {cargo})"
+    if decisoes and (cargo := _pelo_cargo(ator, frase, paragrafo, textos)):
+        return f"verbo de decisão de quem decidiu, pelo cargo ({decisoes[0]}, {cargo})"
     if relato := _veiculo_citado(ator, frase, textos):
         return f"relato do veículo citado ({relato})"
     return ""
@@ -622,9 +853,14 @@ def _evidencias(entradas: list, textos) -> list[Evidencia]:
     """As respostas por ator da resposta do LLM, cada uma com o resultado da conferência do trecho.
 
     O trecho tem de estar no texto do veículo (ver `_no_texto`) e trazer a resposta do ator (ver
-    `traz_a_resposta`). `textos` são os textos inteiros da pauta, mesmo quando a chamada leu um corte deles.
+    `traz_a_resposta`, que recebe a resposta de cada ator, para saber quem está do outro lado). `textos` são os textos
+    inteiros da pauta, mesmo quando a chamada leu um corte deles.
     """
     evidencias = []
+    respostas: dict[str, set[str]] = {}   # cada ator com as respostas de todas as entradas dele
+    for e in entradas:
+        if isinstance(e, dict) and _linha(e.get("ator")):
+            respostas.setdefault(_linha(e.get("ator")), set()).add(_linha(e.get("resposta")))
     for entrada in entradas:
         if not isinstance(entrada, dict):
             continue
@@ -635,7 +871,7 @@ def _evidencias(entradas: list, textos) -> list[Evidencia]:
         if achado is None:
             evidencias.append(Evidencia(ator, resposta, trecho, veiculo, False))
             continue
-        prova = traz_a_resposta(ator, achado[0], textos, veiculo)
+        prova = traz_a_resposta(ator, achado[0], textos, veiculo, respostas)
         if achado[0] != trecho:   # achado palavra por palavra: vale o trecho como está no veículo
             evidencias.append(Evidencia(ator, resposta, achado[0], veiculo, True, trecho_do_llm=trecho, diferencas=achado[1], prova=prova))
         else:

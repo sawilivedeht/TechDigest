@@ -10,7 +10,7 @@ from techdigest.ai.lados import (
     MAX_SAIDA_LADOS, Analise, analisar_lados, bloco_dos_lados, com_mencoes, reserva_do_bloco, trechos_de_evidencia,
 )
 from techdigest.ai.janela import tokens_fixos
-from techdigest.ai.llm import JanelaExcedida, get_provider
+from techdigest.ai.llm import JanelaExcedida, JSONIncompleto, get_provider
 from techdigest.ai.orcamento import Orcamento, orcamento, palavras
 from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
 from techdigest.ai.qa import ELENCO, ESTRUTURA, PAPEL, RESUMO, ROTEIRO, TITULO, Problema, problemas_com_campo, veiculos_distintos
@@ -177,9 +177,10 @@ def _aviso(artigos: list[dict]) -> str:
 
 
 def textos_da_pauta(principal: dict, relacionados: list[dict] | None = None) -> list[dict]:
-    """Os textos inteiros que a análise de lados lê: o principal e até MAX_RELACIONADOS relacionados, os mesmos da geração."""
+    """Os textos inteiros que a análise de lados lê: o principal e até MAX_RELACIONADOS relacionados, os mesmos da geração.
+    A data de cada artigo, quando há, vai junto: com ela a análise sabe que ano é anterior ao do artigo (`lados.fala_do_passado`)."""
     artigos = [principal, *(relacionados or [])][:1 + MAX_RELACIONADOS]
-    return [{"fonte": a["source"], "titulo": _limpar(a["title"]), "texto": _limpar(a["text"])} for a in artigos]
+    return [{"fonte": a["source"], "titulo": _limpar(a["title"]), "texto": _limpar(a["text"]), "data": a.get("data")} for a in artigos]
 
 
 def montar_entrada(principal: dict, relacionados: list[dict] | None = None, limite: int | None = None,
@@ -292,6 +293,7 @@ class Summarizer:
         self.menor_proporcao: float | None = None     # a menor medida da execução: só para o erro de janela sem contagem
         self._fixos: dict[str, int] = {}              # a parte fixa de cada prompt de sistema, em tokens
         self.ultimo_diagnostico: dict = {}  # da última chamada a process: entradas montadas e problemas de QA
+        self.json_incompleto_refeito = 0    # chamadas do item refeitas por JSON incompleto (ver `_chamar_inteiro`)
 
     def _fixos_de(self, system: str) -> int:
         """Os tokens da parte fixa de uma chamada com este prompt de sistema: exatos (ver `ai/janela.py`) ou, se o
@@ -355,6 +357,18 @@ class Summarizer:
         self._medir(system, user, (getattr(self.provider, "ultimo_uso", None) or {}).get("prompt", 0))
         return result
 
+    def _chamar_inteiro(self, system: str, user: str, **opcoes) -> dict:
+        """O `_chamar` da geração e das correções: o JSON válido sem todas as chaves (`JSONIncompleto`) ganha uma nova
+        tentativa da mesma chamada, que não conta como reprovação do QA nem para o limite de tentativas do item (decisão
+        de 30/10/2026). Se a segunda também vier incompleta, o erro sobe, como antes."""
+        try:
+            return self._chamar(system, user, **opcoes)
+        except JSONIncompleto as e:
+            logger.warning("JSON incompleto (%s): nova tentativa da mesma chamada.", str(e)[:160])
+            self.json_incompleto_refeito += 1
+            self.ultimo_diagnostico["json_incompleto_refeito"] = self.json_incompleto_refeito
+            return self._chamar(system, user, **opcoes)
+
     def _na_janela(self, fazer, o_que: str):
         """Faz uma etapa que monta a mensagem pelo limite e chama o modelo. Se a chamada passa da janela, a etapa é
         refeita uma vez, com o limite da proporção que o erro mediu; um segundo erro de janela sobe."""
@@ -378,6 +392,7 @@ class Summarizer:
         final, que por isso leva o mesmo recorte. O orçamento fica em `Entrada.orcamento`.
         """
         self.proporcao_do_item = None   # a 1ª chamada do item começa da proporção típica
+        self.json_incompleto_refeito = 0
         completos = textos_da_pauta(principal, relacionados)
         logger.info(
             "Resumindo: %r (fonte: %s, %d caracteres de texto, %d relacionado(s))",
@@ -412,7 +427,7 @@ class Summarizer:
             + "\n\nTÍTULOS JÁ REPROVADOS:\n"
             + "\n".join(f'- "{r["titulo"]}": {"; ".join(r["motivos"])}' for r in reprovados)
         )
-        resposta = self._chamar(PROMPT_TITULO, usuario, chaves=(TITULO,), max_saida=MAX_SAIDA_TITULO)
+        resposta = self._chamar_inteiro(PROMPT_TITULO, usuario, chaves=(TITULO,), max_saida=MAX_SAIDA_TITULO)
         return {**result, TITULO: resposta[TITULO]}
 
     def _corrigir_resumo(self, entrada: Entrada, analise: Analise, result: dict, probs: list[str]) -> tuple[dict, Entrada]:
@@ -423,7 +438,7 @@ class Summarizer:
             + "\n\nPROBLEMAS DETECTADOS:\n- " + "\n- ".join(probs)
             + "\n\nRESUMO ORIGINAL:\n" + str(result["resumo_didatico"])
         )
-        resposta = self._chamar(PROMPT_RESUMO, usuario, chaves=(RESUMO,), max_saida=MAX_SAIDA_RESUMO)
+        resposta = self._chamar_inteiro(PROMPT_RESUMO, usuario, chaves=(RESUMO,), max_saida=MAX_SAIDA_RESUMO)
         return {**result, RESUMO: resposta[RESUMO]}, entrada
 
     def _revisar_roteiro(self, principal: dict, relacionados: list[dict] | None, analise: Analise, result: dict,
@@ -443,7 +458,7 @@ class Summarizer:
                 principal, relacionados, self._limite_da_entrada(PROMPT_ROTEIRO, extra=len(FONTE_ANTES) + len(depois)),
                 analise.lados, analise.questao, analise.ressalvas, lembrete=LEMBRETE_DO_ROTEIRO, orc=orc,
             )
-            return self._chamar(PROMPT_ROTEIRO, FONTE_ANTES + fonte.texto + depois, chaves=(ROTEIRO,)), fonte
+            return self._chamar_inteiro(PROMPT_ROTEIRO, FONTE_ANTES + fonte.texto + depois, chaves=(ROTEIRO,)), fonte
 
         resposta, fonte = self._na_janela(montar_e_chamar, "a revisão do roteiro")
         personagens = _com_os_papeis(result[ELENCO], resposta.get(ELENCO))
@@ -465,7 +480,7 @@ class Summarizer:
                 principal, relacionados, self._limite_da_entrada(PROMPT_REVISOR, extra=len(FONTE_ANTES) + len(depois)),
                 analise.lados, analise.questao, analise.ressalvas, orc=orc,
             )
-            return self._chamar(PROMPT_REVISOR, FONTE_ANTES + fonte.texto + depois), fonte
+            return self._chamar_inteiro(PROMPT_REVISOR, FONTE_ANTES + fonte.texto + depois), fonte
 
         return self._na_janela(montar_e_chamar, "a revisão")
 
@@ -481,7 +496,7 @@ class Summarizer:
         diagnostico = self.ultimo_diagnostico = {
             "entrada": entrada, "lados": analise, "orcamento": entrada.orcamento, "episodio": None, "primeira_versao": None,
             "problemas": None, "correcao": None, "revisao": None, "problemas_da_revisao": None, "titulos_reprovados": [],
-            "aviso_da_janela": "", "proporcao_do_item": self.proporcao_do_item,
+            "aviso_da_janela": "", "proporcao_do_item": self.proporcao_do_item, "json_incompleto_refeito": 0,
         }
         logger.debug("Início da entrada enviada ao LLM: %r", entrada.texto[:600])
 
@@ -489,13 +504,13 @@ class Summarizer:
             return _qa(episodio, entrada.fontes, analise.lados, analise.ressalvas, pauta, entrada.orcamento)
 
         try:
-            result = self._chamar(PROMPT_SISTEMA, entrada.texto)
+            result = self._chamar_inteiro(PROMPT_SISTEMA, entrada.texto)
         except JanelaExcedida as e:
             logger.warning("Janela: a geração passou da janela (%s de %s tokens); refeita com a proporção %.2f do item.",
                            e.tokens if e.tokens is not None else "?", e.janela if e.janela is not None else "?", self.proporcao())
             entrada = diagnostico["entrada"] = self._montar_geracao(principal, relacionados, analise)
             diagnostico["orcamento"] = entrada.orcamento
-            result = self._chamar(PROMPT_SISTEMA, entrada.texto)
+            result = self._chamar_inteiro(PROMPT_SISTEMA, entrada.texto)
         diagnostico["aviso_da_janela"] = aviso_da_janela(entrada, relacionados)
         if diagnostico["aviso_da_janela"]:
             logger.warning("Janela: %s", diagnostico["aviso_da_janela"])

@@ -196,6 +196,7 @@ class RegistroDaExecucao:
             "problemas_depois_da_revisao": diagnostico.get("problemas_da_revisao"),
             "nomes_do_bloco": nomes_do_bloco, "vozes": vozes,
             "proporcao_do_texto": diagnostico.get("proporcao_do_item"), "aviso_da_janela": diagnostico.get("aviso_da_janela") or "",
+            "json_incompleto_refeito": diagnostico.get("json_incompleto_refeito") or 0,
         }
         for chave, lista in (outros or {}).items():
             if lista:

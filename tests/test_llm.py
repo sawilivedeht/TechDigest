@@ -13,8 +13,12 @@ CHAVES_AGRUPADOR = {"grupos", "isolados"}
 def test_parse_json_exige_por_padrao_as_8_chaves_do_episodio():
     assert llm.parse_json(json.dumps(EPISODIO)) == EPISODIO
     sem_roteiro = {k: v for k, v in EPISODIO.items() if k != "roteiro_podcast"}
-    with pytest.raises(ValueError, match="roteiro_podcast"):
+    with pytest.raises(llm.JSONIncompleto, match="roteiro_podcast"):   # um ValueError, que o Summarizer refaz uma vez
         llm.parse_json(json.dumps(sem_roteiro))
+    assert issubclass(llm.JSONIncompleto, ValueError)
+    with pytest.raises(ValueError) as quebrado:                         # o JSON quebrado não é incompleto: não é refeito
+        llm.parse_json('{"titulo_reescrito": ')
+    assert not isinstance(quebrado.value, llm.JSONIncompleto)
 
 
 def test_parse_json_aceita_chaves_obrigatorias_personalizadas():

@@ -136,7 +136,7 @@ def _item_do_artigo(art, extracao) -> _Item:
     """Um artigo, com o agrupamento desligado: o episódio de uma fonte só, como sempre."""
     artigo = {"veiculo": art.source, "titulo": art.title, "url": art.url, "url_resolvida": extracao.url_resolvida,
               "texto": extracao.texto, "data": art.published, "feed": art.feed, "categorias": art.categorias}
-    return _Item(art.title, art.url, art.source, {"source": art.source, "title": art.title, "text": extracao.texto},
+    return _Item(art.title, art.url, art.source, {"source": art.source, "title": art.title, "text": extracao.texto, "data": art.published},
                  artigos=[artigo], vistos=[art.url], reprovaveis=[(art.url, art.title)])
 
 

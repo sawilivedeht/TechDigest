@@ -13,7 +13,7 @@ from techdigest.ai.lados import (
 )
 from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
 from techdigest.ai.recorte import cortar_em_paragrafo
-from techdigest.ai.llm import JanelaExcedida
+from techdigest.ai.llm import JanelaExcedida, JSONIncompleto
 from techdigest.ai.summarizer import (
     FOLGA_DA_MEDIDA, LEMBRETE, PROPORCAO_TIPICA, QAReprovado, Summarizer, _repartir, aviso_da_janela, montar_entrada,
     textos_da_pauta,
@@ -88,7 +88,10 @@ class ProviderFalso:
             self.analises.append((args, kwargs))
             return self.lados
         self.chamadas.append((args, kwargs))
-        return self.respostas.pop(0)
+        resposta = self.respostas.pop(0)
+        if isinstance(resposta, Exception):   # a chamada que falha, como o JSON incompleto do parse_json
+            raise resposta
+        return resposta
 
 
 # A parte fixa de cada prompt, como a sessão de teste de 29/10/2026 a contou (o prompt de sistema e o template).
@@ -898,6 +901,67 @@ def test_a_lista_de_veiculos_nunca_chega_como_none_ao_qa(ollama_8192, monkeypatc
     ]
     with pytest.raises(TypeError):                                        # e não há mais valor padrão para esquecer a lista
         summarizer._qa(_episodio([]))
+
+
+def _incompleto() -> JSONIncompleto:
+    return JSONIncompleto("LLM retornou JSON sem as chaves ['roteiro_podcast']. Chaves recebidas: ['resumo_didatico'].")
+
+
+def test_o_json_incompleto_da_geracao_ganha_uma_nova_tentativa_da_mesma_chamada(ollama_8192):
+    # o C3.48 da regressão de 29/10: o modelo fechou o JSON depois do resumo
+    provider = ProviderFalso(_incompleto(), _episodio(["G1"]))
+    s = Summarizer(provider=provider)
+    assert s.process(_artigo("G1", 2000)) == _episodio(["G1"])
+    assert [args[0] for args, _ in provider.chamadas] == [PROMPT_SISTEMA, PROMPT_SISTEMA]
+    assert provider.chamadas[0] == provider.chamadas[1]                   # a mesma chamada
+    assert s.json_incompleto_refeito == 1 and s.ultimo_diagnostico["json_incompleto_refeito"] == 1
+    # se a segunda também vier incompleta, o erro sobe como antes: não é reprovação do QA
+    with pytest.raises(JSONIncompleto):
+        Summarizer(provider=ProviderFalso(_incompleto(), _incompleto())).process(_artigo("G1", 2000))
+    # e o item seguinte começa a conta do zero
+    s.provider = ProviderFalso(_episodio(["G1"]))
+    s.process(_artigo("G1", 2000))
+    assert s.json_incompleto_refeito == 0
+
+
+def test_o_json_incompleto_da_correcao_tambem_ganha_a_nova_tentativa(ollama_8192):
+    # a 1ª versão reprova (falta a Folha), a correção completa vem incompleta e depois inteira: aprovado, sem QAReprovado
+    provider = ProviderFalso(_episodio(["G1"]), _incompleto(), _episodio(["G1", "Folha"]))
+    s = Summarizer(provider=provider)
+    assert s.process(_artigo("G1", 2000), [_artigo("Folha", 2000)]) == _episodio(["G1", "Folha"])
+    assert [args[0] for args, _ in provider.chamadas] == [PROMPT_SISTEMA, PROMPT_REVISOR, PROMPT_REVISOR]
+    # duas vezes incompleta: a correção falhou, como hoje
+    duas = ProviderFalso(_episodio(["G1"]), _incompleto(), _incompleto())
+    with pytest.raises(QAReprovado, match="falhou \\(JSONIncompleto"):
+        Summarizer(provider=duas).process(_artigo("G1", 2000), [_artigo("Folha", 2000)])
+
+
+@pytest.mark.parametrize("tipo", ["titulo", "resumo", "roteiro"])
+def test_o_json_incompleto_das_correcoes_direcionadas_tambem_ganha_a_nova_tentativa(tipo, ollama_8192):
+    if tipo == "titulo":
+        reprovado = {**_episodio(["G1"]), "titulo_reescrito": "Maioria das candidatas sofre ataques"}
+        corrigido = {"titulo_reescrito": "Candidatas sofrem ataques no primeiro turno"}
+        provider = ProviderFalso(reprovado, _incompleto(), corrigido, lados={"lados": [
+            {"posicao": "Fato central.", "atores": ["Terra de Direitos", "Justiça Global"], "veiculos": ["G1"]}]})
+        artigos, prompt = (_artigo("G1", 3000),), PROMPT_TITULO
+    elif tipo == "resumo":
+        reprovado = {**_episodio(["G1"]), "resumo_didatico": "Uma frase. " * (qa.MIN_FRASES_RESUMO - 1)}
+        corrigido = {"resumo_didatico": "Uma frase. " * qa.MIN_FRASES_RESUMO}
+        provider = ProviderFalso(reprovado, _incompleto(), corrigido)
+        artigos, prompt = (_artigo("G1", 2000),), PROMPT_RESUMO
+    else:
+        principal, relacionados = _pauta_com_as_posicoes_no_fim()
+        debate = _debate(["Agência Brasil", "CartaCapital"])
+        reprovado = json.loads(json.dumps(debate))
+        reprovado["roteiro_podcast"][2]["fala"] = "A Agência Brasil registra que a Meta nega."
+        corrigido = {"roteiro_podcast": debate["roteiro_podcast"]}
+        provider = ProviderQueConta(reprovado, _incompleto(), corrigido, lados=DISPUTA_NO_FIM)
+        artigos, prompt = (principal, relacionados), PROMPT_ROTEIRO
+    s = Summarizer(provider=provider)
+    episodio = s.process(*artigos)
+    assert s.ultimo_diagnostico["correcao"] == tipo and s.ultimo_diagnostico["problemas_da_revisao"] == []
+    assert all(episodio[chave] == valor for chave, valor in corrigido.items())
+    assert [args[0] for args, _ in provider.chamadas] == [PROMPT_SISTEMA, prompt, prompt] and s.json_incompleto_refeito == 1
 
 
 def test_process_levanta_qareprovado_se_a_revisao_tambem_falha(ollama_8192):
