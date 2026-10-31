@@ -1697,6 +1697,29 @@ virada do ano) — a primeira versão disso, por mês, tirou a Broadcom do C2.62
 foi trocada antes do commit. A medida com o código final: as mesmas 3 mudanças (C1.77 e o C2.87 duas vezes). A contagem das
 chamadas refeitas por JSON incompleto entrou no registro e no relatório do `testar_episodio.py`.
 
+**A quarta coleta e o rascunho do gabarito, em 30 e 31/10** (`data/agrupamento/quarta_coleta/`). O dono pediu a coleta e
+escolheu fazê-la na hora, em 30/10, sexta, às 06:36: um dia depois da terceira, fora do intervalo do protocolo e antes do
+01/11 combinado. A amostra é `amostra_20261030-063643.json`: 112 candidatos, 18 pares de 0,15 para cima e 12 artigos em
+comum com a coleta 3. O rascunho é de 31/10 (um worker Claude Opus, só leitura), **e o gabarito ainda não foi fechado: até
+lá, nenhuma chamada ao modelo, nenhuma validação e nenhuma regra ou prompt novos.**
+
+- **O que o rascunho traz:** 9 pautas de 2 artigos ou mais, 2 com disputa (A e B; a meta pedia 3); 24 itens de fonte
+  única, 3 com disputa (42, 66 e 9; o pedido era 8), mais 6 de fronteira na dúvida 5 (109, 104, 29, 97, 73 e 53); 53 pares
+  rotulados (11 juntos, 42 separados) e 10 dúvidas para o dono.
+- **A pauta H** (31 e 12) tem dois textos do mesmo veículo, o Diolinux: não conta como de várias fontes sem a decisão do
+  dono. Sem ela, são 8 pautas, e a meta de 6 continua atendida.
+- **A conferência do lead, por script:** os 73 trechos com id estão, literalmente, no texto indicado; o CSV não tem erro de
+  id, de relação nem de par repetido, e rotula os 18 pares; as pautas batem com os pares; a seção 4 não tem artigo em comum,
+  de pauta, de vários fatos, de esporte ou de oferta. Os lados e as decisões de disputa não foram conferidos: são o que o
+  dono revisa.
+- **A lacuna da leitura:** o worker leu 15 textos só em parte (3 na seção 4: 16, 29 e 110; os outros 12 ficaram fora dela)
+  e procurou oposição por palavras nos textos de opinião e no fim dos longos. O lead repetiu a busca por palavras nos 43
+  candidatos fora de toda lista e nesses 3 da seção 4, e não achou nenhum caso com ator nomeado dos dois lados. A busca não
+  substitui a leitura.
+- **O arquivo temporário:** o worker deixou trechos da amostra em
+  `~/.claude/projects/-home-sytw-Projetos-techdigest-fase4/74ef1d90-6ebc-43f7-bf71-94f11d171221/tool-results/t2.txt`, fora
+  do repositório. Nenhum arquivo do projeto mudou.
+
 ## Números medidos
 
 - **Produção, 07/10/2026** (`master`, execução das 08:09): geração de 208 a 291 s a 11-16 tok/s,
