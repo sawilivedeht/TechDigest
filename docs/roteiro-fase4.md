@@ -1748,6 +1748,49 @@ lá, nenhuma chamada ao modelo, nenhuma validação e nenhuma regra ou prompt no
   mudança, até o dono decidir.
 - **A validação cega** só roda quando o dono fechar também este gabarito.
 
+**As decisões do dono de 03/11, depois dos rascunhos.**
+
+- **O gabarito da coleta 4 foi aprovado**, com as três leituras do lead. Na pauta B, o relato dos fatos também conta como
+  certo, além do lado único de Bruna Santos, como no Datafolha.
+- **O gabarito da complementar** (`gabarito_20261103-184635.md` e `rotulos_20261103-184635.csv`; o rascunho fica como
+  estava): o 70 e o 52 entram na medida cega com disputa, e o 17 e o 102 sem; o TSE no 70 é secundário no Não. O 37 e o
+  55 ficam fora, pela decisão 5; o 14 × 77 é `desdobramento`, sem disputa; o 59 × 92 é `sobreposicao_parcial`; o 85 fica
+  fora.
+- **A validação cega roda sem outra coleta antes:** os 26 itens de fonte única, 5 com disputa. O aceite é proporcional a
+  26 itens: pelo menos 23 aprovados; nenhuma disputa inventada aprovada (as reprovadas à parte); frases marcadas até 21%;
+  argumentos atribuídos até 1,7 por episódio no total e 1,8 nos itens com disputa. No relatório, a disputa perdida e a
+  questão errada (com 5 itens, a medida é fraca e não barra) e as marcas por mil palavras ao lado das de 24/10 e 29/10.
+  Prompt e QA não mudam por causa do resultado.
+- **Para depois do merge:** as pautas de várias fontes com disputa (faltam 2 para a meta de 6), porque só contam para ligar
+  o agrupamento; e a frequência da extração com frases de outras notícias (o 85 da complementar e o 60 da coleta 4), que é
+  problema da produção.
+
+**A validação cega de 03/11** (`data/agrupamento/validacao_20261103/`, o resumo em `resultado.md`): os 26 itens com o código
+de `cb72ac9`, de 19:50 a 20:44, sob `systemd-inhibit`, com o vigia de memória (mínimo 17,3 GiB) e `library=CUDA`; a
+sessão de teste parada no fim. A leitura na configuração fixa de 29/10 (três leitores Opus, um por terço, com a régua e
+a calibração de 24/10), com a conferência do lead.
+
+| Critério | Meta | Resultado | Cumpre |
+|---|---|---|---|
+| Aprovados | 23 de 26 ou mais | 25 | sim |
+| Disputa inventada aprovada | nenhuma | 1 (CC.102) | **não** |
+| Frases marcadas | até 21% | 8% (85 em 1.031) | sim |
+| Argumentos atribuídos | até 1,7 por episódio, e 1,8 nos itens com disputa | 0,58, e 1,40 nos 5 com disputa | sim |
+
+- **O CC.102** (a Anvisa interdita parte do terminal da BTP): o gabarito tem lado único, Anvisa; a análise fez Anvisa "Sim"
+  × BTP "Não" com a nota da empresa («reafirma seu compromisso... cumprindo os requisitos estabelecidos pelas agências
+  reguladoras»), que não nega as irregularidades. O episódio passou no QA. **Pela barreira, a validação não libera o
+  merge**; a decisão é do dono.
+- **As disputas (fraca, não barra):** 3 certas de 5 (C4.42, CC.70, CC.52); o C4.66 perdida (a primeira tentativa perguntou
+  pelo debate em 2026, não pela adoção do distrital misto, e a conferência tirou o PT: "apoiar" não é verbo de posição); o
+  C4.9 com a disputa achada e o outro lado trocado (Puppe, "Parcialmente", no lugar de Opice Blum). Nenhuma questão errada
+  na análise final.
+- **Os lados recuperados pela conferência nova** (substantivo, cargo, veículo citado, verbos de decisão de 29/10): nenhum
+  nesta rodada.
+- **Marcas por mil palavras de roteiro:** 6,0, contra 5,5 em 29/10 e 7,4 em 24/10; nos itens com disputa, 9,4 (5 itens),
+  contra 4,5 e 8,7.
+- A reprovação é o C4.80 (Otávio com 229 palavras, mínimo 234). Nenhuma chamada refeita por JSON incompleto.
+
 ## Números medidos
 
 - **Produção, 07/10/2026** (`master`, execução das 08:09): geração de 208 a 291 s a 11-16 tok/s,
