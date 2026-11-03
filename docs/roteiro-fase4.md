@@ -1718,7 +1718,35 @@ lá, nenhuma chamada ao modelo, nenhuma validação e nenhuma regra ou prompt no
   substitui a leitura.
 - **O arquivo temporário:** o worker deixou trechos da amostra em
   `~/.claude/projects/-home-sytw-Projetos-techdigest-fase4/74ef1d90-6ebc-43f7-bf71-94f11d171221/tool-results/t2.txt`, fora
-  do repositório. Nenhum arquivo do projeto mudou.
+  do repositório; apagado em 03/11, com a permissão do dono. Nenhum arquivo do projeto mudou.
+
+**O gabarito final da coleta 4 e a coleta complementar, em 03/11** (`data/agrupamento/quarta_coleta/` e
+`data/agrupamento/coleta_complementar/`).
+
+- **O gabarito final da coleta 4** (`gabarito_20261030-063643.md` e `rotulos_20261030-063643.csv`; o rascunho fica como
+  estava) leva as decisões do dono de 03/11, na seção 6: a pauta B fica sem disputa, com o 1 e o 30 juntos (o lead leu o 30
+  inteiro e nenhum trecho diz que o governo Trump vai apoiar a reivindicação de Flávio; lado único, Bruna Santos); a pauta
+  H não conta como de várias fontes (um veículo só); o 97 e o 104 saem da medida cega, porque um gabarito duvidoso não
+  pode decidir o merge; o 71 é notícia, não oferta. Os pares não mudaram. A coleta 4 fica com 8 pautas de várias fontes,
+  1 com disputa (a A), e 22 itens de fonte única, 3 com disputa.
+- **O que faltava:** 2 pautas de várias fontes com disputa e 7 itens de fonte única, 5 com disputa e 2 para repor o 97 e
+  o 104.
+- **A coleta complementar,** pedida pelo dono para logo, foi feita em 03/11/2026, terça, às 18:46: quatro dias depois da
+  coleta 4, com um fim de semana no meio. A amostra é `amostra_20261103-184635.json`: 106 candidatos, 17 pares de 0,15 para
+  cima e 6 artigos em comum com as coletas 3 e 4, que ficam fora de tudo.
+- **O rascunho complementar** (um worker Claude Opus, só leitura; `rascunho_20261103-184635.md` e
+  `rotulos_rascunho_20261103-184635.csv`) traz 0 pautas de várias fontes com disputa e 4 itens de fonte única: 2 com
+  disputa (70 e 52) e 2 sem (17 e 102), para repor o 97 e o 104. A pauta das bets (65 e 96) tem disputa, mas é toda da
+  Agência Brasil. O 37 e o 55 ficam nas dúvidas, como discutíveis. Ficam faltando 2 pautas com disputa e 3 itens de fonte
+  única com disputa. A política da coleta é quase toda coluna ou entrevista de uma voz só, e a tecnologia é dominada por
+  ofertas da Black November.
+- **A conferência do lead, por script:** os 36 trechos com id estão no texto indicado; o CSV tem 20 pares, sem erro, com os
+  17 pares do CSV de pares. O worker leu 27 textos só no começo (eventos, tutoriais, textos institucionais) e 12 ofertas e
+  guias pelo começo e pelo fim; a busca por palavras do lead nos 27 não achou nenhum caso com ator nomeado dos dois lados.
+- **Duas extrações com frases de outras notícias:** o 85 da coleta complementar (o dólar, com frases soltas de outras
+  notícias) e o 60 da coleta 4 (a chamada «Valdemar critica carta de Flávio» no meio do texto). Ficam registradas, sem
+  mudança, até o dono decidir.
+- **A validação cega** só roda quando o dono fechar também este gabarito.
 
 ## Números medidos
 
