@@ -1,5 +1,14 @@
-   {
-     "permissions": {
-       "deny": ["Read(./.env)"]
-     }
-   }
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Edit(//**/.env)",
+      "Write(//**/.env)",
+      "Bash(git push *)",
+      "Bash(techdigest)",
+      "Bash(*.venv/bin/techdigest)",
+      "Bash(*python -m techdigest)",
+      "Bash(*python3 -m techdigest)"
+    ]
+  }
+}
