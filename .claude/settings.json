@@ -8,7 +8,10 @@
       "Bash(techdigest)",
       "Bash(*.venv/bin/techdigest)",
       "Bash(*python -m techdigest)",
-      "Bash(*python3 -m techdigest)"
+      "Bash(*python3 -m techdigest)",
+      "Bash(*-m techdigest)",
+      "Bash(*-m techdigest*)",
+      "Bash(*/techdigest/.venv/bin/techdigest*)"
     ]
   }
 }
