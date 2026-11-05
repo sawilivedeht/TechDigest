@@ -30,7 +30,9 @@ ele está; este arquivo guarda o que foi decidido e o que falta, e é atualizado
   Claude Code em 04/11, fim da noite, sem rodar o comando): o padrão de Bash casa com o texto inteiro do comando, e os de
   3e8b974 só pegam o comando sem argumentos. Ficam de fora `python -m techdigest.pipeline` e `python -m techdigest.main`,
   que nas duas pastas rodam o pipeline e entregam no Telegram, e, na pasta principal, o console script com argumentos, que
-  a `master` ignora. As linhas que faltam foram propostas ao dono e esperam o ok.
+  a `master` ignora. As linhas que faltavam (`-m techdigest`, `-m techdigest*` e o console script da pasta principal)
+  entraram em `c1e2b21`, em 04/11 às 21:56. Resta a aprovação do import do `CLAUDE.local.md` da pasta principal, que
+  depende do dono numa sessão interativa.
 
 ## Ordem do trabalho
 
@@ -1874,8 +1876,44 @@ nomes do ator, A2+46, C1.55, A92, C4.9 e 20·24); 608 passam.
   lado trocado para os dois no "Não") e o 20·24 (de "investiga" × "sim" para um lado só), como na simulação. Nas que não
   mudam, 21 citações passam pela palavra da questão, 2 só pela negação (a Meta do A2+46 e a Magu Haddad do C1.55 da
   regressão) e 1 perde a prova sem mudar a análise (Asha Sharma, no C3.52 de 29/10).
-- **Próximo passo:** a rodada da análise de lados do CC.102, 5 vezes, quando o dono pedir (aprovada à parte; falha é
-  qualquer lado além da Anvisa em qualquer das 5, com o registro do que cada nova tentativa trouxe).
+**A rodada do CC.102, em 04/11, 22h** (`data/agrupamento/lados_cc102_20261104/`, `vez_1` a `vez_5`; só `--so-lados` da pauta
+102 da complementar, com o código de 37ba0e2, `HEAD` c1e2b21, sem outra mudança de código; 5 vezes em 2 minutos, mínimo de
+16,5 GiB de memória): **falhou, 4 das 5 vezes saíram com Anvisa × BTP**; só a vez 4 ficou com a Anvisa sozinha.
+
+| Vez | Primeira resposta | Citação da BTP | Nova tentativa | Análise final |
+|---|---|---|---|---|
+| 1 | Anvisa "Sim", BTP "Não" com a nota «reafirma seu compromisso... cumprindo os requisitos» | passou: «citação direta (palavra da questão: Porto)» | não houve | 2 lados |
+| 2 | BTP "Não" com «A companhia informa que atendeu prontamente às orientações da Anvisa e que o terminal já opera normalmente.» | passou: «verbo de posição (informa)» | não houve | 2 lados |
+| 3 | igual à vez 2 | igual | não houve | 2 lados |
+| 4 | BTP "Não" com a nota da empresa | **recusada**: «não diz "Sim" nem "Não" ao que ela pergunta» | veio sem a BTP; o trecho da Anvisa passou por «determinou»; a frase do «informa» não apareceu; nenhum aceito só pela negação | 1 lado (Anvisa) |
+| 5 | igual à vez 2 | igual | não houve | 2 lados |
+
+- **A regra nova só atuou na vez 4.** Na vez 1 a nota passou porque «portuários» tem o radical de «Porto», nome próprio da
+  questão («...no Porto de Santos...»). Nas vezes 2, 3 e 5 o modelo trouxe de primeira a frase do «informa», que entra pelo
+  caminho do verbo de posição, e a regra nova nem foi exercida. O texto da questão mudou de uma vez para outra.
+- **A reaplicação das 242 mede uma resposta gravada só**; ao vivo, o mesmo item varia.
+
+**As decisões do dono, em 04/11, 22h:**
+
+- A rodada falhou. O 37ba0e2 fica (fecha o caminho da citação direta e não piorou nada na reaplicação). **O merge
+  continua barrado.**
+- O caminho do verbo é o buraco principal (3 das 5 vezes). Regra por palavra não resolve: a frase do «informa» tem
+  «terminal», que está na questão da vez 5, e a vez 1 passou por «Porto». Daqui em diante, a correção de um item que
+  falhou se confere em várias rodadas dele antes da validação.
+- **Próximo passo: diagnóstico**, sem mudar o código de produção, de duas saídas para "o trecho responde à questão?",
+  medidas com o modelo só em itens que não são cegos (nada das coletas 5 e 6):
+  - **A.** Uma chamada curta de conferência por lado, só nas análises com dois lados ou mais (a questão, a resposta do
+    ator e a frase do trecho; diz se a frase dá essa resposta). Medida nas respostas gravadas, sem refazer a análise de
+    lados: todos os lados das análises com disputa desde 24/10 e os das 5 vezes do CC.102. Tem de recusar a BTP nas 5
+    (a nota e o «informa») e a Meta do A46, e não pode recusar os lados certos dos gabaritos. Relatar tempo e tokens por
+    chamada.
+  - **B.** Uma frase no `PROMPT_LADOS`, com exemplo inventado: a nota da parte que só diz cumprir as regras, já ter
+    atendido ou operar normalmente é sequência dos fatos, não resposta "Não". Medida com o modelo: o CC.102 5 vezes e os
+    itens com disputa certa dos gabaritos antigos (16/10, terceira amostra, coleta 4 e complementar), uma vez cada.
+  - **Junto, sem o modelo:** a palavra de nome próprio da questão também deixa de contar, como já não conta no trecho;
+    medir nas 242 e nas 5 de hoje.
+- **Antes de rodar, o plano ao dono** (texto da chamada A e da frase B, com exemplos inventados e o grep em todas as
+  amostras; lista de itens; número de chamadas; tempo estimado). Nada roda antes do ok.
 
 ## Números medidos
 
