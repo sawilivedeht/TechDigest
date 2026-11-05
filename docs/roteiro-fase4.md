@@ -17,6 +17,20 @@ ele está; este arquivo guarda o que foi decidido e o que falta, e é atualizado
   - amostra nova, `amostra_20261012-220330.json` (101 candidatos);
   - os lados esperados da antiga e o gabarito da nova, que o dono mandou na conversa, transcritos em
     `gabaritos_do_dono.md`.
+- **Regras e referência, desde 04/11:** as regras de sessão ficam em `docs/regras-de-sessao.md`, que o `CLAUDE.md` da
+  worktree importa; o `.claude/settings.json` da branch recusa `git push`, o pipeline sem `--simular` e a edição do `.env`
+  (3e8b974). A referência longa saiu do `CLAUDE.md` para `docs/referencia/` (4827a01; de 119 para 52 KB). Retomar e rodar o
+  modelo têm o passo a passo nas skills `techdigest-retomar` e `techdigest-rodada-modelo`, fora do repositório. **Na pasta
+  principal, o import não carregou:** o `CLAUDE.local.md` dela importa as regras de fora da pasta
+  (`@../techdigest-fase4/docs/regras-de-sessao.md`), e o Claude Code só lê um import externo depois de uma aprovação, que
+  nunca foi pedida (no `~/.claude.json`, o projeto da pasta principal está com `hasClaudeMdExternalIncludesApproved` e
+  `hasClaudeMdExternalIncludesWarningShown` falsos); a sessão de 04/11 leu o arquivo à mão. As recusas de 3e8b974 valem lá
+  pelo `.claude/settings.local.json`, fora do git. O dono vai aprovar o import numa sessão interativa da pasta principal;
+  até ele confirmar, as sessões começam na worktree. **Os padrões de recusa têm buracos** (conferidos na documentação do
+  Claude Code em 04/11, fim da noite, sem rodar o comando): o padrão de Bash casa com o texto inteiro do comando, e os de
+  3e8b974 só pegam o comando sem argumentos. Ficam de fora `python -m techdigest.pipeline` e `python -m techdigest.main`,
+  que nas duas pastas rodam o pipeline e entregam no Telegram, e, na pasta principal, o console script com argumentos, que
+  a `master` ignora. As linhas que faltam foram propostas ao dono e esperam o ok.
 
 ## Ordem do trabalho
 
@@ -1790,6 +1804,61 @@ a calibração de 24/10), com a conferência do lead.
 - **Marcas por mil palavras de roteiro:** 6,0, contra 5,5 em 29/10 e 7,4 em 24/10; nos itens com disputa, 9,4 (5 itens),
   contra 4,5 e 8,7.
 - A reprovação é o C4.80 (Otávio com 229 palavras, mínimo 234). Nenhuma chamada refeita por JSON incompleto.
+
+**O diagnóstico do CC.102, em 03 e 04/11** (`data/agrupamento/diagnostico_20261103/`, o resumo em `diagnostico.md`): as 242
+análises gravadas desde 24/10, reaplicadas com o código de `cb72ac9` às respostas gravadas do modelo, sem chamar o modelo
+e sem mudar o código de produção.
+
+- **A causa:** a BTP entrou no "Não" pela citação direta, que vale sem conferir se responde à questão. Dos 15 lados aceitos
+  só por citação direta, 14 respondem; o da BTP é o único que não.
+- **A regra estreita:** a forma B (a citação direta só vale com uma palavra da questão no trecho, pelo radical, ou, na
+  resposta "Não", com uma negação) desfaz a disputa inventada e tira Lula do "Não" no A92. Com o ator escrito "BTP", em
+  vez de "Brasil Terminal Portuário (BTP)", ela deixa de recusar, porque o "Terminal" do nome casa com o "terminal" da
+  questão; o ajuste que tira do trecho as palavras de nome próprio (maiúscula no meio da frase) recusa nos dois casos e
+  não muda mais nada nas 242.
+- **O caminho do verbo:** nos itens sem disputa no gabarito, só o CC.102 sai com dois lados na reaplicação, e o lado falso
+  passou pela citação direta. Os 4 outros das rodadas gravadas (C2.87 nas duas, C3.52 e C1.77) o código de 30/10 desfaz.
+- **O C4.9:** a regra do "Sim" e "Não" pediu nova tentativa em 8 das 242; ficar com a nova válida sem "Sim" e "Não" muda
+  só o C4.9 (de disputa com o lado trocado para disputa perdida; Opice Blum não veio em nenhuma tentativa) e o 20·24 da
+  simulação de 29/10 (de uma disputa entre "investiga" e "sim" para um lado só).
+- **Decisões de 04/11:** "apoiar" não entra nos verbos de posição (no C4.66 traria o PT com um trecho que não responde à
+  questão da rodada). À noite, a correção que fecha o diagnóstico: na citação direta, a forma B com o ajuste dos nomes
+  próprios; no "Sim" e "Não", quando a nova tentativa vem válida, fica a nova, com ou sem "Sim" e "Não". A reaplicação das
+  242 com as duas juntas, simulada antes do código, muda só o CC.102, o A92, o C4.9 e o 20·24. O dono aprovou o plano no
+  fim da noite de 04/11, com as quatro leituras do lead (recusar a citação de vez, sem os caminhos seguintes, é o que foi
+  medido e fica). A rodada da análise de lados do CC.102 (5 vezes) é aprovada à parte: falha é qualquer lado além da
+  Anvisa em qualquer das 5, com o registro, a cada vez, do que a nova tentativa trouxe; na falha, volta o diagnóstico.
+
+**A coleta 5 e o gabarito, em 03 e 04/11** (`data/agrupamento/coleta_5/`): a coleta é de 03/11, 21:39, três horas depois
+da complementar (`amostra_20261103-213941.json`, 106 candidatos, 79 em comum com as coletas 3, 4 e complementar, 27
+novos). O rascunho (um worker Claude Opus, só leitura; `rascunho_20261103-213941.md` e `rotulos_rascunho_20261103-213941.csv`,
+gravados como ele os entregou) passou na conferência do lead por script, e o worker leu os 27 novos inteiros, sem tocar a
+lista proibida.
+
+- **O gabarito final** (`gabarito_20261103-213941.md` e `rotulos_20261103-213941.csv`, com as decisões do dono de 04/11 à
+  noite e no fim da noite): 1 pauta de várias fontes com disputa, a A (as bets no STF: 30, 70 e 101, sem o 81), marcada
+  como a história da pauta 65 e 96 da complementar; a B (Lara Resende e o mercado) não é pauta, porque o agrupamento é
+  discutível; 18 itens de fonte única, 2 com disputa (o 5, continuação do C3.52, e o 96, com as duas questões); o 29, o 35
+  e o 106 ficam fora pela decisão 5. Faltam 4 itens para os 22, da coleta 6. O diff do rascunho para o gabarito está em
+  `diff_rascunho_gabarito.txt`.
+- **Os pares da pauta B** (decisão do dono de 04/11, fim da noite): o precedente é dar ao par discutível uma relação
+  decidida, e vale "na dúvida, não juntar". Ficam com a outra leitura do rascunho: 28 × 73 `sobreposicao_parcial`,
+  28 × 105 e 73 × 105 `mesmo_tema`. O 28, o 73 e o 105 ficam sozinhos, mas não entram como fonte única; nenhum script
+  muda. O CSV ficou com 8 pares juntos e 19 separados.
+- **Quatro regras novas, para este gabarito e os próximos, antes de qualquer rodada:** o artigo novo que continua uma
+  história de coleta anterior conta como item novo, marcado com a coleta e o id de antes (aqui também o 8, o 36 e o 88,
+  achados pelo lead); quando duas questões dão os mesmos lados, as duas valem; o trecho de prova responde à questão
+  sozinho, e se precisar da frase inteira, vai a frase inteira (no 96, os dois trechos da segunda questão, o de Luana Alves
+  e o de Palumbo; pelo mesmo critério, o do Cruzeiro na pauta A, que cortado mudava o sentido); e, no fim da noite, na
+  dúvida, não juntar: par discutível leva relação de separado (a regra das fases 1 a 3, agora escrita para os pares).
+- **Pendência:** o 101 entra na pendência da sujeira na extração, com o 85 da complementar e o 60 da coleta 4.
+- **A coleta 6** foi aprovada para 05/11, quando o dono pedir, com o alvo de 8 itens e as quatro regras novas (a
+  especificação em `data/agrupamento/coleta_6/`). Nada das coletas 5 e 6 entra em teste, exemplo de prompt ou lista de
+  verbos.
+
+**O Duarte, em 04/11:** o exemplo "Duarte" do `PROMPT_LADOS` ("Duarte", "gestão de Duarte") aparece na coleta 1 (o
+procurador Marcial Duarte Coêlho, no 77). Entra na próxima mudança do `PROMPT_LADOS`, com o grep em todas as amostras;
+sozinho, não é motivo para mudar o prompt.
 
 ## Números medidos
 
