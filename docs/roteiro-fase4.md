@@ -1860,6 +1860,23 @@ lista proibida.
 procurador Marcial Duarte Coêlho, no 77). Entra na próxima mudança do `PROMPT_LADOS`, com o grep em todas as amostras;
 sozinho, não é motivo para mudar o prompt.
 
+**A correção do CC.102, em 04/11** (37ba0e2, o plano aprovado pelo dono no fim da noite): na conferência do trecho, a
+citação direta numa disputa só vale com uma palavra da questão pelo radical (sem as do nome do ator e sem as de nome
+próprio do trecho) ou, na resposta "Não", com uma negação; a que não responde não passa aos caminhos seguintes e vai à
+nova tentativa com o motivo próprio, que não cita a regra das palavras. Quando a regra do "Sim" e "Não" pede nova
+tentativa, a nova fica se valer, com ou sem "Sim" e "Não". A prova mostra o caminho, e os aceitos só pela negação vão ao
+registro de cada execução e ao `testar_episodio.py`. Testes só com casos antigos e trechos reais (CC.102 com os dois
+nomes do ator, A2+46, C1.55, A92, C4.9 e 20·24); 608 passam.
+
+- **A reaplicação das 242** (`data/agrupamento/diagnostico_20261103/reaplicacao_0411.py`, contra `base_0411.json`, o
+  resultado do código anterior gravado antes da mudança; a saída em `saida_reaplicacao_0411.txt`): mudam só o CC.102
+  (fica só a Anvisa, o gabarito), o A92 da regressão (Lula sai do "Não", o custo conhecido), o C4.9 (de disputa com o
+  lado trocado para os dois no "Não") e o 20·24 (de "investiga" × "sim" para um lado só), como na simulação. Nas que não
+  mudam, 21 citações passam pela palavra da questão, 2 só pela negação (a Meta do A2+46 e a Magu Haddad do C1.55 da
+  regressão) e 1 perde a prova sem mudar a análise (Asha Sharma, no C3.52 de 29/10).
+- **Próximo passo:** a rodada da análise de lados do CC.102, 5 vezes, quando o dono pedir (aprovada à parte; falha é
+  qualquer lado além da Anvisa em qualquer das 5, com o registro do que cada nova tentativa trouxe).
+
 ## Números medidos
 
 - **Produção, 07/10/2026** (`master`, execução das 08:09): geração de 208 a 291 s a 11-16 tok/s,
