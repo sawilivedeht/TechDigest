@@ -29,6 +29,7 @@ _ESCALAS = {"mil": 10**3, "milhao": 10**6, "milhoes": 10**6, "bilhao": 10**9, "b
             "trilhao": 10**12, "trilhoes": 10**12}
 _TERCOS = {"terco", "tercos"}
 _DEPOIS_DE_UM = {"milhao", "bilhao", "trilhao"} | _TERCOS   # "um" só é número antes destas palavras
+_SEPARADORES = ("virgula", "ponto")   # o separador decimal falado: "um vírgula oito", "um ponto setenta e dois"
 
 MENOR_NUMERO_COM_FONTE = 10   # abaixo disto, só o percentual precisa de fonte ("dois lados" é contagem de quem fala)
 TOLERANCIA = 0.05             # o quanto o número dito pode se afastar do da fonte quando vem com um qualificador
@@ -102,6 +103,14 @@ def _pode_somar(atual: float, parcela: int) -> bool:
     return atual % 10 == 0 and atual % 100 >= 20 and parcela < 10
 
 
+def _antes_de_decimal(lidos: list[Token], j: int, texto: str) -> bool:
+    """Se o token `j` é "vírgula" ou "ponto" seguido de um número ("um vírgula oito"), e não "um ponto de vista"."""
+    if not (j + 1 < len(lidos) and lidos[j].norm in _SEPARADORES and junto(texto, lidos[j], lidos[j + 1])):
+        return False
+    proximo = lidos[j + 1]
+    return proximo.texto.isdigit() or proximo.norm in _PARCELAS
+
+
 def _ler_por_extenso(lidos: list[Token], i: int, texto: str) -> tuple[int, float | None, int]:
     """Lê um número por extenso a partir do token `i`: o índice depois dele, o valor (None se ali não há número) e a
     escala em que ele termina ("um milhão e duzentos mil" termina em mil; "mil e quinhentos", em unidades)."""
@@ -131,7 +140,8 @@ def _ler_por_extenso(lidos: list[Token], i: int, texto: str) -> tuple[int, float
             j += 1
         elif t.norm in _PARCELAS and (j == i or (atual == 0 and total)):   # sem "e", só depois de mil ou milhão
             if j == i and t.norm in ("um", "uma") and not (
-                    j + 1 < len(lidos) and lidos[j + 1].norm in _DEPOIS_DE_UM and junto(texto, t, lidos[j + 1])):
+                    j + 1 < len(lidos) and junto(texto, t, lidos[j + 1])
+                    and (lidos[j + 1].norm in _DEPOIS_DE_UM or _antes_de_decimal(lidos, j + 1, texto))):
                 break                                                      # artigo, não número
             if j == i and t.norm == "cento" and i > 0 and lidos[i - 1].norm == "por":
                 break                                                      # "por cento" sem número antes
@@ -143,8 +153,9 @@ def _ler_por_extenso(lidos: list[Token], i: int, texto: str) -> tuple[int, float
 
 
 def _decimal_falado(lidos: list[Token], j: int, texto: str) -> tuple[int, float | None]:
-    """A parte decimal dita depois de "vírgula" ("cinquenta e oito vírgula oito"): o índice depois dela e o valor."""
-    if not (j + 1 < len(lidos) and lidos[j].norm == "virgula" and junto(texto, lidos[j - 1], lidos[j])
+    """A parte decimal dita depois de "vírgula" ou "ponto" ("cinquenta e oito vírgula oito", "um ponto setenta e
+    dois"): o índice depois dela e o valor. "Ponto percentual" não é decimal: depois dele não vem número."""
+    if not (j + 1 < len(lidos) and lidos[j].norm in _SEPARADORES and junto(texto, lidos[j - 1], lidos[j])
             and junto(texto, lidos[j], lidos[j + 1])):
         return j, None
     proximo = lidos[j + 1]
@@ -176,7 +187,8 @@ def numeros(texto: str) -> list[Numero]:
 
     "1.200" vale 1200, "67,50" vale 67,5, "3,2 milhões" vale 3.200.000, "dois milhões e meio" vale
     2.500.000, "duzentos e setenta e um por cento" vale 271 (percentual), "cinquenta e oito vírgula
-    oito por cento" vale 58,8 (percentual) e "um terço" vale 1/3. Ordinais por extenso e "um"/"uma"
+    oito por cento" vale 58,8 (percentual), "zero vírgula vinte e cinco" vale 0,25, "um ponto setenta e dois"
+    vale 1,72 e "um terço" vale 1/3. Ordinais por extenso e "um"/"uma"
     sozinhos não contam. O "e meio" só conta depois de milhão, bilhão ou trilhão: "dez e meia" é hora.
     """
     lidos = tokens(texto)
@@ -189,6 +201,9 @@ def numeros(texto: str) -> list[Numero]:
                 escala = _ESCALAS[lidos[j].norm]
                 valor *= escala
                 j += 1
+        elif t.norm == "zero" and i + 1 < len(lidos) and junto(texto, t, lidos[i + 1]) \
+                and _antes_de_decimal(lidos, i + 1, texto):
+            j, valor, escala = i + 1, 0, 1            # "zero vírgula vinte e cinco"; "zero" sozinho não conta
         else:
             j, valor, escala = _ler_por_extenso(lidos, i, texto)
             if valor is None:

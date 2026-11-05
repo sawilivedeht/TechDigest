@@ -1933,6 +1933,24 @@ sem rodar, para depois do merge** (o plano de A, B e do nome próprio da questã
   skill `techdigest-rodada-modelo`, separando uns três episódios para o dono ouvir). O merge vem depois da simulação e
   do ok do dono, sem push; o timer continua desligado.
 
+## A simulação que libera o merge e o conserto do QA, em 04–05/11
+
+Simulação de 04/11 (22h33–23h34, 61 min), código de `fc45337`, agrupamento desligado, `DISPUTA_FONTE_UNICA` falsa, com áudio,
+cópia do banco de produção: status 0, 20 entregues de 23 (3 reprovados pelo QA), 20 mp3, nenhuma entrega fora de `seen`
+(257 → 277 hashes), nenhum aviso de parada, nenhum episódio de fonte única com divergência. Um só episódio teria virado
+disputa (Uber, 2 lados medidos) e saiu com o lado neutro. Fidelidade (informação): 10 fatos sem fonte em 8 dos 20 entregues,
+1 arredondado. Arquivos em `data/simulacoes/rodada_20261104/` (`resultado.md`, `fidelidade.txt`, `passos_do_merge.md`,
+`para_ouvir/`). O dono aceitou nos critérios de código e aprovou o merge em 05/11, depois de ouvir os 3 episódios.
+
+**Conserto do QA (relaxamento, entrou direto, sem o modelo).** Os 3 reprovados eram falha de leitura de `numeros.py`: o
+decimal dito com "zero" ou "um" na frente da vírgula ("zero vírgula vinte e cinco" lido como 25; "um vírgula oito" como 8,
+porque "um" era artigo) e o "ponto" como separador ("um ponto setenta e dois" lido como 72). Agora lê 0,25, 1,8, 1,76 e
+1,72; "um ponto de vista", "um ponto percentual" e "zero" sozinho continuam fora. Testes novos em `tests/test_qa.py`; suíte: 634.
+`refazer_qa.py` nos 23 episódios: mudam o 2 (Selic) e o 10 (juro real), de reprovado para aprovado; nenhum aprovado mudou.
+O 20 (AMD) segue reprovado, por outro problema: "entre quinze e dezesseis bilhões de dólares", em que a escala vem só
+depois do segundo número; a fonte traz "US$ 15 bilhões e US$ 16 bilhões", e o QA lê 15 sem a escala. Fica anotado, sem
+conserto agora. (O "oito bilhões e quinhentos e cinco milhões" era erro do modelo na primeira versão; a final trazia 550.)
+
 ## Números medidos
 
 - **Produção, 07/10/2026** (`master`, execução das 08:09): geração de 208 a 291 s a 11-16 tok/s,

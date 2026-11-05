@@ -886,3 +886,37 @@ def test_com_dois_analistas_helena_pode_falar_menos():
     assert qa.problemas(um, ["G1"], lados[:1], SEM_RESSALVAS, SEM_TEXTOS)[0].startswith(
         f"Helena com {qa.MIN_HELENA_COM_DEBATE} palavras (alvo {qa.MIN_POR_PERSONAGEM}-")
 
+
+
+# Decimais ditos (04/11): "zero vírgula…", "um vírgula…" e "ponto" como separador, medidos nos reprovados da simulação.
+TEXTOS_DOS_JUROS = ["O Copom manteve a taxa. O mercado esperava um corte de 0,25 ponto percentual, e a projeção de crescimento "
+                    "para 2026 caiu para 1,8%, com o Focus em 1,76%. A diferença para a Turquia subiu para 1,72 ponto percentual."]
+
+
+@pytest.mark.parametrize("fala, passa", [
+    ("O mercado esperava um corte de zero vírgula vinte e cinco ponto percentual.", True),
+    ("A projeção caiu para um vírgula oito por cento.", True),
+    ("O Focus projeta um vírgula setenta e seis por cento.", True),
+    ("A diferença subiu para um ponto setenta e dois ponto percentual.", True),     # "ponto" também separa os decimais
+    ("A diferença subiu para um vírgula setenta e três por cento.", False),         # 1,73 não está na fonte
+    ("A projeção caiu para um vírgula nove por cento.", False),
+])
+def test_decimal_dito_com_zero_um_e_ponto_vale_pelo_valor(fala, passa):
+    assert (qa.problemas_dos_numeros(_com_fala(fala), TEXTOS_DOS_JUROS) == []) is passa
+
+
+@pytest.mark.parametrize("texto, esperado", [
+    ("zero vírgula vinte e cinco", [(0.25, False)]),
+    ("um vírgula oito por cento", [(1.8, True)]),
+    ("uma vírgula cinco", [(1.5, False)]),
+    ("zero ponto cinco por cento", [(0.5, True)]),
+    ("um ponto setenta e dois", [(1.72, False)]),
+    ("dois pontos percentuais", [(2, False)]),
+    ("um ponto percentual", []),             # depois de "ponto" não vem número: não é decimal
+    ("um ponto de vista", []),               # "um" artigo
+    ("zero", []),                            # "zero" sozinho não é número a cobrar
+    ("o ponto dois", [(2, False)]),
+])
+def test_numeros_le_zero_um_e_ponto_como_decimais(texto, esperado):
+    from techdigest.ai.numeros import numeros
+    assert [(n.valor, n.percentual) for n in numeros(texto)] == esperado
