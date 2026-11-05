@@ -389,6 +389,130 @@ def test_a_citacao_entre_aspas_vale_mesmo_continuada_de_outro_paragrafo():
     assert modulo.traz_a_resposta("Marta Quaresma", "A feira é o sustento do bairro todo", fora, VILA) == ""
 
 
+# ── A citação direta tem de responder à questão (correção de 04/11/2026) ──────────────────
+# Casos antigos, com os trechos reais das análises gravadas: o CC.102 da validação de 03/11, o A2+46 da prévia de 25/10,
+# o C1.55 da validação de 29/10 e da regressão de 29-30/10 e o A92 da regressão de 29-30/10.
+
+AB = "Agência Brasil"
+CC102 = [{"fonte": AB, "titulo": "Anvisa interdita parte de terminal no Porto de Santos", "texto": (
+    "A Agência Nacional de Vigilância Sanitária (Anvisa) determinou a interdição parcial do Brasil Terminal Portuário S.A. "
+    "(BTP), localizado no Porto de Santos (SP), após identificar irregularidades sanitárias durante inspeção de rotina "
+    "baseada em análise de risco.\n"
+    "A companhia informa que atendeu prontamente às orientações da Anvisa e que o terminal já opera normalmente. \"A Brasil "
+    "Terminal Portuário (BTP) reafirma seu compromisso de prestar serviços portuários de qualidade, atuando com diligência "
+    "e cumprindo os requisitos estabelecidos pelas agências reguladoras.\""
+)}]
+DA_ANVISA = ("A Agência Nacional de Vigilância Sanitária (Anvisa) determinou a interdição parcial do Brasil Terminal "
+             "Portuário S.A. (BTP), localizado no Porto de Santos (SP), após identificar irregularidades sanitárias")
+DA_BTP = ("A Brasil Terminal Portuário (BTP) reafirma seu compromisso de prestar serviços portuários de qualidade, atuando "
+          "com diligência e cumprindo os requisitos estabelecidos pelas agências reguladoras.")
+DA_INTERDICAO = "A interdição parcial do terminal da BTP foi necessária devido a irregularidades sanitárias?"
+
+
+@pytest.mark.parametrize("btp", ["Brasil Terminal Portuário (BTP)", "BTP"])
+def test_a_citacao_que_nao_responde_a_questao_nao_traz_a_resposta(btp):
+    # no CC.102, a citação de compromisso da BTP entrou no "Não" à questão da interdição; com o ator escrito "BTP", o
+    # "Terminal" do nome casaria com o "terminal" da questão, e por isso as palavras de nome próprio do trecho não contam
+    assert modulo.traz_a_resposta(btp, DA_BTP, CC102, AB) == "citação direta"            # sem questão, como antes
+    assert modulo.traz_a_resposta(btp, DA_BTP, CC102, AB, questao=DA_INTERDICAO, resposta="Não") == ""
+    assert modulo.palavra_da_questao("BTP", DA_BTP.replace("Terminal Portuário", "terminal portuário"), DA_INTERDICAO) == "terminal"
+    assert modulo.traz_a_resposta("Anvisa", DA_ANVISA, CC102, AB, questao=DA_INTERDICAO, resposta="Sim") == (
+        "verbo de posição no trecho (determinou)")
+
+
+@pytest.mark.parametrize("btp", ["Brasil Terminal Portuário (BTP)", "BTP"])
+def test_o_ator_da_citacao_que_nao_responde_sai_e_a_nova_tentativa_diz_por_que(btp):
+    resposta = {"questao": DA_INTERDICAO, "motivo": "A Anvisa interditou; a BTP diz que cumpre os requisitos.",
+                "lados": [_lado("A interdição foi necessária.", ["Anvisa"], [AB], "Sim"),
+                          _lado("A BTP cumpre os requisitos.", [btp], [AB], "Não")],
+                "respostas_por_ator": [_evidencia("Anvisa", "Sim", DA_ANVISA), _evidencia(btp, "Não", DA_BTP)]}
+    analise = analise_da_resposta(resposta, CC102)
+    assert [lado.atores for lado in analise.lados] == [("Anvisa",)] and analise.questao == ""
+    assert [(r.ator, r.motivo) for r in analise.recusados] == [(btp, modulo.CITACAO_SEM_RESPOSTA)]
+    assert [e.recusa for e in analise.respostas] == ["", modulo.CITACAO_SEM_RESPOSTA]
+    pedido = pedido_das_respostas(analise)
+    assert f'- {btp}: "{DA_BTP}" (a citação não responde à questão: não diz "Sim" nem "Não" ao que ela pergunta).' in pedido
+    assert pedido.endswith(modulo.LEMBRETE_DAS_RESPOSTAS) and "palavra" not in modulo.CITACAO_SEM_RESPOSTA
+
+
+META_E_CAMPANHA = [
+    {"fonte": AB, "titulo": "Meta alega problemas técnicos para menor alcance de Lula nas redes", "texto": (
+        "“As alegações são simplesmente falsas e não encontram respaldo nos fatos. Muitos dos problemas técnicos mencionados "
+        "não afetaram exclusivamente o Brasil ou contas específicas nas nossas plataformas. Cumprimos com as normas "
+        "eleitorais e estamos comprometidos com a isonomia do uso das nossas plataformas por todos”, diz nota da Meta.")},
+    {"fonte": "CartaCapital", "titulo": "Campanha de Lula acusa Meta de tentar interferir nas eleições", "texto": (
+        "“A sucessão de problemas técnicos não explicados pela empresa levanta forte suspeita de que a ação da Meta se "
+        "configure como uma tentativa de interferência no processo eleitoral brasileiro, em beneficio à candidatura de "
+        "Flávio Bolsonaro. A completa ausência de transparência nos sistemas da empresa faz com que essas explicações "
+        "sejam escassas e opacas”, diz o documento.")},
+]
+DA_META = ("“As alegações são simplesmente falsas e não encontram respaldo nos fatos. Muitos dos problemas técnicos mencionados "
+           "não afetaram exclusivamente o Brasil ou contas específicas nas nossas plataformas.")
+DA_CAMPANHA = ("“A sucessão de problemas técnicos não explicados pela empresa levanta forte suspeita de que a ação da Meta se "
+               "configure como uma tentativa de interferência no processo eleitoral brasileiro, em beneficio à candidatura "
+               "de Flávio Bolsonaro.")
+
+
+def test_a_citacao_vale_com_palavra_da_questao_ou_com_a_negacao_no_nao():
+    # o A2+46: a campanha traz "processo" da questão; a Meta, só a negação no "Não" (o "Brasil" do trecho é nome próprio
+    # e não casa com o "brasileiro" da questão)
+    questao = "A Meta está interferindo no processo eleitoral brasileiro em benefício de Flávio Bolsonaro?"
+    resposta = {"questao": questao, "motivo": "Acusação e defesa.",
+                "lados": [_lado("A Meta interfere.", ["campanha de Lula"], ["CartaCapital"], "Sim"),
+                          _lado("As alegações são falsas.", ["Meta"], [AB], "Não")],
+                "respostas_por_ator": [_evidencia("campanha de Lula", "Sim", DA_CAMPANHA, "CartaCapital"),
+                                       _evidencia("Meta", "Não", DA_META)]}
+    analise = analise_da_resposta(resposta, META_E_CAMPANHA)
+    assert [e.prova for e in analise.respostas] == ["citação direta (palavra da questão: processo)", modulo.PROVA_PELA_NEGACAO]
+    assert [lado.atores for lado in analise.lados] == [("campanha de Lula",), ("Meta",)]
+    assert modulo.aceitos_so_pela_negacao(analise) == [("Meta", DA_META)]
+    # a negação só vale para o "Não"
+    assert modulo.traz_a_resposta("Meta", DA_META, META_E_CAMPANHA, AB, questao=questao, resposta="Sim") == ""
+
+
+UNE = [{"fonte": "Extra Classe", "titulo": "TSE nega pedido de Flávio para proibir atuação política da UNE e de sindicatos", "texto": (
+    "“O processo da campanha contra a UNE e de nossa presidente Bianca Borges está sendo um jeito de tentar censurar o "
+    "movimento estudantil. Hoje a gente teve a notícia que o TSE rejeitou essas medidas e que diz que o que a UNE está "
+    "fazendo não é uma propaganda irregular. O apoio ao Lula no segundo turno foi aprovado na Executiva da UNE, então não é "
+    "como se poucas pessoas estivessem usando a entidade para apoiar o Lula – foi aprovado. Não é uma propaganda irregular: "
+    "os estudantes estão organizando a luta contra o representante da extrema direita no nosso país”, comentou Magu "
+    "Haddad, diretora da UNE em São Paulo."
+)}]
+DA_MAGU = ("Não é uma propaganda irregular: os estudantes estão organizando a luta contra o representante da extrema direita "
+           "no nosso país")
+
+
+def test_a_mesma_citacao_vale_nas_duas_questoes_do_c1_55():
+    configura = "A atuação política da UNE, de sindicatos e de movimentos sociais a favor de Lula configura propaganda irregular?"
+    proibir = ("A campanha de Flávio Bolsonaro deve proibir a atuação política da UNE, de sindicatos e de movimentos sociais "
+               "a favor de Lula?")
+    assert modulo.traz_a_resposta("Magu Haddad", DA_MAGU, UNE, "Extra Classe", questao=configura, resposta="Não") == (
+        "citação direta (palavra da questão: propaganda)")
+    assert modulo.traz_a_resposta("Magu Haddad", DA_MAGU, UNE, "Extra Classe", questao=proibir, resposta="Não") == (
+        modulo.PROVA_PELA_NEGACAO)
+
+
+def test_o_custo_conhecido_lula_no_a92_sai():
+    # a citação de Lula («decisões tendenciosas») não traz palavra da questão nem negação: o dono aceitou o custo em 04/11
+    globo = [{"fonte": "O GLOBO", "titulo": ("Nunes Marques passa por cima de corregedor do TSE, atende pedido de Flávio "
+                                            "Bolsonaro e manda derrubar canal 'Exército de Lula'"), "texto": (
+        "— Eu acho um absurdo. Acho que nossos advogados vão ter que entrar com pedido de explicação. Há alguns dias estou "
+        "percebendo muitas decisões tendenciosas contra a nossa candidatura. Não vamos permitir se seja fechado um canal que "
+        "um deputado que está pedindo para as pessoas votarem em mim. Não é possível que o STF não tenha um comportamento "
+        "civilizado, republicano de permitir que as eleições flua sem interferência da justiça — afirmou Lula."
+    )}]
+    trecho = ("— Eu acho um absurdo. Acho que nossos advogados vão ter que entrar com pedido de explicação. Há alguns dias "
+              "estou percebendo muitas decisões tendenciosas contra a nossa candidatura.")
+    questao = "A suspensão do canal 'Exército de Lula' no WhatsApp foi correta?"
+    assert modulo.traz_a_resposta("Lula", trecho, globo, "O GLOBO") == "citação direta"
+    assert modulo.traz_a_resposta("Lula", trecho, globo, "O GLOBO", questao=questao, resposta="Não") == ""
+
+
+def test_sem_nomes_proprios_tira_a_maiuscula_que_nao_abre_frase():
+    assert modulo.sem_nomes_proprios(DA_BTP).startswith("A reafirma seu compromisso de prestar serviços portuários")
+    assert modulo.sem_nomes_proprios("Ele saiu. Depois, a Anvisa voltou: Nada mudou") == "Ele saiu Depois a voltou Nada mudou"
+
+
 def test_o_verbo_de_decisao_so_vale_na_frase_que_nomeia_o_ator():
     texto = [{"fonte": VILA, "titulo": "Feira", "texto": (
         "O fechamento da feira foi mandado pelo conselho presidido por Edson Lacerda.\n"
@@ -1256,15 +1380,99 @@ def test_sem_sim_e_nao_a_nova_tentativa_pede_as_duas_e_fica_se_trouxer():
 @pytest.mark.parametrize("nova", [
     {"lados": []},                                       # a nova não vale
     ValueError("resposta cortada"),                      # a chamada falha
-    "descritiva",                                        # vale, mas continua sem "Sim" e "Não"
-    UM_LADO,                                             # vale, mas sem disputa
 ])
-def test_se_a_nova_tentativa_nao_traz_sim_e_nao_em_dois_lados_fica_a_primeira(nova):
+def test_se_a_nova_tentativa_pelo_sim_e_nao_nao_vale_fica_a_primeira(nova):
     primeira = _descritiva()
-    chamada = Chamada(primeira, _descritiva("Acusa", "Nega") if nova == "descritiva" else nova)
+    chamada = Chamada(primeira, nova)
     analise = analisar_lados(chamada, TEXTOS)
     assert len(chamada.recebido) == 2 and analise.resposta == primeira and analise.segunda is not None
     assert len(analise.lados) == 2 and analise.problemas == [] and analise.sem_sim_e_nao   # a regra não derruba a primeira
+
+
+@pytest.mark.parametrize("nova", [
+    "descritiva",                                        # vale, mas continua sem "Sim" e "Não"
+    UM_LADO,                                             # vale, mas sem disputa
+])
+def test_se_a_nova_tentativa_vale_fica_a_nova_mesmo_sem_sim_e_nao(nova, caplog):
+    # desde 04/11/2026 (o C4.9 de 03/11): a nova tentativa que vale fica, com ou sem "Sim" e "Não" em dois lados
+    primeira, nova = _descritiva(), _descritiva("Acusa", "Nega") if nova == "descritiva" else nova
+    chamada = Chamada(primeira, nova)
+    with caplog.at_level(logging.WARNING, logger="techdigest.ai.lados"):
+        analise = analisar_lados(chamada, TEXTOS)
+    assert len(chamada.recebido) == 2 and analise.resposta == nova and analise.segunda is None
+    assert analise.primeira.resposta == primeira and analise.primeira.sem_sim_e_nao and analise.problemas == []
+    assert 'a nova tentativa veio válida sem "Sim" e "Não" em dois lados' in caplog.text and "Fica a nova." in caplog.text
+
+
+# O C4.9 da validação de 03/11 e o 20·24 da simulação de 29/10, com as duas respostas gravadas do modelo (as posições e
+# os motivos encurtados).
+VE = "Valor Econômico"
+LGPD = [{"fonte": VE, "titulo": "LGPD completa seis anos com os desafios da inteligência artificial", "texto": (
+    "Com uma perspectiva diferente, Felipe Carteiro Moreira, sócio de Direito Digital do escritório Rayes e Fagundes, "
+    "entende que a aplicação da LGPD ainda é lenta. “O avanço expressivo das fraudes digitais nos últimos anos, muitas "
+    "delas relacionadas a falhas na proteção de dados pessoais mantidos por empresas e pelo próprio Poder Público, mostra "
+    "que, seis anos após a aprovação da LGPD, a fiscalização ainda foi insuficiente e a aplicação de sanções permaneceu "
+    "muito aquém do necessário”, diz.\n"
+    "A ANPD, acrescenta, “tornou-se agência reguladora”. “Recebeu novas competências e ganhou uma estrutura mais robusta. "
+    "Portanto, meu balanço é que a LGPD cumpriu parcialmente seu papel até aqui”, afirma ele. “Ela tinha transformado a "
+    "cultura empresarial, mas ainda não havia alcançado plenamente sua dimensão fiscalizatória. Tudo indica que estamos "
+    "entrando justamente nessa segunda fase.”"
+)}]
+DE_FELIPE = ("O avanço expressivo das fraudes digitais nos últimos anos, muitas delas relacionadas a falhas na proteção de "
+             "dados pessoais mantidos por empresas e pelo próprio Poder Público, mostra que, seis anos após a aprovação da "
+             "LGPD, a fiscalização ainda foi insuficiente e a aplicação de sanções permaneceu muito aquém do necessário")
+DE_PUPPE = "meu balanço é que a LGPD cumpriu parcialmente seu papel até aqui"
+C4_9 = (
+    {"questao": "A fiscalização e aplicação da LGPD têm sido suficientes?",
+     "respostas_por_ator": [_evidencia("Felipe Carteiro Moreira", "Não", DE_FELIPE, VE),
+                            _evidencia("Matheus Puppe", "Parcialmente", DE_PUPPE, VE)],
+     "lados": [_lado("A fiscalização da LGPD tem sido insuficiente.", ["Felipe Carteiro Moreira"], [VE], "Não"),
+               _lado("A LGPD cumpriu parte de seu papel.", ["Matheus Puppe"], [VE], "Parcialmente")],
+     "motivo": "Um especialista afirma que a fiscalização é insuficiente e outro que ela cumpriu apenas parte do papel."},
+    {"questao": "A fiscalização e a aplicação de sanções da LGPD têm sido suficientes?",
+     "respostas_por_ator": [_evidencia("Felipe Carteiro Moreira", "Não", DE_FELIPE, VE), _evidencia("Matheus Puppe", "Não", DE_PUPPE, VE)],
+     "lados": [_lado("A fiscalização da LGPD tem sido insuficiente.", ["Felipe Carteiro Moreira", "Matheus Puppe"], [VE], "Não")],
+     "motivo": "Os especialistas indicam que a fiscalização não foi plenamente efetiva ou foi insuficiente."},
+)
+FOLHA = "Folha de S.Paulo"
+INDIGENAS = [{"fonte": FOLHA, "titulo": "Governo federal investiga possível motivação política em ataques virtuais e ameaças a indígenas", "texto": (
+    "O governo federal investiga a possível motivação política de ataques virtuais e ameaças recebidas por indígenas dos "
+    "povos Guarani Kaiowá e Terena, no Mato Grosso do Sul, desde domingo (25), após o segundo turno das eleições de 2026.\n"
+    "\"Essas denúncias serão tratadas com rigor. Nós não admitiremos que as comunidades indígenas sejam assediadas, "
+    "intimidadas ou violentadas em seus direitos políticos\", disse o ministro Eloy Terena, dos Povos Indígenas.\n"
+    "\"Essa é uma resposta dos conflitos territoriais que não vão diminuir, mesmo com a vitória do presidente Lula, porque "
+    "eles estão revoltados que não ganharam\", disse."
+)}]
+DO_GOVERNO = ("O governo federal investiga a possível motivação política de ataques virtuais e ameaças recebidas por "
+              "indígenas")
+DE_ELOY = ("Essas denúncias serão tratadas com rigor. Nós não admitiremos que as comunidades indígenas sejam assediadas, "
+           "intimidadas ou violentadas em seus direitos políticos")
+DE_CELIA = ("Essa é uma resposta dos conflitos territoriais que não vão diminuir, mesmo com a vitória do presidente Lula, "
+            "porque eles estão revoltados que não ganharam")
+MOTIVACAO = "Os ataques virtuais e ameaças contra indígenas possuem motivação política?"
+VINTE_24 = (
+    {"questao": MOTIVACAO,
+     "respostas_por_ator": [_evidencia("gestão petista", "investiga", DO_GOVERNO, FOLHA), _evidencia("Eloy Terena", "investiga", DE_ELOY, FOLHA),
+                            _evidencia("Célia Xakirabá", "sim", DE_CELIA, FOLHA)],
+     "lados": [_lado("O governo investiga a motivação política.", ["gestão petista", "Eloy Terena"], [FOLHA], "investiga"),
+               _lado("Os ataques são revolta de quem perdeu as eleições.", ["Célia Xakirabá"], [FOLHA], "sim")],
+     "motivo": "O governo investiga, e uma parlamentar afirma que a motivação é a revolta com o resultado."},
+    {"questao": MOTIVACAO,
+     "respostas_por_ator": [_evidencia("Célia Xakirabá", "Sim", f'"{DE_CELIA}"', FOLHA)],
+     "lados": [_lado("Os ataques são revolta de quem perdeu as eleições.", ["Célia Xakirabá"], [FOLHA], "Sim")],
+     "motivo": "A história não apresenta um lado que negue a motivação política."},
+)
+
+
+@pytest.mark.parametrize("respostas, textos, atores", [
+    (C4_9, LGPD, ("Felipe Carteiro Moreira", "Matheus Puppe")),     # de disputa com o lado trocado para disputa perdida
+    (VINTE_24, INDIGENAS, ("Célia Xakirabá",)),                     # de "investiga" × "sim" para um lado só
+])
+def test_os_casos_antigos_da_nova_tentativa_valida_sem_sim_e_nao(respostas, textos, atores):
+    chamada = Chamada(*respostas)
+    analise = analisar_lados(chamada, textos)
+    assert len(chamada.recebido) == 2 and analise.resposta == respostas[1] and analise.problemas == []
+    assert analise.primeira.sem_sim_e_nao and [lado.atores for lado in analise.lados] == [atores] and analise.questao == ""
 
 
 def test_o_pedido_junta_as_entradas_que_faltam_e_o_sim_e_nao():

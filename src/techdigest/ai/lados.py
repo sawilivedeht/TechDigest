@@ -234,6 +234,7 @@ class Evidencia:
     trecho_do_llm: str = ""     # o que o LLM escreveu, quando difere do texto e foi aceito como quase literal
     diferencas: int = 0         # quantas palavras o trecho do LLM difere do texto do veículo
     prova: str = ""             # o que mostra que o trecho traz a resposta do ator (ver `traz_a_resposta`); vazio se nada mostra
+    recusa: str = ""            # por que a prova foi recusada, quando há um motivo próprio (CITACAO_SEM_RESPOSTA)
 
     @property
     def vale(self) -> bool:
@@ -789,7 +790,85 @@ def fala_do_passado(trecho: str, frase: str, textos, veiculo: str) -> bool:
     return bool(primeira) and bool(_MARCA_ANAFORICA.search(do_paragrafo[primeira - 1]))
 
 
-def traz_a_resposta(ator: str, trecho: str, textos, veiculo: str, respostas: dict | None = None) -> str:
+# ── A citação direta tem de responder à questão (correção de 04/11/2026) ──────────────────
+
+# As palavras que não contam na comparação do trecho com a questão (além das de menos de 4 letras e das do nome do ator).
+_PALAVRAS_VAZIAS = frozenset(_sem_acento(p) for p in """
+a o as os um uma uns umas de do da dos das no na nos nas em ao aos à às por pelo pela pelos pelas para com sem sobre entre
+e ou mas que se seu sua seus suas ele ela eles elas isso isto esse essa este esta esses essas aquele aquela foi foram ser
+são será serão seria seriam está estão estava estavam tem têm tinha teve houve haver há deve devem deveria deveriam pode
+podem poderia vai vão como mais menos muito muita já ainda também não sim nem quando onde qual quais quem após antes
+depois desde até seja sejam ter terá teria vez caso parte forma pois porque então assim
+""".split())
+_NEGACAO = re.compile(r"\b(?:não|nunca|nenhum|nenhuma|nem|jamais)\b", re.IGNORECASE)
+_ABRE_FRASE = frozenset(".!?:;\"“”«»—–-")   # depois de um destes, a palavra com maiúscula abre frase
+# O motivo da recusa, como vai para a nova tentativa: não cita a regra das palavras, para o modelo não procurar uma frase
+# só porque ela tem a palavra da questão.
+CITACAO_SEM_RESPOSTA = 'a citação não responde à questão: não diz "Sim" nem "Não" ao que ela pergunta'
+PROVA_PELA_NEGACAO = "citação direta, pela negação no Não"
+
+
+def sem_nomes_proprios(texto: str) -> str:
+    """O texto sem as palavras com maiúscula que não abrem frase, que são parte de um nome próprio ("Brasil Terminal
+    Portuário"): no CC.102 de 03/11/2026, o "Terminal" do nome da BTP casava com o "terminal" da questão."""
+    saida, inicio = [], True
+    for m in re.finditer(r"[^\W\d_]+|[.!?:;\"“”«»—–-]", texto):
+        p = m.group()
+        if not p[0].isalpha():
+            inicio = inicio or p in _ABRE_FRASE
+            continue
+        if inicio or not p[0].isupper():
+            saida.append(p)
+        inicio = False
+    return " ".join(saida)
+
+
+def _palavras_de_conteudo(texto: str, fora=frozenset()) -> list[tuple[str, str]]:
+    """As palavras de 4 letras ou mais que não são vazias nem estão em `fora`: (sem acento, como estão no texto)."""
+    palavras = [(_sem_acento(m.group()), m.group()) for m in re.finditer(r"[^\W\d_]+", texto)]
+    return [(p, original) for p, original in palavras if len(p) >= 4 and p not in _PALAVRAS_VAZIAS and p not in fora]
+
+
+def mesma_raiz(a: str, b: str) -> bool:
+    """O mesmo radical, sem dicionário: o prefixo comum tem 4 letras ou mais e cobre a palavra menor, menos 3 letras
+    ("fugiu" e "fugido", "irregular" e "irregularidades"; não "interdição" e "interesse")."""
+    comum = 0
+    for x, y in zip(a, b):
+        if x != y:
+            break
+        comum += 1
+    return comum >= max(4, min(len(a), len(b)) - 3)
+
+
+def palavra_da_questao(ator: str, trecho: str, questao: str) -> str:
+    """A palavra da questão, como está nela, que o trecho traz pelo radical; vazio se nenhuma. Não contam as palavras
+    do nome do ator nem as palavras de nome próprio do trecho (ver `sem_nomes_proprios`)."""
+    fora = frozenset(_sem_acento(p) for p in [*palavras_do_ator(ator), *re.findall(r"[^\W\d_]+", ator)])
+    da_questao = _palavras_de_conteudo(questao, fora)
+    for t, _ in _palavras_de_conteudo(sem_nomes_proprios(trecho), fora):
+        for x, original in da_questao:
+            if mesma_raiz(t, x):
+                return original
+    return ""
+
+
+def citacao_que_responde(ator: str, trecho: str, questao: str, resposta: str) -> str:
+    """A prova da citação direta numa disputa: só vale a citação que responde à questão, com uma palavra dela no trecho
+    (ver `palavra_da_questao`) ou, na resposta "Não", com uma negação. Vazio se não responde.
+
+    No CC.102 de 03/11/2026, a citação de compromisso da BTP («reafirma seu compromisso de prestar serviços portuários
+    de qualidade») entrou no "Não" à questão da interdição, sem responder a ela. O custo conhecido é o Lula do A92 de
+    29-30/10, cuja citação («Eu acho um absurdo... decisões tendenciosas») não traz palavra da questão nem negação.
+    """
+    if palavra := palavra_da_questao(ator, trecho, questao):
+        return f"citação direta (palavra da questão: {palavra})"
+    if _lado_da_resposta(resposta) == "nao" and _NEGACAO.search(trecho):
+        return PROVA_PELA_NEGACAO
+    return ""
+
+
+def traz_a_resposta(ator: str, trecho: str, textos, veiculo: str, respostas: dict | None = None,
+                    questao: str = "", resposta: str = "") -> str:
     """O que mostra que o trecho traz a resposta do ator à questão, e não só o descreve; vazio se nada mostra.
 
     Vale, nesta ordem: um verbo de posição (`verbos.py`) no trecho; ou na frase do texto em que o
@@ -812,6 +891,10 @@ def traz_a_resposta(ator: str, trecho: str, textos, veiculo: str, respostas: dic
     resposta (`respostas`: as respostas de cada ator, de todas as entradas dele; ver `_verbo_do_outro_lado`): no C1.77 de 29/10,
     o "questionou" do MP Eleitoral dava resposta à zona eleitoral cuja ordem ele questionava. E a fala que o texto
     situa antes do fato novo não traz resposta (`fala_do_passado`: no C2.87, o que Bolsonaro declarou na pandemia).
+
+    Desde 04/11/2026: com a `questao` e a `resposta` do ator, a citação direta só vale se responder à questão (ver
+    `citacao_que_responde`); a que não responde não traz resposta, sem passar aos caminhos seguintes. Sem questão, a
+    citação direta vale como antes.
     """
     frase = frase_do_trecho(trecho, textos, veiculo)
     if recusa := _RECUSA_DE_COMENTAR.search(trecho):
@@ -834,7 +917,7 @@ def traz_a_resposta(ator: str, trecho: str, textos, veiculo: str, respostas: dic
     if de_posicao:
         return f"verbo de posição na frase ({de_posicao[0][0]})"
     if _citacao_direta(trecho, textos, veiculo):
-        return "citação direta"
+        return citacao_que_responde(ator, trecho, questao, resposta) if questao else "citação direta"
     decisoes = [v[0] for v in verbos if v[3] == "decisao" and v[0] in _decisoes_do_ator(ator, onde)]   # sem as do outro lado
     if ator_citado(ator, onde) and decisoes:
         return f"verbo de decisão de quem decidiu ({decisoes[0]})"
@@ -849,12 +932,13 @@ def traz_a_resposta(ator: str, trecho: str, textos, veiculo: str, respostas: dic
     return ""
 
 
-def _evidencias(entradas: list, textos) -> list[Evidencia]:
+def _evidencias(entradas: list, textos, questao: str = "") -> list[Evidencia]:
     """As respostas por ator da resposta do LLM, cada uma com o resultado da conferência do trecho.
 
     O trecho tem de estar no texto do veículo (ver `_no_texto`) e trazer a resposta do ator (ver
-    `traz_a_resposta`, que recebe a resposta de cada ator, para saber quem está do outro lado). `textos` são os textos
-    inteiros da pauta, mesmo quando a chamada leu um corte deles.
+    `traz_a_resposta`, que recebe a resposta de cada ator, para saber quem está do outro lado, e a `questao`, para
+    conferir se a citação direta responde a ela). `textos` são os textos inteiros da pauta, mesmo quando a chamada
+    leu um corte deles. A citação direta que não responde à questão fica com o motivo em `Evidencia.recusa`.
     """
     evidencias = []
     respostas: dict[str, set[str]] = {}   # cada ator com as respostas de todas as entradas dele
@@ -871,11 +955,15 @@ def _evidencias(entradas: list, textos) -> list[Evidencia]:
         if achado is None:
             evidencias.append(Evidencia(ator, resposta, trecho, veiculo, False))
             continue
-        prova = traz_a_resposta(ator, achado[0], textos, veiculo, respostas)
+        prova = traz_a_resposta(ator, achado[0], textos, veiculo, respostas, questao, resposta)
+        # sem a questão, a conferência parou na citação direta: foi ela que a questão recusou
+        recusa = CITACAO_SEM_RESPOSTA if not prova and questao and traz_a_resposta(
+            ator, achado[0], textos, veiculo, respostas) == "citação direta" else ""
         if achado[0] != trecho:   # achado palavra por palavra: vale o trecho como está no veículo
-            evidencias.append(Evidencia(ator, resposta, achado[0], veiculo, True, trecho_do_llm=trecho, diferencas=achado[1], prova=prova))
+            evidencias.append(Evidencia(ator, resposta, achado[0], veiculo, True, trecho_do_llm=trecho, diferencas=achado[1],
+                                        prova=prova, recusa=recusa))
         else:
-            evidencias.append(Evidencia(ator, resposta, trecho, veiculo, True, prova=prova))
+            evidencias.append(Evidencia(ator, resposta, trecho, veiculo, True, prova=prova, recusa=recusa))
     return evidencias
 
 
@@ -886,6 +974,25 @@ def _responde(resposta_do_ator: str, resposta_do_lado: str) -> bool:
         return re.findall(r"\w+", sem_acentos.lower())
     a, b = sorted((palavras(resposta_do_ator), palavras(resposta_do_lado)), key=len)
     return bool(a) and b[:len(a)] == a
+
+
+def _evidencias_do_ator(ator: str, evidencias) -> list[Evidencia]:
+    """As entradas de um ator em "respostas_por_ator": pelas palavras do nome ou, se nenhuma, pela comparação de
+    `qa.mesmo_ator`."""
+    iguais = [e for e in evidencias if palavras_do_ator(e.ator) == palavras_do_ator(ator)]
+    return iguais or [e for e in evidencias if mesmo_ator(e.ator, ator)]
+
+
+def aceitos_so_pela_negacao(analise) -> list[tuple[str, str]]:
+    """Os atores dos lados que só a negação no "Não" pôs no lado (ver `citacao_que_responde`), cada um com o trecho:
+    (ator, trecho). É o caminho mais frouxo da citação direta, e os relatórios os listam para a leitura do dono."""
+    achados = []
+    for lado in analise.lados:
+        for ator in lado.atores:
+            provas = [e for e in _evidencias_do_ator(ator, analise.respostas) if e.vale and _responde(e.resposta, lado.resposta)]
+            if provas and all(e.prova == PROVA_PELA_NEGACAO for e in provas):
+                achados.append((ator, provas[0].trecho))
+    return achados
 
 
 def _conferir_atores(rascunhos: list[_Rascunho], evidencias: list[Evidencia],
@@ -901,14 +1008,10 @@ def _conferir_atores(rascunhos: list[_Rascunho], evidencias: list[Evidencia],
     os atores que saíram por não terem entrada na lista e os que saíram porque nenhum trecho deles
     valeu, com o trecho e o motivo.
     """
-    def evidencias_de(ator: str) -> list[Evidencia]:
-        iguais = [e for e in evidencias if palavras_do_ator(e.ator) == palavras_do_ator(ator)]
-        return iguais or [e for e in evidencias if mesmo_ator(e.ator, ator)]
-
     ajustes, faltam, recusados, ficam = [], [], [], {r.numero: [] for r in rascunhos}   # por lado: (ator, trechos)
     for r in rascunhos:
         for ator in r.atores:
-            listadas = evidencias_de(ator)
+            listadas = _evidencias_do_ator(ator, evidencias)
             comprovadas = [e for e in listadas if (e.vale if exigir_resposta else e.comprovada)]
             if comprovadas and not exigir_resposta and not any(e.vale for e in comprovadas):
                 ajustes.append(f"trecho de {ator} vale sem trazer a resposta: com um lado só com ator nomeado, não há "
@@ -921,6 +1024,8 @@ def _conferir_atores(rascunhos: list[_Rascunho], evidencias: list[Evidencia],
                 no_texto = next((e for e in listadas if e.comprovada), None)
                 if no_texto is None:
                     motivo = f"o trecho não está no texto de {listadas[0].veiculo or 'nenhum veículo'}"
+                elif no_texto.recusa:
+                    motivo = no_texto.recusa
                 else:
                     motivo = "o trecho não traz a resposta dele (sem verbo de posição, citação direta, decisão dele nem marcador de atribuição)"
                 ajustes.append(f"ator do lado {r.numero} saiu: {motivo} ({ator})")
@@ -1229,8 +1334,9 @@ def analise_da_resposta(resposta, textos) -> Analise:
     Com questão, a resposta traz também "respostas_por_ator": a resposta de cada ator e um trecho
     literal de um texto da pauta que a comprova. O ator sem trecho que valha sai e fica em
     `recusados`: o trecho tem de estar no texto e, quando a resposta tem dois lados ou mais com ator
-    nomeado, trazer a resposta dele (ver `traz_a_resposta`). O ator que está num lado de resposta
-    diferente da dele vai para o lado certo, ou sai (ver `_conferir_atores`); o que não tem entrada
+    nomeado, trazer a resposta dele (ver `traz_a_resposta`; a citação direta, só se responder à
+    questão). O ator que está num lado de resposta diferente da dele vai para o lado certo, ou sai
+    (ver `_conferir_atores`); o que não tem entrada
     na lista fica em `faltam`. O lado que perde todos os atores nomeados é descartado. Sem questão,
     os atores ficam como vieram.
 
@@ -1279,7 +1385,7 @@ def analise_da_resposta(resposta, textos) -> Analise:
         entradas = resposta.get("respostas_por_ator")
         if not (isinstance(entradas, list) and entradas):
             return invalida('resposta com questão e sem "respostas_por_ator" (cada ator tem a sua resposta e um trecho literal)')
-        respostas = _evidencias(entradas, textos)
+        respostas = _evidencias(entradas, textos, questao)
         ajustes += [
             f"trecho de {e.ator} aceito como quase literal ({e.diferencas} palavra(s) diferente(s) do texto de {e.veiculo}): "
             f"vale o do veículo" for e in respostas if e.trecho_do_llm
@@ -1393,9 +1499,10 @@ def analisar_lados(chamar, textos, limite: int | None = None) -> Analise:
     de cada um, com o trecho recusado e o motivo: se a nova resposta valer, é ela que fica (e o
     ator que continuar sem entrada ou sem trecho que valha sai); se não valer, fica a primeira, sem o ator.
     A resposta válida de dois lados cujas respostas não são "Sim" e "Não" (`Analise.sem_sim_e_nao`)
-    também ganha uma, que pede as duas, na mesma tentativa do pedido das entradas se for o caso: a
-    nova só fica se valer e trouxer "Sim" e "Não" em dois lados; senão, por qualquer motivo, fica a
-    primeira (a regra não derruba a análise).
+    também ganha uma, que pede as duas, na mesma tentativa do pedido das entradas se for o caso. Desde
+    04/11/2026 (o C4.9 de 03/11), a nova fica se valer, com ou sem "Sim" e "Não" em dois lados, com aviso
+    no log quando vem sem; só se ela não valer, ou se a chamada falhar, fica a primeira (a regra não
+    derruba a análise).
     `chamar(system, user, **opções)` é o chat_json do provider (ou o `_chamar` do Summarizer).
     """
     def entrada(pedido: str = "") -> tuple[str, list[dict]]:
@@ -1431,16 +1538,14 @@ def analisar_lados(chamar, textos, limite: int | None = None) -> Analise:
         if analise.sem_sim_e_nao:
             logger.warning('Análise de lados: %s. Nova tentativa, pedindo "Sim" e "Não".', analise.sem_sim_e_nao)
         nova = segunda(pedido_das_respostas(analise))
-        sem_disputa_de_sim_e_nao = analise.sem_sim_e_nao and (len(nova.lados) != 2 or bool(nova.sem_sim_e_nao))
         if nova.problemas:
             logger.warning("Análise de lados: a nova tentativa não valeu (%s). Fica a primeira resposta%s.",
                            "; ".join(nova.problemas), ", sem o ator" if analise.faltam or analise.recusados else "")
             analise = replace(analise, segunda=nova)
-        elif sem_disputa_de_sim_e_nao:
-            logger.warning('Análise de lados: a nova tentativa não trouxe "Sim" e "Não" em dois lados (%s). Fica a primeira resposta%s.',
-                           nova.sem_sim_e_nao or f"{len(nova.lados)} lado(s)", ", sem o ator" if analise.faltam or analise.recusados else "")
-            analise = replace(analise, segunda=nova)
         else:
+            if analise.sem_sim_e_nao and (len(nova.lados) != 2 or nova.sem_sim_e_nao):
+                logger.warning('Análise de lados: a nova tentativa veio válida sem "Sim" e "Não" em dois lados (%s). Fica a nova.',
+                               nova.sem_sim_e_nao or f"{len(nova.lados)} lado(s)")
             analise = replace(nova, primeira=analise)
     if analise.ajustes:
         logger.info("Análise de lados: ajustes na resposta (%s).", "; ".join(analise.ajustes))

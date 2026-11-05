@@ -122,7 +122,7 @@ Invariants worth preserving:
 
 ### The side analysis
 
-Before the generation, the LLM gives the question in dispute within the story and its sides: a side is one answer to that question held by named actors, and a position held only by unnamed groups is a caveat (`ressalva`). `ai/lados.py` validates the answer (the answers per actor with their excerpts, the thin sides, the new attempt, "Sim" and "Não") and builds the block `LADOS DA PAUTA` that the generation receives. The whole section is in `docs/referencia/analise-de-lados.md`. Read it before changing `ai/lados.py`, `ai/verbos.py`, the excerpts of `ai/recorte.py`, the analysts rule of `ai/qa.py` or the prompts of the side analysis.
+Before the generation, the LLM gives the question in dispute within the story and its sides: a side is one answer to that question held by named actors, and a position held only by unnamed groups is a caveat (`ressalva`). `ai/lados.py` validates the answer (the answers per actor with their excerpts, where since 04/11/2026 a direct quote counts only when it answers the question; the thin sides; the new attempt, which since 04/11 stays whenever it is valid; "Sim" and "Não") and builds the block `LADOS DA PAUTA` that the generation receives. The whole section is in `docs/referencia/analise-de-lados.md`. Read it before changing `ai/lados.py`, `ai/verbos.py`, the excerpts of `ai/recorte.py`, the analysts rule of `ai/qa.py` or the prompts of the side analysis.
 
 ### The corrections
 

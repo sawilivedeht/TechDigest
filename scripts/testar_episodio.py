@@ -310,9 +310,12 @@ def _lados(analise, chamadas: list[dict]) -> dict:
     print(f"    questão: {registro['questao'] or '(sem disputa)'}")
     for e in registro["respostas_por_ator"]:
         quase = f" (quase literal, {e['diferencas']} palavra(s) diferente(s); o LLM escreveu: \"{e['trecho_do_llm']}\")" if e["trecho_do_llm"] else ""
-        conferencia = (f"comprovada ({e['prova']})" if e["prova"] else "SEM A RESPOSTA DO ATOR") if e["comprovada"] else "TRECHO NÃO ENCONTRADO"
+        sem_resposta = f"SEM A RESPOSTA DO ATOR ({e['recusa']})" if e["recusa"] else "SEM A RESPOSTA DO ATOR"
+        conferencia = (f"comprovada ({e['prova']})" if e["prova"] else sem_resposta) if e["comprovada"] else "TRECHO NÃO ENCONTRADO"
         print(f"    resposta de {e['ator']}: {e['resposta'] or '-'} · {conferencia} "
               f"em {e['veiculo'] or '-'}: \"{e['trecho']}\"{quase}")
+    for a in registro["aceitos_so_pela_negacao"]:
+        print(f"    ACEITO SÓ PELA NEGAÇÃO DO \"NÃO\" (citação direta sem palavra da questão): {a['ator']}: \"{a['trecho']}\"")
     for i, lado in enumerate(registro["lados"], 1):
         resposta = f"[{lado['resposta']}] " if lado["resposta"] else ""
         print(f"    lado {i}{' (FINO)' if lado['fino'] else ''}: {resposta}{lado['posicao']}")

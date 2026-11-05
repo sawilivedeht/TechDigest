@@ -24,7 +24,7 @@ import re
 import shutil
 from pathlib import Path
 
-from techdigest.ai.lados import lados_finos
+from techdigest.ai.lados import aceitos_so_pela_negacao, lados_finos
 from techdigest.ai.summarizer import TETO_PRINCIPAL, TETO_RELACIONADO
 
 FORMATO_DA_PASTA = "%Y%m%d-%H%M%S"
@@ -53,9 +53,11 @@ def lados_para_registro(analise, chamadas: list[dict] | None = None) -> dict:
                    "trechos": list(lado.trechos), "frases_com_os_atores": lado.mencoes, "fino": fino}
                   for lado, fino in zip(analise.lados, lados_finos(analise.lados))],
         "respostas_por_ator": [{"ator": e.ator, "resposta": e.resposta, "trecho": e.trecho, "veiculo": e.veiculo,
-                                "comprovada": e.comprovada, "prova": e.prova, "trecho_do_llm": e.trecho_do_llm,
-                                "diferencas": e.diferencas}
+                                "comprovada": e.comprovada, "prova": e.prova, "recusa": e.recusa,
+                                "trecho_do_llm": e.trecho_do_llm, "diferencas": e.diferencas}
                                for e in analise.respostas],
+        # o caminho mais frouxo da citação direta (correção de 04/11/2026), para a leitura do dono
+        "aceitos_so_pela_negacao": [{"ator": ator, "trecho": trecho} for ator, trecho in aceitos_so_pela_negacao(analise)],
         "resposta_do_llm": analise.resposta,
         "primeira_tentativa": None if analise.primeira is None else {
             "invalida_porque": analise.primeira.problemas, "atores_sem_entrada": analise.primeira.faltam,
