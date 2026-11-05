@@ -90,6 +90,12 @@ class Settings(BaseSettings):
                                        # AGRUP_MAX_ARTIGOS fica em excedentes. Foi 3 até a condição do teto passar (25/10/2026)
     agrup_chars_etapa3: int = 900      # caracteres iniciais de cada texto que o LLM recebe para confirmar a pauta
 
+    # Disputa na fonte única (decisão de 04/11/2026, 22h20, para o merge). Falso, a análise de lados de uma pauta de um
+    # artigo só continua rodando e indo para o registro, mas o episódio usa o lado neutro, sem ressalvas, mesmo que o
+    # LLM ache dois lados ou mais: o que a análise teria feito fica em `Analise.medida`. As pautas de várias fontes não
+    # mudam. Verdadeiro, a disputa na fonte única vale como antes.
+    disputa_fonte_unica: bool = False
+
     # QA editorial (regras 2, 3 e 6). Os padrões são os valores em vigor; ajuste no .env (QA_*)
     qa_min_por_personagem: int = 240
     qa_min_helena_com_debate: int = 180   # o mínimo de Helena em episódio com dois analistas ou mais

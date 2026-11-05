@@ -59,6 +59,8 @@ def lados_para_registro(analise, chamadas: list[dict] | None = None) -> dict:
         # o caminho mais frouxo da citação direta (correção de 04/11/2026), para a leitura do dono
         "aceitos_so_pela_negacao": [{"ator": ator, "trecho": trecho} for ator, trecho in aceitos_so_pela_negacao(analise)],
         "resposta_do_llm": analise.resposta,
+        # a análise do LLM que a chave DISPUTA_FONTE_UNICA desligou: o que o episódio teria tido (só nas pautas de um artigo)
+        "disputa_desligada": None if analise.medida is None else _medida_para_registro(analise.medida),
         "primeira_tentativa": None if analise.primeira is None else {
             "invalida_porque": analise.primeira.problemas, "atores_sem_entrada": analise.primeira.faltam,
             "atores_recusados": [{"ator": r.ator, "trecho": r.trecho, "motivo": r.motivo} for r in analise.primeira.recusados],
@@ -72,6 +74,13 @@ def lados_para_registro(analise, chamadas: list[dict] | None = None) -> dict:
         "segundos_por_tentativa": [round(ch.get("segundos", 0.0), 1) for ch in feitas],
         "tokens_entrada": [ch.get("tokens_entrada") for ch in feitas], "tokens_saida": [ch.get("tokens_saida") for ch in feitas],
     }
+
+
+def _medida_para_registro(medida) -> dict:
+    """O que a análise do LLM tinha achado antes de a chave DISPUTA_FONTE_UNICA a trocar pelo lado neutro."""
+    r = lados_para_registro(medida)
+    return {k: r[k] for k in ("quantos", "questao", "motivo", "lados", "respostas_por_ator", "ressalvas", "ajustes",
+                              "atores_recusados", "aceitos_so_pela_negacao")}
 
 
 def cortes_para_registro(entrada) -> list[dict]:

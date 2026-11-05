@@ -1915,6 +1915,24 @@ nomes do ator, A2+46, C1.55, A92, C4.9 e 20·24); 608 passam.
 - **Antes de rodar, o plano ao dono** (texto da chamada A e da frase B, com exemplos inventados e o grep em todas as
   amostras; lista de itens; número de chamadas; tempo estimado). Nada roda antes do ok.
 
+**A mudança de rumo, em 04/11, 22h20:** o dono quer o TechDigest funcionando de novo. **O diagnóstico A/B fica guardado,
+sem rodar, para depois do merge** (o plano de A, B e do nome próprio da questão está nesta conversa e no registro de
+22h acima; as medidas e os textos da chamada A e da frase B voltam quando o dono os pedir).
+
+- **A chave `DISPUTA_FONTE_UNICA`** (`config.py`, falsa por padrão): na fonte única (pauta sem `relacionados`), a análise de
+  lados continua rodando e indo para o registro, mas, com 2 lados ou mais, o episódio usa o lado neutro, sem questão e sem
+  ressalvas (`lados.sem_disputa`, chamada em `Summarizer.preparar`). A análise do LLM fica em `Analise.medida`; o registro
+  (`lados_para_registro`, chave `disputa_desligada`) e o `testar_episodio.py` (linha `DISPUTA DESLIGADA`) dizem quantas
+  disputas teria havido. As pautas de várias fontes e as análises de 1 lado não mudam. O recorte por relevância passa a
+  usar os trechos da análise neutra: o lide e a ordem do texto.
+- **Testes sem o modelo** (618 passam, 10 novos em `tests/test_summarizer.py`): a chave falsa neutraliza uma fonte única de
+  2 lados, a verdadeira mantém, a pauta de várias fontes não muda, o episódio sai com um analista e sem divergência, e o
+  CC.102 das 5 vezes de hoje (`tests/dados/cc102_0411.json`, as respostas gravadas e o texto do artigo): as vezes 1, 2, 3
+  e 5 saem com o lado neutro e `medida` com Anvisa × BTP, e a vez 4 sai com a Anvisa.
+- **Próximo passo:** o plano da simulação que libera o merge (agrupamento desligado, com áudio, numa cópia do banco, pela
+  skill `techdigest-rodada-modelo`, separando uns três episódios para o dono ouvir). O merge vem depois da simulação e
+  do ok do dono, sem push; o timer continua desligado.
+
 ## Números medidos
 
 - **Produção, 07/10/2026** (`master`, execução das 08:09): geração de 208 a 291 s a 11-16 tok/s,

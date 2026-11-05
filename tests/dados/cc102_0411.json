@@ -1,0 +1,229 @@
+{
+ "fonte": "Agência Brasil",
+ "titulo": "Anvisa interdita parte de terminal no Porto de Santos",
+ "texto": "Anvisa interdita parte de terminal no Porto de Santos\nA Agência Nacional de Vigilância Sanitária (Anvisa) determinou a interdição parcial do Brasil Terminal Portuário S.A. (BTP), localizado no Porto de Santos (SP), após identificar irregularidades sanitárias durante inspeção de rotina baseada em análise de risco.\nA resolução da Gerência-Geral de Portos, Aeroportos, Fronteiras e Recintos Alfandegados da agência foi assinada em 29 de outubro e publicada na edição desta terça-feira (3) do Diário Oficial da União.\nCom a decisão, ficam suspensas as atividades de recebimento e armazenagem de insumos médicos com alta sensibilidade a variações térmicas e de suas matérias-primas, além de medicamentos, itens farmacêuticos e produtos sujeitos a controle especial.\nA medida preventiva tem como objetivo evitar riscos à qualidade, à segurança e à eficácia dos produtos armazenados no terminal até que as inconformidades sejam corrigidas.\nIrregularidades\nSegundo a Anvisa, a fiscalização constatou a ausência de área reservada ao armazenamento de produtos com suspeita de comprometimento da qualidade ou interditados pelas autoridades sanitárias.\nO espaço, de acordo com a regulamentação, deve atender a requisitos específicos de conservação e controle de temperatura.\nA inspeção também identificou a falta de áreas separadas, trancadas e de acesso restrito para a guarda de substâncias e medicamentos sujeitos a controle especial, em diferentes condições de temperatura, como exige a legislação sanitária.\nDe acordo com a agência, as irregularidades descumprem dispositivos da Resolução da Diretoria Colegiada (RDC) nº 938/2024 e da Portaria nº 344/1998, que estabelecem regras para armazenamento e controle de medicamentos e substâncias sujeitos à fiscalização especial.\nEmpresa\nA companhia informa que atendeu prontamente às orientações da Anvisa e que o terminal já opera normalmente. \"A Brasil Terminal Portuário (BTP) reafirma seu compromisso de prestar serviços portuários de qualidade, atuando com diligência e cumprindo os requisitos estabelecidos pelas agências reguladoras.\"\nSaiba mais no Repórter Brasil Tarde, da TV Brasil\nMatéria atualizada às 11h04 para incluir posicionamento da empresa.",
+ "vezes": [
+  {
+   "vez": 1,
+   "resposta_do_llm": {
+    "questao": "A interdição parcial do terminal da BTP no Porto de Santos é necessária devido a irregularidades sanitárias?",
+    "respostas_por_ator": [
+     {
+      "ator": "Anvisa",
+      "resposta": "Sim",
+      "trecho": "A Agência Nacional de Vigilância Sanitária (Anvisa) determinou a interdição parcial do Brasil Terminal Portuário S.A. (BTP), localizado no Porto de Santos (SP), após identificar irregularidades sanitárias",
+      "veiculo": "Agência Brasil"
+     },
+     {
+      "ator": "Brasil Terminal Portuário (BTP)",
+      "resposta": "Não",
+      "trecho": "A Brasil Terminal Portuário (BTP) reafirma seu compromisso de prestar serviços portuários de qualidade, atuando com diligência e cumprindo os requisitos estabelecidos pelas agências reguladoras.",
+      "veiculo": "Agência Brasil"
+     }
+    ],
+    "lados": [
+     {
+      "resposta": "Sim",
+      "posicao": "A Anvisa determinou a interdição parcial do terminal por identificar irregularidades no armazenamento de produtos sensíveis e medicamentos.",
+      "atores": [
+       "Anvisa"
+      ],
+      "grupos": [],
+      "trecho": "",
+      "veiculos": [
+       "Agência Brasil"
+      ]
+     },
+     {
+      "resposta": "Não",
+      "posicao": "A empresa afirma que atendeu às orientações e que opera com diligência e qualidade.",
+      "atores": [
+       "Brasil Terminal Portuário (BTP)"
+      ],
+      "grupos": [],
+      "trecho": "",
+      "veiculos": [
+       "Agência Brasil"
+      ]
+     }
+    ],
+    "motivo": "A história apresenta uma disputa entre a decisão de interdição da Anvisa baseada em irregularidades e a afirmação da empresa de que cumpre os requisitos e já opera normalmente."
+   },
+   "lados_medidos": 2
+  },
+  {
+   "vez": 2,
+   "resposta_do_llm": {
+    "questao": "O terminal da BTP deve ser interditado parcialmente?",
+    "respostas_por_ator": [
+     {
+      "ator": "Anvisa",
+      "resposta": "Sim",
+      "trecho": "A Agência Nacional de Vigilância Sanitária (Anvisa) determinou a interdição parcial do Brasil Terminal Portuário S.A. (BTP), localizado no Porto de Santos (SP)",
+      "veiculo": "Agência Brasil"
+     },
+     {
+      "ator": "Brasil Terminal Portuário (BTP)",
+      "resposta": "Não",
+      "trecho": "A companhia informa que atendeu prontamente às orientações da Anvisa e que o terminal já opera normalmente.",
+      "veiculo": "Agência Brasil"
+     }
+    ],
+    "lados": [
+     {
+      "resposta": "Sim",
+      "posicao": "A Anvisa determinou a interdição parcial do terminal devido a irregularidades sanitárias.",
+      "atores": [
+       "Anvisa"
+      ],
+      "grupos": [],
+      "trecho": "",
+      "veiculos": [
+       "Agência Brasil"
+      ]
+     },
+     {
+      "resposta": "Não",
+      "posicao": "A empresa afirma que já atendeu às orientações e que opera normalmente.",
+      "atores": [
+       "Brasil Terminal Portuário (BTP)"
+      ],
+      "grupos": [],
+      "trecho": "",
+      "veiculos": [
+       "Agência Brasil"
+      ]
+     }
+    ],
+    "motivo": "A história apresenta uma disputa entre a decisão de interdição da Anvisa e a afirmação da empresa de que já regularizou a situação."
+   },
+   "lados_medidos": 2
+  },
+  {
+   "vez": 3,
+   "resposta_do_llm": {
+    "questao": "O terminal da BTP deve ser interditado parcialmente?",
+    "respostas_por_ator": [
+     {
+      "ator": "Anvisa",
+      "resposta": "Sim",
+      "trecho": "A Agência Nacional de Vigilância Sanitária (Anvisa) determinou a interdição parcial do Brasil Terminal Portuário S.A. (BTP), localizado no Porto de Santos (SP)",
+      "veiculo": "Agência Brasil"
+     },
+     {
+      "ator": "Brasil Terminal Portuário (BTP)",
+      "resposta": "Não",
+      "trecho": "A companhia informa que atendeu prontamente às orientações da Anvisa e que o terminal já opera normalmente.",
+      "veiculo": "Agência Brasil"
+     }
+    ],
+    "lados": [
+     {
+      "resposta": "Sim",
+      "posicao": "A Anvisa determinou a interdição parcial do terminal devido a irregularidades sanitárias.",
+      "atores": [
+       "Anvisa"
+      ],
+      "grupos": [],
+      "trecho": "",
+      "veiculos": [
+       "Agência Brasil"
+      ]
+     },
+     {
+      "resposta": "Não",
+      "posicao": "A empresa afirma que atendeu às orientações e que o terminal já opera normalmente.",
+      "atores": [
+       "Brasil Terminal Portuário (BTP)"
+      ],
+      "grupos": [],
+      "trecho": "",
+      "veiculos": [
+       "Agência Brasil"
+      ]
+     }
+    ],
+    "motivo": "A história apresenta uma disputa entre a decisão de interdição da Anvisa e a afirmação da empresa de que já regularizou a situação."
+   },
+   "lados_medidos": 2
+  },
+  {
+   "vez": 4,
+   "resposta_do_llm": {
+    "questao": "A interdição parcial do terminal da BTP foi necessária devido a irregularidades sanitárias?",
+    "respostas_por_ator": [
+     {
+      "ator": "Anvisa",
+      "resposta": "Sim",
+      "trecho": "A Agência Nacional de Vigilância Sanitária (Anvisa) determinou a interdição parcial do Brasil Terminal Portuário S.A. (BTP), localizado no Porto de Santos (SP), após identificar irregularidades sanitárias",
+      "veiculo": "Agência Brasil"
+     }
+    ],
+    "lados": [
+     {
+      "resposta": "Sim",
+      "posicao": "A interdição foi necessária por irregularidades sanitárias no terminal",
+      "atores": [
+       "Anvisa"
+      ],
+      "grupos": [],
+      "trecho": "",
+      "veiculos": [
+       "Agência Brasil"
+      ]
+     }
+    ],
+    "motivo": "A história tem apenas um lado com ator nomeado, pois a resposta da BTP não nega a interdição nem a existência de irregularidades, apenas afirma cumprir requisitos."
+   },
+   "lados_medidos": 1
+  },
+  {
+   "vez": 5,
+   "resposta_do_llm": {
+    "questao": "O terminal BTP deve ser interditado parcialmente?",
+    "respostas_por_ator": [
+     {
+      "ator": "Anvisa",
+      "resposta": "Sim",
+      "trecho": "A Agência Nacional de Vigilância Sanitária (Anvisa) determinou a interdição parcial do Brasil Terminal Portuário S.A. (BTP), localizado no Porto de Santos (SP)",
+      "veiculo": "Agência Brasil"
+     },
+     {
+      "ator": "Brasil Terminal Portuário (BTP)",
+      "resposta": "Não",
+      "trecho": "A companhia informa que atendeu prontamente às orientações da Anvisa e que o terminal já opera normalmente.",
+      "veiculo": "Agência Brasil"
+     }
+    ],
+    "lados": [
+     {
+      "resposta": "Sim",
+      "posicao": "A Anvisa determinou a interdição parcial do terminal devido a irregularidades sanitárias.",
+      "atores": [
+       "Anvisa"
+      ],
+      "grupos": [],
+      "trecho": "",
+      "veiculos": [
+       "Agência Brasil"
+      ]
+     },
+     {
+      "resposta": "Não",
+      "posicao": "A empresa afirma que já atendeu às orientações e que opera normalmente.",
+      "atores": [
+       "Brasil Terminal Portuário (BTP)"
+      ],
+      "grupos": [],
+      "trecho": "",
+      "veiculos": [
+       "Agência Brasil"
+      ]
+     }
+    ],
+    "motivo": "A história apresenta uma disputa entre a decisão de interdição da Anvisa e a afirmação da empresa de que já regularizou a situação."
+   },
+   "lados_medidos": 2
+  }
+ ]
+}

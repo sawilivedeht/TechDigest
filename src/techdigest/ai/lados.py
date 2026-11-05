@@ -281,6 +281,7 @@ class Analise:
     resposta: dict | None = None
     primeira: "Analise | None" = None                    # a primeira tentativa, quando houve outra e a outra ficou valendo
     segunda: "Analise | None" = None                     # a segunda tentativa, quando ela não valeu e a primeira ficou
+    medida: "Analise | None" = None                      # a análise do LLM que a chave DISPUTA_FONTE_UNICA desligou (só no registro)
 
 
 def entrada_dos_lados(textos) -> str:
@@ -1318,6 +1319,18 @@ def _veiculos_sem_lado(sem_lado: list[str], validos: list[Lado], textos, da_paut
 def lado_unico(veiculos) -> list[Lado]:
     """O lado neutro: um lado só, sem atores, com todos os veículos da pauta e a posição de emergência."""
     return [Lado(posicao=POSICAO_DE_EMERGENCIA, atores=(), veiculos=tuple(veiculos_distintos(veiculos)))]
+
+
+def sem_disputa(analise: Analise, veiculos) -> Analise:
+    """A análise que o episódio usa com a disputa da fonte única desligada (`DISPUTA_FONTE_UNICA` falso): o lado neutro,
+    sem questão nem ressalvas, como numa análise sem lado nomeado. A análise do LLM fica em `medida`, para o registro
+    dizer quantas disputas teria havido; o motivo, a resposta, os cortes e as tentativas ficam como eram."""
+    ajustes = [*analise.ajustes, "disputa desligada (DISPUTA_FONTE_UNICA): a pauta fica com o lado neutro, sem ressalvas"]
+    descartadas = [*analise.descartadas, *((r, "disputa desligada") for r in analise.ressalvas)]
+    return Analise(
+        lado_unico(veiculos), motivo=analise.motivo, ajustes=ajustes, descartadas=descartadas, cortes=analise.cortes,
+        resposta=analise.resposta, primeira=analise.primeira, segunda=analise.segunda, medida=analise,
+    )
 
 
 def analise_da_resposta(resposta, textos) -> Analise:

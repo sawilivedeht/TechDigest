@@ -3,6 +3,7 @@ fluxo de process."""
 import datetime
 import json
 import math
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -117,7 +118,7 @@ class ProviderQueConta(ProviderFalso):
 def ollama_8192(monkeypatch):
     monkeypatch.setattr(summarizer, "settings", SimpleNamespace(
         llm_provider="ollama", ollama_num_ctx=8192, ollama_num_predict=10240, llm_reserva_saida=3000,
-        llm_max_prompt_chars=4096,
+        llm_max_prompt_chars=4096, disputa_fonte_unica=False,
     ))
 
 
@@ -1016,3 +1017,99 @@ def test_o_erro_de_janela_na_correcao_nao_conta_como_reprovacao_do_qa(ollama_819
     s = Summarizer(provider=SempreNaJanela(_episodio(["O Globo"])))
     with pytest.raises(JanelaExcedida):                  # o segundo erro de janela sobe como erro do item
         s.process(principal, relacionados)
+
+
+# ── Disputa desligada na fonte única (DISPUTA_FONTE_UNICA, decisão de 04/11/2026, 22h20) ──────────────────────────────
+
+def _um_artigo_com_a_disputa() -> dict:
+    """Um artigo só que traz os dois atores da disputa (a campanha de Lula e a Meta)."""
+    artigo = _artigo("Agência Brasil", 2000)
+    artigo["text"] += ("\n\nA campanha de Lula acusa a empresa. A campanha de Lula acionou o tribunal."
+                       "\n\nA Meta nega o favorecimento. A Meta fala em problemas técnicos.")
+    return artigo
+
+
+_DOIS_LADOS_DA_META = {"questao": "A Meta favoreceu um candidato?", "respostas_por_ator": [
+    {"ator": "campanha de Lula", "resposta": "Sim", "trecho": "A campanha de Lula acusa a empresa", "veiculo": "Agência Brasil"},
+    {"ator": "Meta", "resposta": "Não", "trecho": "A Meta nega o favorecimento", "veiculo": "Agência Brasil"},
+], "lados": [
+    {"resposta": "Sim", "posicao": "A campanha acusa a Meta.", "atores": ["campanha de Lula"], "veiculos": ["Agência Brasil"]},
+    {"resposta": "Não", "posicao": "A Meta nega.", "atores": ["Meta"], "veiculos": ["Agência Brasil"]},
+], "motivo": "Acusação contra defesa."}
+
+
+def test_disputa_desligada_a_fonte_unica_com_dois_lados_usa_o_lado_neutro(ollama_8192):
+    provider = ProviderQueConta(lados=_DOIS_LADOS_DA_META)
+    entrada, analise = Summarizer(provider=provider).preparar(_um_artigo_com_a_disputa())
+
+    assert analise.lados == lado_unico(["Agência Brasil"]) and analise.questao == "" and analise.ressalvas == []
+    assert analise.medida is not None and [l.atores for l in analise.medida.lados] == [("campanha de Lula",), ("Meta",)]
+    assert analise.medida.questao == "A Meta favoreceu um candidato?"
+    assert any("disputa desligada" in ajuste for ajuste in analise.ajustes)
+    assert len(provider.analises) == 1                                    # a análise de lados roda do mesmo jeito
+    assert "QUESTÃO" not in entrada.texto and "LADOS DA PAUTA: 2" not in entrada.texto
+    assert "\nLado 1: relato dos fatos, sem lados definidos. Veículos: Agência Brasil.\n" in entrada.texto
+    # o recorte por relevância usa os trechos da análise neutra: nenhum trecho de lado, só o lide e a ordem do texto
+    assert {p["motivo"] for r in entrada.recortes for p in r["entraram"]} == {"lide", "ordem do texto"}
+
+
+def test_disputa_desligada_o_registro_diz_quantos_lados_teria_havido(ollama_8192):
+    from techdigest.registro import lados_para_registro
+    _, analise = Summarizer(provider=ProviderQueConta(lados=_DOIS_LADOS_DA_META)).preparar(_um_artigo_com_a_disputa())
+
+    registro = lados_para_registro(analise)
+    assert registro["quantos"] == 1 and registro["questao"] == ""
+    assert registro["disputa_desligada"]["quantos"] == 2
+    assert registro["disputa_desligada"]["questao"] == "A Meta favoreceu um candidato?"
+    assert [e["ator"] for e in registro["disputa_desligada"]["respostas_por_ator"]] == ["campanha de Lula", "Meta"]
+
+
+def test_disputa_ligada_a_fonte_unica_segue_como_antes(ollama_8192, monkeypatch):
+    monkeypatch.setattr(summarizer.settings, "disputa_fonte_unica", True)
+    entrada, analise = Summarizer(provider=ProviderQueConta(lados=_DOIS_LADOS_DA_META)).preparar(_um_artigo_com_a_disputa())
+
+    assert [l.atores for l in analise.lados] == [("campanha de Lula",), ("Meta",)] and analise.medida is None
+    assert "trecho do lado 1" in {p["motivo"] for r in entrada.recortes for p in r["entraram"]}   # o recorte volta a seguir os lados
+    from techdigest.registro import lados_para_registro
+    assert lados_para_registro(analise)["disputa_desligada"] is None
+
+
+def test_disputa_desligada_nao_muda_a_pauta_de_varias_fontes(ollama_8192):
+    principal, relacionados = _artigos_da_meta()
+    _, analise = Summarizer(provider=ProviderQueConta(lados=_DOIS_LADOS_DA_META | {
+        "respostas_por_ator": [
+            {"ator": "campanha de Lula", "resposta": "Sim", "trecho": "A campanha de Lula acusa a empresa", "veiculo": "CartaCapital"},
+            {"ator": "Meta", "resposta": "Não", "trecho": "A Meta nega o favorecimento", "veiculo": "Agência Brasil"}],
+        "lados": [{"resposta": "Sim", "posicao": "A campanha acusa a Meta.", "atores": ["campanha de Lula"], "veiculos": ["CartaCapital"]},
+                  {"resposta": "Não", "posicao": "A Meta nega.", "atores": ["Meta"], "veiculos": ["Agência Brasil"]}]})
+    ).preparar(principal, relacionados)
+
+    assert [l.atores for l in analise.lados] == [("campanha de Lula",), ("Meta",)] and analise.medida is None
+
+
+def test_disputa_desligada_o_episodio_sai_com_um_analista_e_sem_divergencia(ollama_8192):
+    episodio = _episodio(["Agência Brasil"])
+    s = Summarizer(provider=ProviderQueConta(episodio, lados=_DOIS_LADOS_DA_META))
+
+    assert s.process(_um_artigo_com_a_disputa()) is episodio                # passa no QA com um analista e houve_divergencia falso
+    assert s.ultimo_diagnostico["problemas"] == []
+    assert s.ultimo_diagnostico["lados"].medida is not None
+
+
+@pytest.mark.parametrize("vez", [1, 2, 3, 4, 5])
+def test_disputa_desligada_o_cc102_das_cinco_vezes_de_04_11_sai_com_o_lado_neutro(vez, ollama_8192):
+    """As respostas gravadas da rodada de 04/11/2026 (a Anvisa × a nota da BTP): nas vezes 1, 2, 3 e 5 o LLM achou dois
+    lados; a vez 4, depois da nova tentativa, ficou com a Anvisa. Nenhuma das cinco leva a disputa ao episódio."""
+    dados = json.loads((Path(__file__).parent / "dados" / "cc102_0411.json").read_text(encoding="utf-8"))
+    gravada = dados["vezes"][vez - 1]
+    principal = {"source": dados["fonte"], "title": dados["titulo"], "text": dados["texto"]}
+    _, analise = Summarizer(provider=ProviderQueConta(lados=gravada["resposta_do_llm"])).preparar(principal)
+
+    assert analise.lados == lado_unico([dados["fonte"]]) or [l.atores for l in analise.lados] == [("Anvisa",)]
+    assert analise.questao == "" and analise.ressalvas == []
+    if gravada["lados_medidos"] == 2:
+        assert analise.lados == lado_unico([dados["fonte"]])
+        assert analise.medida is not None and len(analise.medida.lados) == 2
+        assert [l.atores for l in analise.medida.lados] == [("Anvisa",), ("Brasil Terminal Portuário (BTP)",)]
+    else:
+        assert analise.medida is None

@@ -7,7 +7,8 @@ from dataclasses import dataclass, field
 from datetime import timedelta, timezone
 
 from techdigest.ai.lados import (
-    MAX_SAIDA_LADOS, Analise, analisar_lados, bloco_dos_lados, com_mencoes, reserva_do_bloco, trechos_de_evidencia,
+    MAX_SAIDA_LADOS, Analise, analisar_lados, bloco_dos_lados, com_mencoes, reserva_do_bloco, sem_disputa,
+    trechos_de_evidencia,
 )
 from techdigest.ai.janela import tokens_fixos
 from techdigest.ai.llm import JanelaExcedida, JSONIncompleto, get_provider
@@ -403,6 +404,9 @@ class Summarizer:
             lambda: analisar_lados(self._chamar, completos, self._limite_da_entrada(PROMPT_LADOS, saida=MAX_SAIDA_LADOS)),
             "a análise de lados",
         )
+        if not relacionados and len(analise.lados) >= 2 and not settings.disputa_fonte_unica:
+            logger.info("Disputa na fonte única desligada: %d lados medidos, o episódio usa o lado neutro", len(analise.lados))
+            analise = sem_disputa(analise, [t["fonte"] for t in completos])
         return self._montar_geracao(principal, relacionados, analise), analise
 
     def _montar_geracao(self, principal: dict, relacionados: list[dict] | None, analise: Analise) -> Entrada:

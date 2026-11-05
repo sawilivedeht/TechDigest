@@ -329,6 +329,11 @@ def _lados(analise, chamadas: list[dict]) -> dict:
         print(f"    ressalva descartada ({ressalva['motivo']}): {ressalva['posicao']} · grupos: {', '.join(ressalva['grupos']) or '-'} · "
               f"trecho: \"{ressalva['trecho']}\"")
     print(f"    motivo: {registro['motivo'] or '-'}")
+    if registro["disputa_desligada"]:
+        d = registro["disputa_desligada"]
+        print(f"    DISPUTA DESLIGADA (DISPUTA_FONTE_UNICA): teria sido {d['quantos']} lados · questão: {d['questao']}")
+        for lado in d["lados"]:
+            print(f"        [{lado['resposta']}] {lado['posicao']} · atores: {', '.join(lado['atores']) or '-'}")
     for ajuste in analise.ajustes:
         print(f"    ajuste: {ajuste}")
     if analise.primeira is not None and analise.primeira.problemas:
