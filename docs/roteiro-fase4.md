@@ -1951,6 +1951,12 @@ O 20 (AMD) segue reprovado, por outro problema: "entre quinze e dezesseis bilhõ
 depois do segundo número; a fonte traz "US$ 15 bilhões e US$ 16 bilhões", e o QA lê 15 sem a escala. Fica anotado, sem
 conserto agora. (O "oito bilhões e quinhentos e cinco milhões" era erro do modelo na primeira versão; a final trazia 550.)
 
+**Primeira execução real, 05/11:** parou três vezes pela trava do Ollama (subido à mão, sem a unit) e, na quarta (06h44, 181 min),
+pulou todos os itens por erro 403 do Edge-TTS: a `.venv` da produção tinha edge-tts 7.2.8, a da worktree (onde a simulação
+passou) tinha 7.3.1. A simulação não pegou porque rodou na `.venv` da worktree. Corrigido em 06/11 com
+`pip install edge-tts==7.3.1` na produção (teste de síntese ok); nada foi entregue nem marcado como visto. Lição: comparar o
+`pip freeze` das duas `.venv` antes do merge.
+
 ## Números medidos
 
 - **Produção, 07/10/2026** (`master`, execução das 08:09): geração de 208 a 291 s a 11-16 tok/s,
