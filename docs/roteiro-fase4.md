@@ -1957,6 +1957,28 @@ passou) tinha 7.3.1. A simulação não pegou porque rodou na `.venv` da worktre
 `pip install edge-tts==7.3.1` na produção (teste de síntese ok); nada foi entregue nem marcado como visto. Lição: comparar o
 `pip freeze` das duas `.venv` antes do merge.
 
+## Depois da primeira produção: o plano de 07/11
+
+A execução real de 07/11 (01h01, 59 min) entregou 20 de 20, todos aprovados (3 corrigidos na revisão). Fidelidade: 7 fatos sem
+fonte contra 10 na simulação de 04/11; do ruído conhecido, "Brasil" ×2 e "Celsius"; quatro variantes do que a fonte traz
+("Loja" por "Store", "PlayStation" por "PS5", "Congresso Nacional" por "Congresso", "VPNs" por "VPN"); nada inventado. Três
+feeds (dois do Google Notícias e o `tecnologiaeclasse.com.br`) ficaram inacessíveis por `ConnectionError` ao mesmo tempo, às
+01h02, e a máquina tinha acabado de subir o Ollama. Decisões do dono de 07/11, na branch `ajustes-pos-producao-0711`:
+
+- **Nova tentativa dos feeds** (`collectors/rss.py`, `pipeline._coletar`, `registro.feeds_da_coleta`): feitas, ver o `CLAUDE.md`
+  (arquitetura, passo 1). Esperas de 20, 40 e 80 s em até 3 rodadas; só rede, tempo esgotado e 408/429/5xx repetem. Com algum feed
+  fora depois das 4 tentativas, aviso curto no canal e a execução segue; com todos fora, aviso de parada e status 1. Na
+  simulação o aviso vai para o `AVISO.txt`. O registro ganha a chave `feeds` e o `resumo_lotes.py` mostra "N feed(s) fora da coleta".
+- **Escala dos intervalos no QA** (`ai/numeros.py`): "entre quinze e dezesseis bilhões", "de 3 a 5 milhões" e "entre quinze e vinte
+  por cento" levam a escala (ou o "por cento") do último número para o primeiro, só com o primeiro em 10 ou mais. Relaxamento. Medido
+  com o `refazer_qa.py` em 52 relatórios (501 episódios gravados): só o 20 da AMD, de 04/11, muda, de reprovado para aprovado
+  (o `checar_fidelidade.py` não acha nada que o QA deixe passar nele); nenhum aprovado mudou.
+- **Pendência do texto patrocinado:** o episódio 12 de 07/11 ("Servidores VPS com desconto para projetos de nuvem e inteligência
+  artificial", Diolinux) é outro exemplo, além do 38 da coleta 3: um texto de oferta de VPS com desconto virou episódio, e o
+  filtro (que pega o link e a categoria do feed) não o pega.
+- **Texto de vários fatos que o filtro não tira:** o episódio 7 de 07/11 ("Lançamentos de jogos em novembro de 2026") é uma lista de
+  lançamentos, vários fatos soltos num só texto; o filtro não o tira e o episódio sai sem um fato central.
+
 ## Números medidos
 
 - **Produção, 07/10/2026** (`master`, execução das 08:09): geração de 208 a 291 s a 11-16 tok/s,

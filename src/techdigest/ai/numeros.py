@@ -227,6 +227,30 @@ def numeros(texto: str) -> list[Numero]:
             fim, percentual, j = lidos[j + 1].fim, True, j + 2
         achados.append(Numero(round(valor, 6), percentual, texto[t.inicio:fim], t.inicio, fim, escala))
         i = j
+    return _intervalos(texto, achados)
+
+
+_ABRE_INTERVALO = re.compile(r"\b(entre|de)\s+$")
+_MEIO_DO_INTERVALO = re.compile(r"\s+(e|a)\s+")
+
+
+def _intervalos(texto: str, achados: list[Numero]) -> list[Numero]:
+    """No intervalo "entre quinze e dezesseis bilhões", "de 3 a 5 milhões" ou "entre quinze e vinte por cento", a escala
+    (ou o "por cento") dita no último número vale para os dois (decisão de 07/11/2026): o texto da pauta traz "US$ 15 bilhões
+    e US$ 16 bilhões", e o "quinze" lido sozinho não tem fonte. Só vale para um número de 10 ou mais, o que o QA cobra: abaixo
+    disso ele continua fora da conta, em vez de passar a ser cobrado na escala."""
+    for i in range(len(achados) - 1):
+        a, b = achados[i], achados[i + 1]
+        if a.percentual or a.escala != 1 or a.valor < MENOR_NUMERO_COM_FONTE or a.valor >= 1000:
+            continue
+        if not (b.percentual or b.escala >= 1000):
+            continue
+        if not (_ABRE_INTERVALO.search(dobrar(texto[:a.inicio])) and _MEIO_DO_INTERVALO.fullmatch(texto[a.fim:b.inicio])):
+            continue
+        if b.percentual:
+            achados[i] = Numero(a.valor, True, a.trecho, a.inicio, a.fim, 1)
+        elif a.valor * b.escala <= b.valor:
+            achados[i] = Numero(a.valor * b.escala, False, a.trecho, a.inicio, a.fim, b.escala)
     return achados
 
 

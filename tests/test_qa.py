@@ -920,3 +920,38 @@ def test_decimal_dito_com_zero_um_e_ponto_vale_pelo_valor(fala, passa):
 def test_numeros_le_zero_um_e_ponto_como_decimais(texto, esperado):
     from techdigest.ai.numeros import numeros
     assert [(n.valor, n.percentual) for n in numeros(texto)] == esperado
+
+
+# Intervalos (07/11): a escala, ou o "por cento", dita no último número vale para os dois.
+TEXTOS_DOS_INTERVALOS = ["A rival estima entre US$ 15 bilhões e US$ 16 bilhões no período, a fábrica entrega de 30 a 50 milhões "
+                         "de peças e a inflação fica entre 15% e 20% no ano."]
+
+
+@pytest.mark.parametrize("fala, passa", [
+    ("A rival estima entre quinze e dezesseis bilhões de dólares.", True),
+    ("A rival estima entre 15 e 16 bilhões de dólares.", True),
+    ("A rival estima entre quinze e dezessete bilhões de dólares.", False),    # 17 não está na pauta
+    ("A rival estima entre quatorze e dezesseis bilhões de dólares.", False),   # 14 bilhões também não
+    ("A fábrica entrega de trinta a cinquenta milhões de peças.", True),
+    ("A fábrica entrega de 30 a 50 milhões de peças.", True),
+    ("A inflação fica entre quinze e vinte por cento.", True),
+    ("A inflação fica entre 15 e 20%.", True),
+    ("A inflação fica entre quinze e vinte e cinco por cento.", False),
+])
+def test_intervalo_leva_a_escala_e_o_percentual_do_ultimo_numero_para_os_dois(fala, passa):
+    assert (qa.problemas_dos_numeros(_com_fala(fala), TEXTOS_DOS_INTERVALOS) == []) is passa
+
+
+@pytest.mark.parametrize("texto, esperado", [
+    ("entre quinze e dezesseis bilhões", [(15e9, False), (16e9, False)]),
+    ("de 3 a 5 milhões", [(3, False), (5e6, False)]),                  # abaixo de 10 continua fora da conta
+    ("entre dois e três bilhões", [(2, False), (3e9, False)]),
+    ("entre 500 e 600 mil", [(500_000, False), (600_000, False)]),
+    ("entre quinze e vinte por cento", [(15, True), (20, True)]),
+    ("entre vinte e cinco mil", [(25_000, False)]),                    # um número só, não um intervalo
+    ("quinze e dezesseis bilhões", [(15, False), (16e9, False)]),      # sem "entre" ou "de", são dois números
+    ("entre quinze e dezesseis", [(15, False), (16, False)]),
+])
+def test_numeros_aplica_a_escala_do_intervalo_so_a_partir_de_dez(texto, esperado):
+    from techdigest.ai.numeros import numeros
+    assert [(n.valor, n.percentual) for n in numeros(texto)] == esperado
