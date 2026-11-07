@@ -2,13 +2,13 @@
 
 Regras do dono para toda sessão e todo worker neste repositório. O `CLAUDE.md` importa este
 arquivo, e a pasta principal o importa pelo `CLAUDE.local.md`. Uma regra muda aqui, num commit,
-e não no texto de cada tarefa. Quando a branch de trabalho mudar, troque o nome dela abaixo.
+e não no texto de cada tarefa. A branch de trabalho da worktree é sempre `trabalho`.
 
 ## Sempre
 
 - Não rode o pipeline (a simulação, só quando a tarefa pedir), não envie nada ao Telegram, não
   chame `mark_seen` no banco de produção e não altere `OLLAMA_NUM_CTX`.
-- Testes e commit na branch de trabalho da worktree (hoje `ajustes-pos-producao-0711`), sem push. Merge na `master`
+- Testes e commit na branch `trabalho` da worktree, sem push. Merge na `master`
   só com o ok do dono, por avanço rápido (fast-forward).
 - Antes de qualquer avanço rápido na `master`, compare o `pip freeze` das duas `.venv` (a da pasta principal e a da
   worktree): em 05/11 uma versão diferente do edge-tts derrubou a primeira execução real.
