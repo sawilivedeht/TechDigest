@@ -14,6 +14,8 @@ The owner's standing rules for every session and every worker are in `docs/regra
 
 @docs/regras-de-sessao.md
 
+The improvements of 07/11/2026 run as parallel fronts, each with its own branch (`melhoria/<nome>`) and worktree: the plan is in `docs/plano-melhorias.md` and the state of each front in `docs/melhorias/`. A session in a front's worktree reads both before planning.
+
 The long reference sections live in `docs/referencia/`. Each summary below names the file and when to read it: read it before changing the code it covers.
 
 ## Commands
@@ -168,5 +170,6 @@ The number of words of the script follows the material the generation receives (
 - **Tests:** 667 pass offline (07/11/2026).
 - `data/` (SQLite db, audio, logs, the record of each run under `data/execucoes/`, grouping samples and CSVs, simulation folders under `data/simulacoes/`) is runtime state and is gitignored. `config/sites_de_partido.txt` is versioned: it is configuration, not state. The model lock and the Ollama log live outside the project, in `~/.local/state/techdigest/`.
 - `docs/roteiro-fase4.md` is the plan of phase 4, with the owner's decisions and the state of each item; it is updated at every stage.
+- **Improvements in parallel fronts (from 07/11/2026):** `docs/plano-melhorias.md` has the fronts, the waves, their rules and the integration through the `testes` branch (front 0); `docs/melhorias/NN-nome.md` keeps the state of each front, updated at every commit of it. Production does not change until the fronts are merged into `master`; the `trabalho` branch and `docs/roteiro-fase4.md` stay for the work of the roadmap.
 - `src/techdigest.egg-info/` is committed, so reinstalling the package can produce diffs there.
 - `selectolax` is pinned below 1.0 because `googlenewsdecoder` depends on a backend that 1.0 removed.
