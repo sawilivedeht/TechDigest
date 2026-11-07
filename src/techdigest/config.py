@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     max_news: int = 20
     min_texto_chars: int = 1200        # abaixo disso o item é descartado (não gera episódio a partir de manchete/snippet)
     feed_timeout_s: int = 30           # timeout de download de cada feed RSS (evita travar a execução)
+    feed_tentativas: int = 4           # tentativas por feed (1 = uma só); só erro de rede, tempo esgotado e 408/429/5xx repetem
+    feed_espera_s: int = 20            # espera antes da 1ª nova tentativa dos feeds que falharam; dobra a cada rodada (20, 40, 80)
     max_por_feed: int = 15             # entradas lidas por feed
     max_idade_dias: int = 7            # só notícias publicadas há no máximo N dias (data do feed); 0 = sem limite
     gnews_resolver: bool = True        # resolve links do Google Notícias para a URL do veículo (False = desliga)

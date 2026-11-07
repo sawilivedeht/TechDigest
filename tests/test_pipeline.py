@@ -77,7 +77,7 @@ def execucao(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline.settings, "db_path", str(tmp_path / "digest.db"))
     monkeypatch.setattr(pipeline.settings, "audio_dir", str(tmp_path / "audio"))
     monkeypatch.setattr(pipeline.settings, "execucoes_dir", str(tmp_path / "execucoes"))
-    monkeypatch.setattr(pipeline, "collect_rss", lambda: coletas.append(1) or artigos)
+    monkeypatch.setattr(pipeline, "collect_rss", lambda coleta=None: coletas.append(1) or artigos)
     monkeypatch.setattr(pipeline, "extrair", extrair)
     monkeypatch.setattr(pipeline, "get_provider", lambda settings: ProviderFalso())
     monkeypatch.setattr(pipeline, "Summarizer", SummarizerFalso)
@@ -131,7 +131,7 @@ def test_com_a_trava_do_modelo_ocupada_a_execucao_nem_comeca(execucao, caplog):
 
 
 def test_um_erro_inesperado_tambem_avisa_com_o_tipo_do_erro_e_quantos_sairam(execucao, monkeypatch):
-    def coleta_quebrada():
+    def coleta_quebrada(coleta=None):
         raise KeyError("feed")
     monkeypatch.setattr(pipeline, "collect_rss", coleta_quebrada)
     with pytest.raises(KeyError):
@@ -145,7 +145,7 @@ def test_o_aviso_que_falha_fica_no_log_e_a_execucao_sai_como_sairia(execucao, mo
     def canal_fora_do_ar(texto):
         raise ConnectionError("sem rede")
 
-    def coleta_quebrada():
+    def coleta_quebrada(coleta=None):
         raise KeyError("feed")
     monkeypatch.setattr(pipeline, "deliver_aviso", canal_fora_do_ar)
     monkeypatch.setattr(pipeline, "collect_rss", coleta_quebrada)
@@ -411,3 +411,47 @@ def test_o_agrupamento_que_quebra_deixa_os_candidatos_um_por_um(agrupando, monke
     assert any(r.getMessage() == "Agrupamento falhou: os 5 candidato(s) seguem um por um" for r in caplog.records)
     [relatorio] = _relatorios(agrupando)                  # e no registro, para o dono ver nos primeiros dias
     assert relatorio["agrupamento_falhou"] == "ValueError: erro de programação; os 5 candidato(s) seguiram um por um"
+
+
+# Os feeds que ficam fora da coleta (07/11/2026): aviso curto e a execução segue; com todos fora, ela para.
+def _coleta_com(execucao, monkeypatch, fora, total):
+    def coletar(coleta=None):
+        coleta.total, coleta.fora = total, fora
+        return execucao["artigos"]
+    monkeypatch.setattr(pipeline, "collect_rss", coletar)
+
+
+def test_com_um_feed_fora_depois_das_tentativas_avisa_curto_e_a_execucao_segue(execucao, monkeypatch, caplog):
+    _coleta_com(execucao, monkeypatch, [{"url": "https://news.google.com/rss/search?q=brasil+when:2d&hl=pt-BR",
+                                         "erro": "ConnectionError: x", "tentativas": 4}], total=3)
+    caplog.set_level(logging.INFO, logger="techdigest")
+    pipeline.run(sem_audio=True)
+    aviso = _aviso(execucao)
+    assert "1 de 3 feed(s) ficaram fora da coleta depois de 4 tentativa(s): news.google.com (brasil when:2d)" in aviso
+    assert "A execução segue com os outros." in aviso and "http" not in aviso and "token" not in aviso.lower()
+    assert any(r.getMessage().startswith("Aviso de feeds: ") for r in caplog.records)
+    assert not any(r.getMessage().startswith("Aviso de parada") for r in caplog.records)
+    [relatorio] = _relatorios(execucao)
+    assert relatorio["feeds"]["total"] == 3 and relatorio["feeds"]["fora"][0]["tentativas"] == 4
+    assert [e["entregue"] for e in relatorio["episodios"]] == [True, True, True]
+
+
+def test_com_todos_os_feeds_fora_a_execucao_para_com_aviso_de_parada(execucao, monkeypatch, caplog):
+    fora = [{"url": f"https://f{n}.example/feed", "erro": "ConnectionError: x", "tentativas": 4} for n in range(3)]
+    _coleta_com(execucao, monkeypatch, fora, total=3)
+    caplog.set_level(logging.INFO, logger="techdigest")
+    with pytest.raises(maquina.ExecucaoInterrompida):
+        pipeline.run(sem_audio=True)
+    assert "todos os 3 feeds ficaram fora da coleta" in _aviso(execucao) and "Entregues: 0 de 20" in _aviso(execucao)
+    assert any(r.getMessage().startswith("Execução interrompida: todos os 3 feeds ficaram fora") for r in caplog.records)
+    assert execucao["extraidos"] == []
+
+
+def test_o_aviso_de_feeds_que_falha_so_vai_para_o_log(execucao, monkeypatch, caplog):
+    def canal_fora_do_ar(texto):
+        raise ConnectionError("sem rede")
+    monkeypatch.setattr(pipeline, "deliver_aviso", canal_fora_do_ar)
+    _coleta_com(execucao, monkeypatch, [{"url": "https://f.example/feed", "erro": "x", "tentativas": 4}], total=3)
+    caplog.set_level(logging.INFO, logger="techdigest")
+    pipeline.run(sem_audio=True)
+    assert any(r.getMessage() == "Aviso de feeds não enviado (ConnectionError: sem rede)" for r in caplog.records)

@@ -3,13 +3,14 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from techdigest.ai.elenco import nomes_dos_analistas
 from techdigest.ai.llm import get_provider
 from techdigest.ai.maquina import ExecucaoInterrompida, ProviderVigiado
 from techdigest.ai.summarizer import QAReprovado, Summarizer
 from techdigest.audio.tts import atribuir_vozes, gerar_podcast
-from techdigest.collectors.rss import collect_rss
+from techdigest.collectors.rss import ColetaRSS, collect_rss
 from techdigest.config import Settings
 from techdigest.delivery import deliver_aviso, deliver_footer, deliver_item
 from techdigest.processing import agrupamento as ag
@@ -83,6 +84,39 @@ def _avisar(texto: str) -> None:
         deliver_aviso(texto)
     except Exception as e:
         logger.error("Aviso de parada não enviado (%s: %s)", type(e).__name__, str(e)[:200])
+
+
+def _rotulo_do_feed(url: str) -> str:
+    """O feed para uma mensagem curta: o endereço do site, e a busca quando é uma busca do Google Notícias."""
+    partes = urlsplit(url)
+    busca = parse_qs(partes.query).get("q")
+    return f"{partes.netloc} ({busca[0]})" if busca else (partes.netloc or url)
+
+
+def _coletar(registro: RegistroDaExecucao | None) -> list:
+    """Coleta os feeds (com as novas tentativas de `collect_rss`), grava o que ficou de fora no registro e avisa.
+
+    Com algum feed fora depois das tentativas: uma mensagem curta no canal (texto simples, sem URL com token, o mesmo
+    caminho do aviso de parada) e a execução segue com os outros. Com todos fora: a execução para (status 1, aviso de
+    parada), porque sem feed não há o que entregar e, com o timer, ninguém veria uma execução vazia com status 0.
+    """
+    coleta = ColetaRSS()
+    artigos = collect_rss(coleta=coleta)
+    _anotar(registro, "feeds_da_coleta", coleta)
+    if coleta.total and len(coleta.fora) == coleta.total:
+        raise ExecucaoInterrompida(
+            f"todos os {coleta.total} feeds ficaram fora da coleta depois de {settings.feed_tentativas} tentativa(s) "
+            "(a rede, provavelmente)")
+    if coleta.fora:
+        texto = (f"TechDigest às {_agora()}: {len(coleta.fora)} de {coleta.total} feed(s) ficaram fora da coleta depois de "
+                 f"{settings.feed_tentativas} tentativa(s): {'; '.join(_rotulo_do_feed(f['url']) for f in coleta.fora)}. "
+                 "A execução segue com os outros.")
+        logger.warning("Aviso de feeds: %s", texto)
+        try:
+            deliver_aviso(texto)
+        except Exception as e:
+            logger.error("Aviso de feeds não enviado (%s: %s)", type(e).__name__, str(e)[:200])
+    return artigos
 
 
 def _abrir_registro() -> RegistroDaExecucao | None:
@@ -407,7 +441,7 @@ def _executar(sem_audio: bool, andamento: _Andamento):
         lote = _Lote(seen, registro, Summarizer(provider=provider), sem_audio, andamento)
 
         if settings.agrupamento_ativo:
-            for item in _pautas_da_execucao(collect_rss(), seen, registro, provider):
+            for item in _pautas_da_execucao(_coletar(registro), seen, registro, provider):
                 if _sem_vaga(inicio, andamento):
                     break
                 if not lote.gerar_e_entregar(item):
@@ -415,7 +449,7 @@ def _executar(sem_audio: bool, andamento: _Andamento):
                     break
         else:
             tentadas: set[str] = set()  # URLs já tentadas nesta execução (não repete o mesmo item)
-            for art in collect_rss():
+            for art in _coletar(registro):
                 if _sem_vaga(inicio, andamento):
                     break
                 if art.url in tentadas or not seen.is_new(art.url):

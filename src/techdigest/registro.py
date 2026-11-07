@@ -154,6 +154,7 @@ class RegistroDaExecucao:
         self.abandonados: list[dict] = []
         self.etapa3: list[dict] | None = None   # com o agrupamento ligado: o veredito de cada pauta provisória
         self.agrupamento_falhou = ""             # com o agrupamento ligado: o erro que deixou os candidatos um por um
+        self.feeds: dict | None = None           # a coleta: quantos feeds, os que ficaram fora e os recuperados numa nova tentativa
         self.gravar()
 
     def filtrado(self, url: str, titulo: str, motivo: str, depois_da_extracao: bool, url_resolvida: str = "") -> None:
@@ -230,6 +231,11 @@ class RegistroDaExecucao:
         self.gravar()
         return entrada
 
+    def feeds_da_coleta(self, coleta) -> None:
+        """O que a coleta disse dos feeds (`collectors.rss.ColetaRSS`)."""
+        self.feeds = {"total": coleta.total, "fora": coleta.fora, "recuperados": coleta.recuperados}
+        self.gravar()
+
     def entregue(self, entrada: dict) -> None:
         entrada["entregue"] = True
         self.gravar()
@@ -241,6 +247,7 @@ class RegistroDaExecucao:
         self.relatorio.write_text(json.dumps(
             {"amostra": str(self.amostra), "limiar": None, "num_ctx": self.num_ctx, "episodios": self.episodios,
              "filtrados": self.filtrados, "abandonados": self.abandonados,
+             **({} if self.feeds is None else {"feeds": self.feeds}),
              **({} if self.etapa3 is None else {"etapa3": self.etapa3}),
              **({"agrupamento_falhou": self.agrupamento_falhou} if self.agrupamento_falhou else {})},
             ensure_ascii=False, indent=1, default=str), encoding="utf-8")

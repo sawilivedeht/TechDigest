@@ -38,7 +38,7 @@ def _arquivos_de_log(log: str | None = None) -> list[Path]:
 
 def _novo_lote(hora: str) -> dict:
     return {"inicio": hora, "fim": None, "entregues": None, "qa": 0, "descartados": 0, "filtrados": 0, "abandonados": 0,
-            "erros": 0, "falhas_entrega": 0, "orcamento": False, "fatal": False, "interrompida": "", "aviso": "", "pautas": "", "janela": 0, "refeitas": 0,
+            "erros": 0, "falhas_entrega": 0, "orcamento": False, "fatal": False, "interrompida": "", "aviso": "", "feeds_fora": 0, "pautas": "", "janela": 0, "refeitas": 0,
             "toks": [], "ram": [], "swap": [], "cpu": [], "gpu": [], "gpu_mhz": []}
 
 
@@ -101,6 +101,8 @@ def ler_lotes(dia: str, log: str | None = None, nao_comecaram: list | None = Non
                 atual["filtrados"] += 1
             elif msg.startswith("Item abandonado"):
                 atual["abandonados"] += 1
+            elif msg.startswith("Feeds fora da coleta:"):
+                atual["feeds_fora"] = int(msg.split(":")[1].split(" de ")[0])
             elif msg.startswith("Aviso de parada não enviado"):
                 atual["aviso"] = "aviso não enviado"
             elif msg.startswith("Aviso de parada:"):
@@ -159,6 +161,8 @@ def main() -> None:
             obs.append(f"{l['janela']} texto(s) de fonte única cortado(s) pela janela")
         if l["refeitas"]:
             obs.append(f"{l['refeitas']} chamada(s) refeita(s) por passar da janela")
+        if l["feeds_fora"]:
+            obs.append(f"{l['feeds_fora']} feed(s) fora da coleta")
         if l["orcamento"]:
             obs.append("orçamento esgotado")
         if l["fatal"]:

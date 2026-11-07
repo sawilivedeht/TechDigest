@@ -38,3 +38,15 @@ def test_o_resumo_mostra_a_execucao_interrompida_e_a_que_nao_comecou(tmp_path, c
     assert "interrompida: memória disponível em 3.1 GiB, abaixo do mínimo de 4.0 GiB, aviso enviado" in saida
     assert "Não começaram (a trava do modelo estava ocupada):\n  08:00:00: o modelo está em uso" in saida
     assert concluida["pautas"] == "agrupamento: 88 pautas, 5 com várias fontes" and concluida["pautas"] in saida
+
+
+def test_o_resumo_mostra_os_feeds_que_ficaram_fora_da_coleta(tmp_path):
+    log = tmp_path / "techdigest.log"
+    log.write_text(
+        "07/11 01:01:36 │ INFO     │ techdigest.pipeline │ === TechDigest iniciando ===\n"
+        "07/11 01:03:00 │ WARNING  │ techdigest.collectors.rss │ Feeds fora da coleta: 2 de 14 (https://a.example/feed; "
+        "https://b.example/feed)\n"
+        "07/11 02:00:33 │ INFO     │ techdigest.pipeline │ Execução concluída: 20 notícia(s) entregue(s) em 59 min.\n",
+        encoding="utf-8")
+    [lote] = rl.ler_lotes("07/11", str(log), [])
+    assert lote["feeds_fora"] == 2 and lote["entregues"] == 20

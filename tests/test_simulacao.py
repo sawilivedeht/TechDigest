@@ -142,7 +142,9 @@ requests.post = _post_proibido
 
 from techdigest.models import Article
 coleta = types.ModuleType("techdigest.collectors.rss")
-coleta.collect_rss = lambda: [Article(title=f"Artigo {n}", url=f"https://jornaldovale.example/{n}", source="Jornal do Vale")
+from techdigest.collectors.rss import ColetaRSS
+coleta.ColetaRSS = ColetaRSS
+coleta.collect_rss = lambda coleta=None: [Article(title=f"Artigo {n}", url=f"https://jornaldovale.example/{n}", source="Jornal do Vale")
                               for n in (1, 2)]
 sys.modules["techdigest.collectors.rss"] = coleta
 from techdigest.processing.extractor import Extracao
