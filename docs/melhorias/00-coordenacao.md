@@ -107,3 +107,31 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
 ## Estado
 
 - 07/11/2026: não começada.
+- 07/11/2026: onda 0 concluída. Etapa seguinte: a integração, quando houver frente pronta.
+  - Branch: `coordenacao` até o passo 7 (commit `64bd21b`, apagada depois); agora `testes`, nascida da `master` em
+    `64bd21b`.
+  - Passo 1: `master` em `0bdf41f`; a pasta principal, a `techdigest-fase4` e a `techdigest-testes` no mesmo commit e
+    limpas, fora o zip solto; sessão de teste `inactive`.
+  - Passo 2: pacote descompactado na raiz com `unzip -n` (11 arquivos, 57.864 bytes); zip apagado.
+  - Passo 3: `docs/regras-de-sessao.md` com a linha da `trabalho` do plano, o commit na branch da worktree (a `trabalho`
+    no roteiro, a da frente nas melhorias), o `pip freeze` comparado com a worktree de onde vem o avanço e a seção das
+    frentes; `CLAUDE.md` com o plano em "Session rules and reference" e em "Repo notes".
+  - Passo 4: skills `techdigest-retomar` e `techdigest-rodada-modelo` (fora do git), com uma linha no `CHANGELOG.md` de
+    cada.
+  - Passo 8: `pip freeze --exclude-editable` da produção, 60 pacotes (`edge-tts==7.3.1`, `pytest==9.1.1`).
+  - Passo 9, só a `techdigest-testes`, antes do commit: `.venv` com Python 3.14.9 e as versões da produção, link
+    `data/agrupamento`, 667 testes.
+  - Passo 5: commit `64bd21b` (`docs: plano das melhorias em frentes paralelas`, 13 arquivos, só documentos).
+  - Passo 6, com o ok do dono: `pip freeze` da pasta principal igual ao da `techdigest-testes`; avanço rápido da `master`
+    (`0bdf41f..64bd21b`) e da `trabalho` na `techdigest-fase4`; as três pastas em `64bd21b`.
+  - Passo 7: `testes` criada da `master`; `coordenacao` apagada.
+  - Passo 9: worktrees `techdigest-audio`, `-versoes`, `-registro`, `-ruff` e `-schema`, nas branches `melhoria/<nome>`
+    em `64bd21b`, cada uma com `.venv`, `pip freeze` igual ao da produção, link `data/agrupamento` (fora do `git status`)
+    e 667 testes. O `pip install -e` acrescenta 10 linhas a `src/techdigest.egg-info/SOURCES.txt` em todas: fica sem
+    commit até a frente 2.
+  - Passo 10: este estado e a tabela "Estado do plano", commit na `testes`.
+  - Decisões do dono: documentos e regras na `master`; o commit na branch da worktree e o `pip freeze` com a worktree de
+    onde vem o avanço; o link `data/agrupamento` nas seis pastas; o avanço rápido da `trabalho`; a `coordenacao` apagada.
+  - Pendências: `claude/plano-melhorias.md` e `claude/andamento.md` no Projeto (chat do navegador); o push da `master`
+    (do dono); os zips soltos em `docs/` da pasta principal e da `techdigest-fase4` (do dono); as worktrees das ondas 2 e 3
+    quando o dono abrir o chat delas.

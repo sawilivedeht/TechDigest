@@ -174,7 +174,17 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
 
 | Frente | Etapa | Branch e último commit | Observação |
 |---|---|---|---|
-| 0 | não começada | — | próximo passo: abrir o chat da frente 0 |
-| 1 a 9 | não começadas | — | a onda 1 abre depois da onda 0 |
+| 0 | onda 0 concluída; espera as frentes prontas para a integração | `testes`, nascida da `master` em `64bd21b` | `coordenacao` apagada depois do passo 7 |
+| 1 Áudio | não começada | `melhoria/audio`, `64bd21b` | worktree `techdigest-audio` pronta: 667 testes, versões da produção |
+| 2 Versões | não começada | `melhoria/versoes`, `64bd21b` | worktree `techdigest-versoes` pronta: 667 testes, versões da produção |
+| 3 Registro | não começada | `melhoria/registro`, `64bd21b` | worktree `techdigest-registro` pronta: 667 testes, versões da produção |
+| 4 ruff | não começada | `melhoria/ruff`, `64bd21b` | worktree `techdigest-ruff` pronta: 667 testes, versões da produção |
+| 8 Schema | não começada (medição na onda 1) | `melhoria/schema`, `64bd21b` | worktree `techdigest-schema` pronta: 667 testes, versões da produção |
+| 5, 6, 7 e 9 | não começadas | — | worktrees criadas quando o dono abrir o chat delas (passos 8 e 9 da onda 0) |
 
 - 07/11/2026: plano criado.
+- 07/11/2026: onda 0 concluída. O commit `64bd21b` (o plano, os arquivos das frentes, as regras e o `CLAUDE.md`, só
+  documentos) entrou na `master` e na `trabalho` por avanço rápido, com o ok do dono. A `testes` nasceu da `master`. As
+  worktrees da onda 1 e a `techdigest-testes` têm `.venv` com as versões da produção (60 pacotes, `pip freeze` igual), o
+  link `data/agrupamento` para a pasta principal e 667 testes passando. As skills `techdigest-retomar` e
+  `techdigest-rodada-modelo` foram atualizadas para as frentes. A onda 1 pode abrir.
