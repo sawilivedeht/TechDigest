@@ -94,3 +94,25 @@ inteira e a seção "Estado" de docs/melhorias/03-registro.md atualizada.
   `f6f54e9`) e `e5299da` (o estado, antes `3a13a54`), mais o deste registro. 671 testes passam depois do rebase; a suíte
   não pediu pacote nenhum, então a `.venv` não foi reinstalada. O `src/techdigest.egg-info` foi restaurado antes do
   rebase e não entrou em commit. Sem push. Próximo passo, da frente 0: o avanço rápido da `testes` para esta branch.
+- 08/11/2026: **aceite estendido** (pedido pelo dono depois da pergunta de aceite: o aceite anterior simulava a falha
+  por exceção no `fsync` ou no `os.replace`, sempre na primeira gravação da chamada, e nunca um processo morto nem uma
+  falha na gravação do próprio relatório). Três testes novos em `tests/test_registro.py`, só testes, sem mudança de
+  código:
+  - A, `test_processo_morto_no_meio_do_relatorio_deixa_o_anterior_inteiro`: um subprocesso (`sys.executable`, timeout de
+    30 s, a pasta e o ponto da morte por argumento, sem rede nem modelo) grava um item, copia a pasta e se mata com
+    `os.kill(os.getpid(), signal.SIGKILL)` com metade do relatório escrita. O pai confere: o relatório tem os bytes de
+    antes e passa no `json.loads`; sobra só o `relatorio_<carimbo>.json.<pid>.tmp`; o `refazer_qa._relatorio` escolhe
+    o relatório verdadeiro, e o `refazer_qa.refazer` e o `checar_fidelidade._carregar` leem só o episódio 1.
+  - B, `test_processo_morto_entre_o_episodio_e_o_relatorio_deixa_o_episodio_solto`: o mesmo filho morre na amostra,
+    depois do episódio 2. A amostra e o relatório ficam com os bytes de antes, sobra o `amostra.json.<pid>.tmp`, o
+    episódio 2 fica inteiro e solto, e os dois leitores o ignoram.
+  - C, `test_falha_so_na_escrita_do_relatorio_deixa_o_anterior_inteiro`: no mesmo processo, o disco enche (`OSError`)
+    com metade do relatório escrita. O relatório fica com os bytes de antes, sem temporário, a amostra é a nova, e os
+    leitores leem só o episódio 1.
+  - A falha entra na escrita, pelo `open` (o `builtins.open` do registro e o `io.open` do `write_text`), e não no
+    `fsync` (A) nem no `os.replace` (C), como dizia a proposta: assim os testes também pegam uma gravação direta, que
+    não chama nenhum dos dois. A e B são pulados fora de POSIX; C não usa sinal nem subprocesso.
+  - Verificação: com o `_gravar_atomico` trocado temporariamente por um `write_text` no próprio caminho (sem commit),
+    os três falham na comparação byte a byte. Em A e C o relatório fica cortado no meio; em B, a amostra. O arquivo
+    voltou com `git checkout -- src/techdigest/registro.py`.
+  - 674 testes passam (671 + 3), em duas rodadas seguidas da suíte.

@@ -1,9 +1,15 @@
 """O registro de cada execução: a pasta, a amostra e o relatório que os dois diagnósticos já leem, e a limpeza das antigas."""
+import builtins
 import contextlib
 import datetime
 import io
 import json
 import math
+import os
+import signal
+import subprocess
+import sys
+import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -181,3 +187,182 @@ def test_os_arquivos_mantem_o_formato_e_a_permissao_de_antes(tmp_path):
         assert bruto == json.dumps(json.loads(bruto), ensure_ascii=False, indent=1)   # indentação 1, acentos sem escape
         assert caminho.stat().st_mode & 0o777 == referencia.stat().st_mode & 0o777
     assert "São José" in reg.amostra.read_text(encoding="utf-8")
+
+
+# ── Interrupção no meio da gravação: processo morto (A e B) e falha só no relatório (C) ──────────────────────────────
+# A falha entra na escrita do arquivo, pelo open (o do registro e o io.open do write_text): metade do texto vai ao
+# arquivo aberto e então o processo morre (A, B) ou o disco enche (C). Assim o teste pega também uma gravação direta no
+# próprio caminho, que deixaria o arquivo cortado.
+
+_CARIMBO = "20261108-080000"
+
+# O processo filho de A e B (argumentos: a pasta de trabalho e o começo do nome do arquivo em que morre). Grava um item
+# inteiro, copia a pasta do registro como estava para <pasta>/antes, passa a morrer na escrita do arquivo marcado e
+# grava o segundo item. Sem rede e sem modelo: só o registro.
+_FILHO = textwrap.dedent('''
+    import builtins, datetime, io, os, shutil, signal, sys
+    from pathlib import Path
+
+    from techdigest import config
+    config.Settings.model_config["env_file"] = None          # como no conftest: o .env não conta
+    config.settings = config.Settings()
+    from techdigest import registro
+
+    pasta, ponto = Path(sys.argv[1]), sys.argv[2]
+
+    def episodio(titulo):
+        fala = " ".join(["palavra"] * 300)
+        return {"titulo_reescrito": titulo, "resumo_didatico": "Uma frase. " * 8, "pontos_chave": ["a", "b"],
+                "por_que_importa": "Importa.",
+                "personagens": [{"nome": "Helena", "papel": "apresentadora"}, {"nome": "Otávio", "papel": "analista"}],
+                "roteiro_podcast": [{"personagem": "Helena", "fala": fala}, {"personagem": "Otávio", "fala": fala}],
+                "houve_divergencia": False, "fontes_citadas": ["Jornal do Vale"]}
+
+    def artigo(titulo, n):
+        return {"veiculo": "Jornal do Vale", "titulo": titulo, "url": f"https://jornaldovale.example/{n}",
+                "texto": "A prefeitura multou a construtora pelo atraso da obra. " * 40}
+
+    reg = registro.RegistroDaExecucao(pasta / "execucoes", agora=datetime.datetime(2026, 11, 8, 8, 0, 0))
+    reg.entregue(reg.item([artigo("Prefeitura multa construtora", 1)], "aprovado", {},
+                          episodio("Prefeitura multa construtora"), 1.0))
+    shutil.copytree(reg.pasta, pasta / "antes")
+
+    abrir = io.open
+
+    class MorreNoMeio:
+        """O arquivo marcado: metade do texto vai para ele e o processo morre."""
+        def __init__(self, arquivo):
+            self.arquivo = arquivo
+        def write(self, texto):
+            self.arquivo.write(texto[: len(texto) // 2])
+            self.arquivo.flush()
+            os.kill(os.getpid(), signal.SIGKILL)
+        def __enter__(self):
+            return self
+        def __exit__(self, *erro):
+            self.arquivo.close()
+        def __getattr__(self, nome):
+            return getattr(self.arquivo, nome)
+
+    def abrir_que_morre(arquivo, modo="r", *args, **kwargs):
+        aberto = abrir(arquivo, modo, *args, **kwargs)
+        if "w" in modo and isinstance(arquivo, (str, os.PathLike)) and Path(arquivo).name.startswith(ponto):
+            return MorreNoMeio(aberto)
+        return aberto
+
+    builtins.open = io.open = abrir_que_morre
+    reg.item([artigo("Câmara aprova orçamento", 2)], "aprovado", {}, episodio("Câmara aprova orçamento"), 1.0)
+    sys.exit("o processo devia ter morrido antes de chegar aqui")
+''')
+
+_SO_POSIX = pytest.mark.skipif(os.name != "posix", reason="mata o processo filho com SIGKILL")
+
+
+def _bytes(pasta: Path) -> dict[str, bytes]:
+    return {nome: (pasta / nome).read_bytes() for nome in _arquivos(pasta)}
+
+
+def _morrer_no_meio(tmp_path: Path, ponto: str) -> tuple[int, Path]:
+    """Roda o filho, que morre na escrita do arquivo cujo nome começa com `ponto`; devolve o pid dele e a pasta."""
+    filho = subprocess.Popen([sys.executable, "-c", _FILHO, str(tmp_path), ponto], cwd=tmp_path,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        _, erro = filho.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        filho.kill()
+        filho.communicate()
+        raise
+    assert filho.returncode == -signal.SIGKILL, erro           # morreu no ponto marcado, e não por outro erro
+    [pasta] = (tmp_path / "execucoes").iterdir()
+    return filho.pid, pasta
+
+
+def _o_que_os_leitores_veem(pasta: Path) -> tuple[Path, list[int], list[int]]:
+    """O relatório que o refazer_qa escolhe na pasta e os episódios que ele e o checar_fidelidade leem dele."""
+    relatorio = refazer_qa._relatorio(str(pasta))
+    refeitos = refazer_qa.refazer(relatorio)
+    with contextlib.redirect_stdout(io.StringIO()):
+        casos = checar_fidelidade._carregar(relatorio)
+    return relatorio, [r.numero for r in refeitos], [c.numero for c in casos]
+
+
+@_SO_POSIX
+def test_processo_morto_no_meio_do_relatorio_deixa_o_anterior_inteiro(tmp_path):
+    """A: o processo morre com metade do relatório escrita (o episódio 2 e a amostra nova já foram para o disco)."""
+    pid, pasta = _morrer_no_meio(tmp_path, "relatorio_")
+    antes, depois = _bytes(tmp_path / "antes"), _bytes(pasta)
+    relatorio = f"relatorio_{_CARIMBO}.json"
+
+    assert depois[relatorio] == antes[relatorio]                 # o relatório anterior, byte a byte
+    assert [e["episodio"] for e in json.loads(depois[relatorio])["episodios"]] == [1]
+    assert [n for n in depois if n.endswith(".tmp")] == [f"{relatorio}.{pid}.tmp"]   # a sobra do processo morto
+    assert [c["id"] for c in json.loads(depois["amostra.json"])["candidatos"]] == [1, 2]
+    assert (pasta / "02_aprovado_câmara-aprova-orçamento.json").exists()
+
+    escolhido, refeitos, casos = _o_que_os_leitores_veem(pasta)  # os dois leitores ignoram o .tmp
+    assert (escolhido, refeitos, casos) == (pasta / relatorio, [1], [1])
+
+
+@_SO_POSIX
+def test_processo_morto_entre_o_episodio_e_o_relatorio_deixa_o_episodio_solto(tmp_path):
+    """B: o processo morre na amostra, depois de gravar o episódio 2 e antes do relatório que o citaria."""
+    pid, pasta = _morrer_no_meio(tmp_path, "amostra")
+    antes, depois = _bytes(tmp_path / "antes"), _bytes(pasta)
+    relatorio = f"relatorio_{_CARIMBO}.json"
+
+    assert (depois["amostra.json"], depois[relatorio]) == (antes["amostra.json"], antes[relatorio])
+    assert [n for n in depois if n.endswith(".tmp")] == [f"amostra.json.{pid}.tmp"]
+    solto = "02_aprovado_câmara-aprova-orçamento.json"
+    assert solto not in antes and json.loads(depois[solto])["titulo_reescrito"] == "Câmara aprova orçamento"
+    assert [e["episodio"] for e in json.loads(depois[relatorio])["episodios"]] == [1]
+
+    escolhido, refeitos, casos = _o_que_os_leitores_veem(pasta)  # o episódio solto fica fora da leitura
+    assert (escolhido, refeitos, casos) == (pasta / relatorio, [1], [1])
+
+
+def test_falha_so_na_escrita_do_relatorio_deixa_o_anterior_inteiro(tmp_path, monkeypatch):
+    """C: o disco enche com metade do relatório escrita; o episódio 2 e a amostra nova já tinham ido para o disco."""
+    reg = registro.RegistroDaExecucao(tmp_path, agora=datetime.datetime(2026, 11, 8, 8, 0, 0))
+    reg.entregue(reg.item([_artigo_curto()], "aprovado", {}, _episodio(300), 1.0))
+    antes = _bytes(reg.pasta)
+    relatorio = f"relatorio_{_CARIMBO}.json"
+    abrir = io.open
+
+    class DiscoCheioNoMeio:
+        def __init__(self, arquivo):
+            self.arquivo = arquivo
+
+        def write(self, texto):
+            self.arquivo.write(texto[: len(texto) // 2])
+            raise OSError(28, "No space left on device")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *erro):
+            self.arquivo.close()
+
+        def __getattr__(self, nome):
+            return getattr(self.arquivo, nome)
+
+    def abrir_que_enche(arquivo, modo="r", *args, **kwargs):
+        aberto = abrir(arquivo, modo, *args, **kwargs)
+        if "w" in modo and isinstance(arquivo, (str, os.PathLike)) and Path(arquivo).name.startswith("relatorio_"):
+            return DiscoCheioNoMeio(aberto)
+        return aberto
+
+    with monkeypatch.context() as m:
+        m.setattr(builtins, "open", abrir_que_enche)
+        m.setattr(io, "open", abrir_que_enche)
+        with pytest.raises(OSError):
+            reg.item([_artigo_curto("Câmara aprova orçamento")], "aprovado", {}, _episodio(300), 1.0)
+    depois = _bytes(reg.pasta)
+
+    assert depois[relatorio] == antes[relatorio]                 # o relatório anterior, byte a byte
+    assert [e["episodio"] for e in json.loads(depois[relatorio])["episodios"]] == [1]
+    assert [n for n in depois if n.endswith(".tmp")] == []       # a exceção apagou o temporário
+    assert [c["id"] for c in json.loads(depois["amostra.json"])["candidatos"]] == [1, 2]
+    assert "02_aprovado_prefeitura-multa-construtora.json" in depois   # o episódio 2, solto
+
+    escolhido, refeitos, casos = _o_que_os_leitores_veem(reg.pasta)
+    assert (escolhido, refeitos, casos) == (reg.pasta / relatorio, [1], [1])
