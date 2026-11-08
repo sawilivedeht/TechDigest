@@ -100,3 +100,57 @@ a suíte inteira e a seção "Estado" de docs/melhorias/01-audio.md atualizada.
 ## Estado
 
 - 07/11/2026: não começada.
+- 08/11/2026: etapa 1 (medição) feita; etapa 2 aprovada pelo dono, em implementação. Branch `melhoria/audio`, sobre
+  `64bd21b`. 667 testes passam.
+
+### Medição (etapa 1)
+
+Execução real de 07/11, 01:01:36 a 02:00:33 (3537 s, "20 notícia(s) entregue(s) em 59 min"), 20 itens, todos
+aprovados. Está toda no `techdigest.log`, linhas 16012 a 16237: os rotacionados `.1` a `.7` ainda não existem (o log tem
+1,6 MB e gira aos 2 MB). O script e o resultado ficam em
+`/home/sytw/Projetos/techdigest/data/agrupamento/medicao_audio_20261107/` (`medir_audio.py`, `medicao.csv`,
+`resumo.txt`); a soma foi conferida por um segundo pareamento das linhas `Vozes:` e `✅`. O log tem resolução de 1 s.
+
+| | média | mín. | máx. | soma |
+|---|---|---|---|---|
+| Áudio (`Vozes:` → `✅`) | 44 s | 27 s (item 19) | 64 s (item 20) | 875 s = 14,6 min |
+| Duração do episódio (linha do `✅`) | 4,0 min | 2,8 min | 4,8 min | 79,9 min |
+| Upload (`Áudio enviado`) | 3 s | 2 s | 3 s | 59 s |
+| Telegram inteiro (`✅` → `Entregue`) | 3 s | 3 s | 5 s | 68 s |
+| Item inteiro (`Resumindo` → `Entregue`) | 170 s | 123 s | 225 s | 3400 s |
+
+- O áudio é 24,7% dos 59 min da execução e 25,7% do tempo somado dos itens; a mediana é 42,5 s (entre o item 17, com
+  42 s, e o 12, com 43 s), e todos os 20 itens passam de 20 s. O upload é 1,7% da execução.
+- 216 turnos (11 por episódio, 9 nos itens 2 e 19): 4,0 s de síntese por turno em média (3,0 a 5,8 s), uns 10,9 s por
+  minuto de episódio.
+- O ffmpeg, medido à parte na máquina, sem rede e sem o modelo: as 10 pausas de um episódio de 11 turnos levam 0,28 s,
+  a concatenação de 4,2 min (recodificada em 64k) 0,54 s e o ffprobe 0,03 s. Uns 98% dos 44 s são a síntese no
+  Edge-TTS, um turno de cada vez; gerar as pausas uma vez só poupa uns 0,2 s por episódio.
+- Estimativa para a etapa 2, a conferir no aceite: com 3 sínteses ao mesmo tempo, uns 15 a 20 s por item, uns 8 min a
+  menos numa execução de 20 itens (perto de 14%), se o Edge-TTS não ficar mais lento com 3 conexões.
+
+### Decisões do dono (08/11/2026)
+
+- Seguir para a etapa 2: o áudio passa de 20 s por item (média 44 s).
+- Leituras do plano da etapa 2, aprovadas como propostas:
+  - `TENTATIVAS_TTS = 3` (a primeira e mais duas) e 2 s de pausa entre elas, constantes do `tts.py`, fora do
+    `config.py` (que é da frente 6);
+  - repetem: `aiohttp.ClientConnectionError`, `TimeoutError` e o `WebSocketError` do edge-tts; não repetem: qualquer
+    `aiohttp.ClientResponseError` (o 403, e também 429 e 5xx no handshake), `NoAudioReceived`, `UnexpectedResponse`,
+    `UnknownResponse` e `SkewAdjustmentError`. O edge-tts 7.3.1 já repete um 403 uma vez sozinho (ajusta o relógio
+    pelo cabeçalho `Date`); o nosso código não acrescenta outra;
+  - uma falha que persiste cancela os outros turnos e chega ao pipeline como a exceção original, não como
+    `ExceptionGroup`;
+  - `import aiohttp` direto no `tts.py`, sem declarar no `pyproject.toml` (vem com o edge-tts);
+  - as duas pausas geradas sempre, uma vez cada;
+  - nenhuma linha nova em INFO; só um WARNING por nova tentativa;
+  - dois commits: este, só com a medição, e o da implementação.
+- Aceite separado só depois do ok do dono ao commit da implementação: os itens 19 (o mais curto), um mediano e 20 (o
+  mais longo) de 07/11, rodadas alternadas entre a `master` e a branch, pelo menos duas de cada versão, com as novas
+  tentativas registradas.
+
+### Pendências
+
+- O commit da implementação (`tts.py` e `tests/test_tts.py`), depois de conferir que o `scripts/resumo_lotes.py` não lê
+  o WARNING novo e que a linha do `✅` fica idêntica.
+- O aceite separado, com o ok do dono.
