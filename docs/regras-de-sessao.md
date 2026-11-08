@@ -11,9 +11,11 @@ trabalho do roteiro; as melhorias seguem a seção abaixo.
   chame `mark_seen` no banco de produção e não altere `OLLAMA_NUM_CTX`.
 - Testes e commit na branch da worktree (a `trabalho` para o roteiro; a da frente para as
   melhorias), sem push. Merge na `master` só com o ok do dono, por avanço rápido (fast-forward).
-- Antes de qualquer avanço rápido na `master`, compare o `pip freeze` das duas `.venv` (a da pasta principal e a da
-  worktree de onde vem o avanço: a `techdigest-fase4` no roteiro, a `techdigest-testes` nas melhorias): em 05/11 uma
-  versão diferente do edge-tts derrubou a primeira execução real.
+- O `uv.lock` da branch é o que roda: cada `.venv` sai dele (`uv sync --locked --extra dev`, sempre com o
+  `--extra dev`). Antes de qualquer avanço rápido na `master`, `uv sync --locked --check --extra dev` tem de dar
+  `Would make no changes` na worktree de onde vem o avanço (a `techdigest-fase4` no roteiro, a `techdigest-testes` nas
+  melhorias) e, logo depois do avanço, na pasta principal: em 05/11 uma versão diferente do edge-tts derrubou a primeira
+  execução real.
 - Chamada ao modelo só com a sessão de teste no ar (`systemctl --user start
   techdigest-teste.target`), sob `systemd-inhibit --what=sleep:idle` e com o vigia de memória.
   Antes, confira o `nvidia-smi` e a linha `library=CUDA` no log da unit. No fim, pare a sessão.

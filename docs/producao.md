@@ -5,10 +5,12 @@ notícias como vistas em `data/digest.db`. Não há timer; cada execução sai d
 
 ## Antes
 
-1. A `master` e a `.venv` da pasta principal (`/home/sytw/Projetos/techdigest`) são as que rodam. Depois de qualquer
-   atualização da `master`, compare as versões instaladas nas duas pastas
-   (`diff <(.venv/bin/pip freeze) <(../techdigest-fase4/.venv/bin/pip freeze)`): em 05/11 o edge-tts 7.2.8 da produção
-   derrubou a execução inteira (403) enquanto a simulação passava com o 7.3.1.
+1. A `master` e a `.venv` da pasta principal (`/home/sytw/Projetos/techdigest`) são as que rodam, e a `.venv` segue o
+   `uv.lock` da `master`. Depois de qualquer atualização da `master`, na pasta principal,
+   `uv sync --locked --check --extra dev` tem de terminar em `Would make no changes`. Se listar pacotes, rode
+   `uv sync --locked --extra dev` e confira de novo (sempre com o `--extra dev`: sem ele o pytest sai da `.venv`). Em
+   05/11 o edge-tts 7.2.8 da produção derrubou a execução inteira (403) enquanto a simulação passava com o 7.3.1: o
+   `--check` acusa exatamente esse caso.
 2. Nenhuma outra rodada no ar: `systemctl --user is-active techdigest-teste.target` deve dar `inactive`. O pipeline também
    recusa começar (e avisa no Telegram) se a trava do modelo estiver ocupada.
 3. `nvidia-smi` tem de responder. Se não responder, não suba nada: sem GPU a carga do modelo esgota a memória.

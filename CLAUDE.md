@@ -21,7 +21,7 @@ The long reference sections live in `docs/referencia/`. Each summary below names
 ## Commands
 
 ```bash
-.venv/bin/pip install -e .                       # install (already installed editable in .venv, Python 3.14; requires >=3.11)
+uv sync --locked --extra dev                     # install the exact versions of uv.lock, the package editable and pytest (always with --extra dev)
 .venv/bin/techdigest                             # run the pipeline (same as: .venv/bin/python -m techdigest)
 .venv/bin/python scripts/resumo_lotes.py         # per-run summary table parsed from today's log
 .venv/bin/python scripts/resumo_lotes.py 07/10   # same, for a given day (DD/MM); --log <file> reads another log
@@ -30,17 +30,18 @@ The long reference sections live in `docs/referencia/`. Each summary below names
 .venv/bin/python scripts/testar_episodio.py --amostra <file>   # generates a few episodes from a saved sample: LLM only, nothing delivered
 .venv/bin/python scripts/checar_fidelidade.py    # checks those episodes against the source texts of their pautas: no LLM, no network
 .venv/bin/python scripts/refazer_qa.py <folders> # reruns the current QA on recorded episodes: no LLM, no network
-.venv/bin/pip install -e '.[dev]'                # dev extra (pytest)
+uv sync --locked --check --extra dev             # checks that .venv matches uv.lock ("Would make no changes"); changes nothing
 .venv/bin/pytest                                 # tests
 systemctl --user start techdigest-teste.target   # test session: brings up the Ollama of the user unit (stop it at the end)
 ```
 
 - Manuals of the diagnostic scripts (`testar_agrupamento.py`, `testar_episodio.py`, `checar_fidelidade.py`, `refazer_qa.py`), what the tests cover, the simulation and the Ollama user unit: `docs/referencia/scripts.md`. Read the part you need before running or changing any of them, `simulacao.py`, `deploy/systemd/`, `ai/maquina.py` or `ai/gpu.py`.
-- `.venv/bin/pytest` runs offline: `tests/conftest.py` turns off the `.env` and points the database, logs, audio, deliveries, Ollama log and model lock to a temporary folder, and no test calls an LLM or reaches Telegram. There is no linter and no formatter configured. `requirements.txt` is empty and gitignored; dependencies live in `pyproject.toml`.
+- `.venv/bin/pytest` runs offline: `tests/conftest.py` turns off the `.env` and points the database, logs, audio, deliveries, Ollama log and model lock to a temporary folder, and no test calls an LLM or reaches Telegram. There is no linter and no formatter configured.
+- Versions (front 2 of the improvements, decision of 08/11/2026): the dependencies live in `pyproject.toml`, with minimum versions only, and their exact versions in `uv.lock`, versioned. The lock is universal, so it also carries three packages that only install on other platforms (`colorama` and `tzdata` on Windows, `httpx2-jsfetch` on emscripten). The Python is in `.python-version` (3.14, the system's `/usr/bin/python3.14`). `uv sync --locked` refuses a lock older than `pyproject.toml`; `--extra dev` always goes with it, since without it the sync removes pytest. To update one dependency, `uv lock --upgrade-package <name>`; after changing `pyproject.toml`, `uv lock`; `uv.lock` goes in the same commit. A `.venv` made by uv has no `pip`: `uv pip freeze` lists what is installed. `requirements.txt` is empty and gitignored, and `src/techdigest.egg-info/` is gitignored too.
 - **Running the pipeline has real side effects**: it calls the LLM, sends messages and audio to the configured Telegram chat, and marks URLs as seen in `data/digest.db`. The simulation below is real too, except for the delivery and the database: it calls the LLM and Edge-TTS and takes the model lock. Do not run either just to check a change; exercise the individual function instead (e.g. `collect_rss()`, `extract_full_text(url)`, `qa.problemas(result, veiculos, lados, ressalvas, textos)`).
 - **Simulation** (`techdigest --simular <folder> --banco-origem <digest.db>`, `simulacao.py`): collection, extraction, LLM and TTS are real; the delivery goes to files and the database is a copy, and no path of it calls the Telegram API. Put the folders under `data/simulacoes/`. Details in `docs/referencia/scripts.md`.
 - Always enter through `techdigest.main` (the console script or `python -m techdigest`). `python -m techdigest.pipeline` skips `setup_logging()`, so nothing reaches the log file.
-- System requirements outside pip: `ffmpeg`/`ffprobe` on PATH (audio concat and duration), network access for Edge-TTS, and an Ollama server at `OLLAMA_HOST` when `LLM_PROVIDER=ollama`.
+- System requirements outside the lock: `uv` (the Arch package), `ffmpeg`/`ffprobe` on PATH (audio concat and duration), network access for Edge-TTS, and an Ollama server at `OLLAMA_HOST` when `LLM_PROVIDER=ollama`.
 - The Ollama server runs as the user unit `deploy/systemd/ollama.service`, brought up for test rounds with `systemctl --user start techdigest-teste.target` and stopped at the end, never with `ollama serve` by hand: the GPU checks of the scripts refuse the log of another start of the server. Installation, log, `LLAMA_ARG_CACHE_RAM=0` and the GPU checks: `docs/referencia/scripts.md`.
 
 ## Configuration

@@ -77,8 +77,10 @@ docs/melhorias/02-versoes.md atualizada.
 
 ## Estado
 
-- **08/11/2026: em implementação.** Branch `melhoria/versoes`, a partir da `64bd21b`. Último commit: "chore: tira o
-  src/techdigest.egg-info do git" (commit 1 de 2). Suíte: 667 passam, na `.venv` do pip desta worktree.
+- **08/11/2026: aceite separado feito pela sessão; espera o ok do dono.** Branch `melhoria/versoes`, a partir da
+  `64bd21b`. Commit 1: `0e23a55` ("chore: tira o src/techdigest.egg-info do git"). Commit 2, o deste Estado: "build:
+  versões travadas pelo uv.lock e Python pelo .python-version". Suíte: 667 passam na `.venv` nova, feita pelo uv a
+  partir do lock (e 667 na `.venv` do pip, no commit 1).
 - **Decisão do dono (08/11/2026):** uv, com lock universal (sem `environments` no `[tool.uv]`), porque quem baixar o
   projeto do GitHub pode usar Windows ou macOS. Aceite do lock: os 60 pacotes do `pip freeze` da produção com a mesma
   versão; os extras, só os de outras plataformas (`colorama`, `tzdata`, `httpx2-jsfetch`), listados; qualquer outro
@@ -100,11 +102,31 @@ docs/melhorias/02-versoes.md atualizada.
     o pytest e as quatro dependências dele.
   - A instalação editável das `.venv` é a do PEP 660 (`__editable__.techdigest-0.1.0.pth` e o `dist-info` no
     `site-packages`): o `src/techdigest.egg-info` é só um resto do build, e apagá-lo do disco não quebra a `.venv`.
-- **Feito:** commit 1. O `src/techdigest.egg-info` saiu do índice do git (os arquivos continuam no disco) e o
-  `.gitignore` ganhou `*.egg-info/` e `.venv.pip-*/` (a cópia da `.venv` antiga, aqui e na troca da `.venv` da produção).
-- **Próximo:** commit 2: `.python-version`, `uv.lock`, a `.venv` desta worktree refeita pelo uv e os documentos
-  (comandos do `CLAUDE.md`, passo 1 de "Antes" do `docs/producao.md`, regra do `pip freeze` em
-  `docs/regras-de-sessao.md`, a troca da `.venv` da produção neste arquivo).
+- **Medido no commit 2 (08/11):**
+  - O freeze da produção, relido antes de travar, igual ao da primeira leitura.
+  - O lock: os 60 pacotes entraram como `constraint-dependencies` temporárias no `[tool.uv]`; sem a seção, um novo
+    `uv lock` manteve as versões; o `uv lock --check` passa; o `pyproject.toml` ficou sem diff; o `uv.lock` final não tem
+    `[manifest]` (o da etapa com a restrição tinha `[manifest]` com `constraints`).
+  - Aceite por script (na scratchpad, fora do commit): 64 pacotes no lock; os 60 do freeze com a mesma versão, nenhum
+    diferente e nenhum ausente; o `edge-tts` em 7.3.1; os extras só `colorama` 0.4.6 (`sys_platform == 'win32'`, pelo
+    pytest), `tzdata` 2026.6 (`sys_platform == 'win32'`, pelo tzlocal) e `httpx2-jsfetch` 1.0
+    (`python_full_version >= '3.12' and sys_platform == 'emscripten'`, pelo httpx2).
+  - A `.venv` desta worktree: a do pip guardada em `.venv.pip-20261108` (ignorada pelo git), a nova feita por
+    `uv sync --locked --extra dev`. O `.venv/bin/python` aponta para `/usr/bin/python3.14`, 3.14.9, sem free-threading
+    (`Py_GIL_DISABLED` falso), com `home = /usr/bin` no `pyvenv.cfg`, e o uv não baixou Python nenhum
+    (`~/.local/share/uv/python` não existe). O `uv sync --locked --check --extra dev` dá `Would make no changes`
+    (61 pacotes conferidos: os 60 e o techdigest); o `uv pip freeze` é igual ao freeze da produção (60 pacotes, com os
+    nomes normalizados); não há `pip`.
+  - Reprodutível: apagada e refeita, a `.venv` saiu com as mesmas versões.
+- **Feito:**
+  - Commit 1: o `src/techdigest.egg-info` saiu do índice do git (os arquivos continuam no disco) e o `.gitignore` ganhou
+    `*.egg-info/` e `.venv.pip-*/` (a cópia da `.venv` antiga, aqui e na troca da `.venv` da produção).
+  - Commit 2: `.python-version` (3.14) e `uv.lock`, sem mudança no `pyproject.toml`. Documentos: `CLAUDE.md`
+    ("Commands": a instalação e o `--check`, um item sobre as versões, o `uv` nos requisitos de sistema),
+    `docs/producao.md` (passo 1 de "Antes": o `--check` no lugar da comparação do `pip freeze`) e
+    `docs/regras-de-sessao.md` (a regra do `pip freeze` vira a do `uv.lock`).
+- **Próximo:** o aceite do dono; com ele, a frente fica "pronta para integração" e a frente 0 é avisada. A
+  `.venv.pip-20261108` desta worktree só é apagada com o ok do dono.
 - **Pendências para a frente 0 (integração):**
   - `CLAUDE.md`, "Repo notes": a nota "`src/techdigest.egg-info/` is committed, so reinstalling the package can produce
     diffs there" fica falsa; sugestão: "`src/techdigest.egg-info/` is gitignored: every install regenerates it".
@@ -121,3 +143,45 @@ docs/melhorias/02-versoes.md atualizada.
     genéricas sincronizadas `pdf`, `pptx` e `xlsx` e uma cópia da `pdf` na lixeira (`~/.claude/skills/.trash/`), que não
     são do projeto. A `techdigest-rodada-modelo` cita "a `.venv` e o código dela" (linha 10), que continua valendo com o
     uv; nenhuma cita `egg-info`, `freeze` ou `requirements`.
+  - A troca da `.venv` da produção, abaixo, logo depois do avanço rápido da `master`.
+  - Uma worktree que ainda não recebeu estes commits continua com a `.venv` do pip. Ao receber a `testes` ou a
+    `master`, ela refaz a `.venv` pelo lock: `mv .venv .venv.pip-AAAAMMDD`, `uv sync --locked --extra dev` e a suíte.
+  - Se a frente 4 entrar na `testes` com o `ruff` no extra `dev` (antes ou depois desta), o lock é refeito na `testes`
+    com `uv lock` e vai num commit. O aceite por script vale de novo: os 60 com as versões da produção e o `ruff` (com o
+    que ele puxar) como diferença listada. Um conflito no `uv.lock` se resolve refazendo o lock com `uv lock`, nunca à
+    mão.
+  - O estado de produção do `CLAUDE.md` ("Production state") passa a dizer que a `.venv` da produção é do uv.
+
+### Troca da `.venv` da produção (frente 0, no merge)
+
+Na pasta principal, logo depois do avanço rápido da `master` para a `testes`, sem rodada nem execução no ar.
+`AAAAMMDD` é a data do dia. Testado nesta worktree em 08/11, com a `.venv.pip-20261108` no papel da antiga.
+
+```bash
+cd /home/sytw/Projetos/techdigest
+systemctl --user is-active techdigest-teste.target   # tem de dar inactive
+ls uv.lock .python-version                           # a master já traz os dois
+.venv/bin/pip freeze --all | sort -f > .venv/freeze-antes-do-uv.txt   # as versões do pip, guardadas com a .venv
+mv .venv .venv.pip-AAAAMMDD                          # a .venv do pip, guardada (o .gitignore a ignora)
+uv sync --locked --extra dev                         # a .venv nova, do lock
+readlink -f .venv/bin/python                         # /usr/bin/python3.14 (nunca o python3.14t)
+.venv/bin/python -c "import sys, sysconfig; print(sys.version.split()[0], bool(sysconfig.get_config_var('Py_GIL_DISABLED')))"   # 3.14.x False
+uv sync --locked --check --extra dev                 # Would make no changes
+uv pip show --python .venv/bin/python edge-tts | grep Version   # a do lock (7.3.1 em 08/11)
+.venv/bin/pytest -q                                  # a suíte inteira
+diff <(grep -v -E '^(-e |pip==)' .venv.pip-AAAAMMDD/freeze-antes-do-uv.txt | tr 'A-Z_' 'a-z-' | sort) \
+     <(uv pip freeze --python .venv/bin/python | grep -v -E '^(-e |techdigest)' | tr 'A-Z_' 'a-z-' | sort)
+```
+
+O `diff` sem saída quer dizer as mesmas versões. Cada linha dele é uma diferença: fica listada e só segue com o ok do
+dono (por exemplo o `ruff`, se a frente 4 entrar com ele no extra `dev`). A `.venv.pip-AAAAMMDD` fica até a primeira
+execução real do dono passar; apagá-la é decisão dele.
+
+Para voltar atrás, a `.venv` do pip de volta ao lugar:
+
+```bash
+cd /home/sytw/Projetos/techdigest
+rm -rf .venv                                         # só a .venv do uv, que o lock refaz
+mv .venv.pip-AAAAMMDD .venv
+.venv/bin/pytest -q
+```
