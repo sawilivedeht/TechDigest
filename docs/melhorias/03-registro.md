@@ -86,4 +86,6 @@ inteira e a seção "Estado" de docs/melhorias/03-registro.md atualizada.
     antes (os candidatos já entraram na amostra, a entrada não entra no relatório).
   - Fora do escopo, não feito: `scripts/testar_episodio.py`, que grava os relatórios dele com `write_text`; unificar com
     a troca de `ai/janela.py`; `docs/referencia/scripts.md`.
-  - Pendência: o ok do dono no aceite separado, para a frente ficar pronta para integração.
+- 08/11/2026: **pronta para integração**. O dono aprovou o aceite separado. Branch `melhoria/registro`, código em
+  `f6f54e9`, sem push. 671 testes passam. Próximo passo, com a frente 0: rebase sobre a `testes` e avanço rápido dela.
+  Sem pendência nesta frente.
