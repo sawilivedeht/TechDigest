@@ -1,8 +1,9 @@
-"""Testes de audio/tts.py (gerar_podcast): os turnos sintetizados em paralelo, a ordem da lista do ffmpeg, as duas
-pausas, as novas tentativas e o roteiro vazio. Sem rede e sem ffmpeg: o edge_tts.Communicate e o subprocess.run são
-falsos."""
+"""Testes de audio/tts.py (gerar_podcast): os turnos sintetizados em paralelo, o ajuste de cada fala logo depois da
+síntese (as pontas e os silêncios de dentro), a ordem da lista do ffmpeg, as duas pausas, as novas tentativas e o
+roteiro vazio. Sem rede e sem ffmpeg: o edge_tts.Communicate e o subprocess.run são falsos."""
 import asyncio
 import logging
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,30 +14,53 @@ from edge_tts.exceptions import NoAudioReceived, WebSocketError
 from techdigest.audio import tts
 
 PERSONAGENS = [{"nome": "Helena", "papel": "apresentadora"}, {"nome": "Otávio", "papel": "analista"}]
-DURACAO = 245.5
+DURACAO = 245.5           # o que o ffprobe falso devolve para o episódio
+DURACAO_DA_FALA = 10.0    # o que cada WAV de fala dura, para o ajuste
 
 
 class FfmpegFalso:
-    """Faz o papel do subprocess.run. Guarda as pausas geradas e, na concatenação, as linhas do concat.txt e o
-    conteúdo de cada arquivo (a pasta temporária some depois); o ffprobe devolve DURACAO."""
+    """Faz o papel do subprocess.run. A decodificação copia o mp3 da fala (que o Edge falso grava com o texto) para o
+    WAV; o silencedetect devolve o que `silencios[(arquivo, limiar)]` mandar (nada, por padrão); o corte (atrim) grava
+    a entrada com "|cortado"; as pausas ficam vazias. Na concatenação guarda as linhas do concat.txt e o conteúdo de
+    cada arquivo (a pasta temporária some depois). O ffprobe devolve DURACAO."""
 
-    def __init__(self):
+    def __init__(self, eventos: list):
         self.pausas: list[tuple[str, float]] = []
         self.lista: list[str] | None = None
         self.conteudos: list[bytes] = []
+        self.silencios: dict[tuple[str, str], str] = {}
+        self.deteccoes: list[tuple[str, str, str]] = []   # (arquivo, limiar, mínimo)
+        self.cortes: list[tuple[str, str]] = []           # (arquivo, filter_complex)
+        self.eventos = eventos
 
     def __call__(self, cmd, **_):
         if cmd[0] == "ffprobe":
-            return SimpleNamespace(stdout=f"{DURACAO}\n", returncode=0)
+            return SimpleNamespace(stdout=f"{DURACAO}\n", stderr="", returncode=0)
+        entrada = cmd[cmd.index("-i") + 1]
+        if "-af" in cmd:   # silencedetect
+            filtro = cmd[cmd.index("-af") + 1]
+            limiar = re.search(r"noise=(-?\d+)dB", filtro).group(1)
+            minimo = re.search(r":d=([\d.]+)", filtro).group(1)
+            self.deteccoes.append((Path(entrada).name, limiar, minimo))
+            return SimpleNamespace(stdout="", stderr=self.silencios.get((Path(entrada).name, limiar), ""),
+                                   returncode=0)
+        saida = Path(cmd[-1])
         if "lavfi" in cmd:
-            self.pausas.append((Path(cmd[-1]).name, float(cmd[cmd.index("-t") + 1])))
+            self.pausas.append((saida.name, float(cmd[cmd.index("-t") + 1])))
+            saida.write_bytes(b"")
         elif "concat" in cmd:
-            linhas = Path(cmd[cmd.index("-i") + 1]).read_text(encoding="utf-8").splitlines()
+            linhas = Path(entrada).read_text(encoding="utf-8").splitlines()
             arquivos = [linha.removeprefix("file '").removesuffix("'") for linha in linhas]
             self.lista = [Path(a).name for a in arquivos]
             self.conteudos = [Path(a).read_bytes() for a in arquivos]
-        Path(cmd[-1]).write_bytes(b"")
-        return SimpleNamespace(stdout="", returncode=0)
+            saida.write_bytes(b"")
+        elif "-filter_complex" in cmd:
+            self.cortes.append((Path(entrada).name, cmd[cmd.index("-filter_complex") + 1]))
+            saida.write_bytes(Path(entrada).read_bytes() + b"|cortado")
+        else:   # a decodificação da fala
+            self.eventos.append(("decodificada", saida.name))
+            saida.write_bytes(Path(entrada).read_bytes())
+        return SimpleNamespace(stdout="", stderr="", returncode=0)
 
 
 class EdgeFalso:
@@ -44,12 +68,13 @@ class EdgeFalso:
     quantas estão ao mesmo tempo e levanta, uma por tentativa, as exceções de `falhas[texto]`; a que dá certo grava o
     texto."""
 
-    def __init__(self):
+    def __init__(self, eventos: list):
         self.demora: dict[str, float] = {}
         self.falhas: dict[str, list[BaseException]] = {}
         self.ativas = self.max_ativas = 0
         self.chamadas: list[tuple[str, str]] = []
         self.terminadas: list[str] = []
+        self.eventos = eventos
 
     def __call__(self, texto: str, voz: str):
         edge = self
@@ -65,6 +90,7 @@ class EdgeFalso:
                         raise edge.falhas[texto].pop(0)
                     Path(out).write_bytes(texto.encode())
                     edge.terminadas.append(texto)
+                    edge.eventos.append(("sintetizada", texto))
                 finally:
                     edge.ativas -= 1
 
@@ -73,10 +99,12 @@ class EdgeFalso:
 
 @pytest.fixture
 def falsos(monkeypatch):
-    ffmpeg, edge = FfmpegFalso(), EdgeFalso()
+    eventos: list = []
+    ffmpeg, edge = FfmpegFalso(eventos), EdgeFalso(eventos)
     monkeypatch.setattr(tts, "subprocess", SimpleNamespace(run=ffmpeg))
     monkeypatch.setattr(tts, "edge_tts", SimpleNamespace(Communicate=edge))
     monkeypatch.setattr(tts, "PAUSA_ENTRE_TENTATIVAS_TTS_S", 0)
+    monkeypatch.setattr(tts, "_duracao_wav", lambda arquivo: DURACAO_DA_FALA)
     return ffmpeg, edge
 
 
@@ -94,6 +122,58 @@ def _recusa_http(status: int) -> aiohttp.WSServerHandshakeError:
                                           message="Invalid response status")
 
 
+# ------------------------------------------------------------------------------------------- as funções puras do corte
+def _plano(trechos) -> list[float]:
+    """Os trechos achatados, para comparar com pytest.approx (que não compara lista de tuplas)."""
+    return [x for trecho in trechos for x in trecho]
+
+
+def test_silencios_do_ffmpeg_le_o_silencedetect_e_fecha_o_ultimo_no_fim_da_fala():
+    saida = ("[silencedetect @ 0x5] silence_start: -0.00133333\n"
+             "[silencedetect @ 0x5] silence_end: 0.1485 | silence_duration: 0.149833\n"
+             "[silencedetect @ 0x5] silence_start: 1.21\n"
+             "[silencedetect @ 0x5] silence_end: 2.12 | silence_duration: 0.91\n"
+             "[silencedetect @ 0x5] silence_start: 26.18\n")
+    assert tts._silencios_do_ffmpeg(saida, 27.0) == [(0.0, 0.1485), (1.21, 2.12), (26.18, 27.0)]
+    assert tts._silencios_do_ffmpeg("", 27.0) == []
+
+
+def test_trechos_mantidos_numa_fala_do_otavio():
+    # a fala 2 do item 20 de 07/11: 0,15 s antes do som, três fins de frase de ~0,91 s e 0,82 s depois do som
+    pontas = [(0.0, 0.1485), (1.25, 2.08), (26.18, 27.0)]            # o silêncio de dentro a -60 dB não conta
+    dentro = [(1.21, 2.12), (8.06, 8.98), (16.28, 17.20), (26.17, 27.0)]
+    trechos = tts._trechos_mantidos(27.0, pontas, dentro, margem=0.05, teto=0.45)
+    assert _plano(trechos) == pytest.approx(_plano([(0.0985, 1.435), (1.895, 8.285), (8.755, 16.505),
+                                                    (16.975, 26.23)]))
+    # sai só silêncio: o começo e o fim do som, mais a margem, e o miolo de cada fim de frase, com 0,225 s de cada lado
+    assert sum(b - a for a, b in trechos) == pytest.approx(27.0 - 0.0985 - 0.77 - (0.46 + 0.47 + 0.47))
+
+
+def test_trechos_mantidos_so_corta_silencio_de_dentro_maior_que_o_teto():
+    trechos = tts._trechos_mantidos(10.0, [], [(3.0, 3.45), (5.0, 5.46)], margem=0.05, teto=0.45)
+    assert _plano(trechos) == pytest.approx(_plano([(0.0, 5.225), (5.235, 10.0)]))
+
+
+def test_trechos_mantidos_nas_pontas():
+    # sem silêncio nas pontas, a fala começa e acaba onde já começava e acabava
+    assert tts._trechos_mantidos(10.0, [], [], margem=0.05, teto=0.45) == [(0.0, 10.0)]
+    # uma ponta menor que a margem fica inteira
+    assert tts._trechos_mantidos(10.0, [(0.0, 0.03), (9.98, 10.0)], [], margem=0.05, teto=0.45) == [(0.0, 10.0)]
+    # um silêncio do limiar do teto que toca o começo ou o fim é ponta, não é de dentro
+    assert _plano(tts._trechos_mantidos(10.0, [(0.0, 0.2), (9.0, 10.0)], [(0.0, 0.6), (8.9, 10.0)],
+                                        margem=0.05, teto=0.45)) == pytest.approx([0.15, 9.05])
+    # uma fala sem som fica inteira
+    assert tts._trechos_mantidos(10.0, [(0.0, 10.0)], [(0.0, 10.0)], margem=0.05, teto=0.45) == [(0.0, 10.0)]
+
+
+def test_filtro_dos_trechos():
+    assert tts._filtro_dos_trechos([(0.15, 4.225), (4.675, 9.05)]) == (
+        "[0]atrim=start=0.150000:end=4.225000,asetpts=PTS-STARTPTS[t0];"
+        "[0]atrim=start=4.675000:end=9.050000,asetpts=PTS-STARTPTS[t1];"
+        "[t0][t1]concat=n=2:v=0:a=1[s]")
+
+
+# ------------------------------------------------------------------------------------------------------ gerar_podcast
 def test_a_lista_segue_a_ordem_dos_turnos_com_a_pausa_certa(falsos, tmp_path):
     ffmpeg, edge = falsos
     turnos = _roteiro("Helena", "Otávio", "Otávio", "Helena", "Otávio", "Helena")
@@ -105,15 +185,47 @@ def test_a_lista_segue_a_ordem_dos_turnos_com_a_pausa_certa(falsos, tmp_path):
     assert (caminho, duracao) == (str(tmp_path / "ep" / "episodio.mp3"), DURACAO)
     assert edge.terminadas != [t["fala"] for t in turnos]
     assert ffmpeg.lista == [
-        "turno_000.mp3", "pausa_longa.mp3", "turno_001.mp3", "pausa_curta.mp3", "turno_002.mp3", "pausa_longa.mp3",
-        "turno_003.mp3", "pausa_longa.mp3", "turno_004.mp3", "pausa_longa.mp3", "turno_005.mp3",
+        "turno_000.wav", "pausa_longa.wav", "turno_001.wav", "pausa_curta.wav", "turno_002.wav", "pausa_longa.wav",
+        "turno_003.wav", "pausa_longa.wav", "turno_004.wav", "pausa_longa.wav", "turno_005.wav",
     ]
-    # cada arquivo de turno tem a fala daquele turno, e as pausas vêm do ffmpeg
+    # cada arquivo de turno tem a fala daquele turno, e as pausas vêm do ffmpeg; sem silêncio a mais, nada é cortado
     assert ffmpeg.conteudos[::2] == [t["fala"].encode() for t in turnos]
     assert set(ffmpeg.conteudos[1::2]) == {b""}
+    assert ffmpeg.cortes == []
     # a voz de cada personagem não muda
     vozes = dict(edge.chamadas)
     assert vozes["fala 0 de Helena"] == "pt-BR-FranciscaNeural" and vozes["fala 1 de Otávio"] == "pt-BR-AntonioNeural"
+
+
+def test_a_fala_com_silencio_a_mais_entra_cortada_na_lista(falsos, tmp_path):
+    ffmpeg, _ = falsos
+    turnos = _roteiro("Helena", "Otávio", "Helena")
+    ffmpeg.silencios[("turno_001.wav", "-60")] = (
+        "silence_start: 0\nsilence_end: 0.2 | silence_duration: 0.2\nsilence_start: 9.0\n")
+    ffmpeg.silencios[("turno_001.wav", "-50")] = (
+        "silence_start: 0\nsilence_end: 0.25 | silence_duration: 0.25\n"
+        "silence_start: 4.0\nsilence_end: 4.9 | silence_duration: 0.9\nsilence_start: 8.95\n")
+
+    tts.gerar_podcast(turnos, PERSONAGENS, str(tmp_path / "a.mp3"))
+
+    assert ffmpeg.cortes == [("turno_001.wav", tts._filtro_dos_trechos([(0.15, 4.225), (4.675, 9.05)]))]
+    assert ffmpeg.lista == ["turno_000.wav", "pausa_longa.wav", "turno_001_ajustado.wav", "pausa_longa.wav",
+                            "turno_002.wav"]
+    assert ffmpeg.conteudos[2] == "fala 1 de Otávio|cortado".encode()
+    # cada fala passa pelas duas detecções: as pontas a -60 dB e os silêncios de dentro a -50 dB, maiores que o teto
+    assert sorted(ffmpeg.deteccoes) == sorted(
+        [(f"turno_{i:03d}.wav", "-60", "0.01") for i in range(3)]
+        + [(f"turno_{i:03d}.wav", "-50", str(tts.TETO_SILENCIO_INTERNO_S)) for i in range(3)])
+
+
+def test_cada_fala_e_ajustada_logo_depois_da_sintese_dela(falsos, tmp_path):
+    ffmpeg, edge = falsos
+    turnos = _roteiro("Helena", "Otávio", "Helena")
+    edge.demora[turnos[0]["fala"]] = 0.3          # a primeira fala é a última a ficar pronta
+    tts.gerar_podcast(turnos, PERSONAGENS, str(tmp_path / "a.mp3"))
+    eventos = ffmpeg.eventos
+    assert eventos.index(("decodificada", "turno_001.wav")) < eventos.index(("sintetizada", "fala 0 de Helena"))
+    assert eventos.index(("sintetizada", "fala 0 de Helena")) < eventos.index(("decodificada", "turno_000.wav"))
 
 
 def test_nunca_mais_que_concorrencia_tts_sinteses_ao_mesmo_tempo(falsos, tmp_path, monkeypatch):
@@ -131,9 +243,9 @@ def test_nunca_mais_que_concorrencia_tts_sinteses_ao_mesmo_tempo(falsos, tmp_pat
 def test_as_duas_pausas_sao_geradas_uma_vez_cada(falsos, tmp_path):
     ffmpeg, _ = falsos
     tts.gerar_podcast(_onze_turnos(), PERSONAGENS, str(tmp_path / "a.mp3"))
-    assert sorted(ffmpeg.pausas) == [("pausa_curta.mp3", tts.PAUSA_MESMO_PERSONAGEM_S),
-                                     ("pausa_longa.mp3", tts.PAUSA_TROCA_PERSONAGEM_S)]
-    assert ffmpeg.lista.count("pausa_longa.mp3") == 10
+    assert sorted(ffmpeg.pausas) == [("pausa_curta.wav", tts.PAUSA_MESMO_PERSONAGEM_S),
+                                     ("pausa_longa.wav", tts.PAUSA_TROCA_PERSONAGEM_S)]
+    assert ffmpeg.lista.count("pausa_longa.wav") == 10
 
 
 @pytest.mark.parametrize("erro", [aiohttp.ServerDisconnectedError(), aiohttp.ServerTimeoutError("tempo de leitura"),
