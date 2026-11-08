@@ -103,17 +103,17 @@ a suíte inteira e a seção "Estado" de docs/melhorias/01-audio.md atualizada.
 - 08/11/2026: etapa 1 (medição) feita; etapa 2 aprovada pelo dono, em implementação. Branch `melhoria/audio`, sobre
   `64bd21b`. 667 testes passam.
 - 08/11/2026: etapa 2 implementada, à espera do ok do dono para o aceite separado. Branch `melhoria/audio`, sobre
-  `ddd46b8` (a medição). 681 testes passam (os 667 e os 14 de `tests/test_tts.py`).
+  `336dbde` (a medição). 681 testes passam (os 667 e os 14 de `tests/test_tts.py`).
 - 08/11/2026: aceite separado medido (24 gerações, nenhuma falha, nenhuma nova tentativa), à espera de o dono ouvir um
-  episódio. Branch `melhoria/audio`, sobre `62a3942` (a implementação). 681 testes passam.
+  episódio. Branch `melhoria/audio`, sobre `d8dc640` (a implementação). 681 testes passam.
 - 08/11/2026: **pronta para integração.** O dono ouviu `rodada_4/branch/20.mp3` e aprovou o aceite. Branch
-  `melhoria/audio`, sobre `f650432` (o aceite). 681 testes passam.
+  `melhoria/audio`, sobre `f03ef9b` (o aceite). 681 testes passam.
 - 08/11/2026: o dono achou longas as pausas "entre falas do mesmo personagem"; a frente voltou a "em implementação".
   Medição das pausas, cinco variantes do item 20 e a escolha do dono, de ouvido: a variante E, implementada em
-  `133ff31` e conferida contra a variante ouvida. **De novo pronta para integração.** Branch `melhoria/audio`, sobre
-  `133ff31`. 688 testes passam (os 681 e 7 novos de `tests/test_tts.py`).
+  `8492af8` e conferida contra a variante ouvida. **De novo pronta para integração.** Branch `melhoria/audio`, sobre
+  `8492af8`. 688 testes passam (os 681 e 7 novos de `tests/test_tts.py`).
 - 08/11/2026: nada em curso: nenhum script rodando, sessão de teste `inactive`, branch limpa (fora o
-  `src/techdigest.egg-info/SOURCES.txt`, que não entra nos commits). Pronta para integração, sobre `5d3f5cc`. A
+  `src/techdigest.egg-info/SOURCES.txt`, que não entra nos commits). Pronta para integração, sobre `a1fe305`. A
   variante escolhida pelo dono é a E: pontas de cada fala aparadas com `atrim` (0,05 s de margem) e teto de 0,45 s
   nos silêncios de dentro das falas. Conferência do código novo (`E_final/20.mp3`) contra a variante E ouvida:
   235,08 s contra 234,83 s (+0,11%) e silêncio na troca de 0,77 s contra 0,75 s. 688 testes passam; os 7 novos de
@@ -121,7 +121,11 @@ a suíte inteira e a seção "Estado" de docs/melhorias/01-audio.md atualizada.
   no meio da fala, o filtro do `atrim`), a fala cortada entrando na lista do ffmpeg com as WAV e o ajuste de cada fala
   logo depois da síntese dela. Os instantes para ouvir (trocas e pausas do Otávio) estão em
   `/home/sytw/Projetos/techdigest/data/agrupamento/pausas_20261108/conferencia_E_final.md`. Próximo passo: avisar a
-  frente 0 de que a frente está pronta, agora com o corte das pausas (`133ff31`).
+  frente 0 de que a frente está pronta, agora com o corte das pausas (`8492af8`).
+- 08/11/2026: rebaseada sobre a `testes` em `4bce887` (com as frentes 2 e 3), sem conflito; os hashes deste arquivo
+  são os de depois do rebase. A `.venv` da worktree passou para o uv (`uv sync --locked --extra dev`; a do pip ficou em
+  `.venv.pip-20261108`), e `uv sync --locked --check --extra dev` dá `Would make no changes`. 695 testes passam: 674
+  da `testes` e 21 do `tests/test_tts.py`.
 
 ### Pausas (08/11/2026, depois do aceite)
 
@@ -154,7 +158,7 @@ código commitado). As WAV de conferência de cada fala foram apagadas depois do
 Em todas, o que ficou de cada fala é idêntico ao original fora das margens de 0,05 s; o `silenceremove` da C e da E
 altera essas margens em até 282 de 32768 (pico delas -38 dBFS), e por isso o código usa `atrim` também nas pontas.
 
-**O código commitado (`133ff31`) contra a variante E:**
+**O código commitado (`8492af8`) contra a variante E:**
 - Nas 11 falas originais guardadas da variante E, o `_ajustar_fala` deixou o que fica idêntico ao original, amostra
   por amostra, e tirou 14,39 s com pico de no máximo -59,4 dBFS; cada fala ficou de 5 a 68 ms mais longa que na E (o
   `atrim` começa no primeiro instante acima de -60 dB; o `silenceremove` media em janelas de 20 ms).
@@ -166,7 +170,7 @@ altera essas margens em até 282 de 32768 (pico delas -38 dBFS), e por isso o c�
 ### Aceite separado (08/11/2026, 13:18 a 13:23)
 
 Os itens 19 (o mais curto, 9 turnos), 17 (o mediano, 11) e 20 (o mais longo, 11) da execução de 07/11, com o código
-da `master` (`64bd21b`) e o da branch (`62a3942`), cada versão num processo, na mesma `.venv` (edge-tts 7.3.1), de uma
+da `master` (`64bd21b`) e o da branch (`d8dc640`), cada versão num processo, na mesma `.venv` (edge-tts 7.3.1), de uma
 cópia tirada por `git archive` (nada mudou em `src/`). 4 rodadas, cada uma com as duas versões, a ordem trocando
 entre elas (M B, B M, M B, B M). Só o Edge-TTS e o ffmpeg: sem o modelo e sem o Telegram. Scripts, mp3 e resultado em
 `/home/sytw/Projetos/techdigest/data/agrupamento/audio_paralelo_20261108/` (`aceite.py`, `gerar.py`,
@@ -260,7 +264,7 @@ aprovados. Está toda no `techdigest.log`, linhas 16012 a 16237: os rotacionados
 - Aceite separado só depois do ok do dono ao commit da implementação: os itens 19 (o mais curto), um mediano e 20 (o
   mais longo) de 07/11, rodadas alternadas entre a `master` e a branch, pelo menos duas de cada versão, com as novas
   tentativas registradas.
-- Ok ao commit `62a3942` (08/11). Aceite com os itens 19, 17 e 20, 4 rodadas com a ordem de partida trocando entre
+- Ok ao commit `d8dc640` (08/11). Aceite com os itens 19, 17 e 20, 4 rodadas com a ordem de partida trocando entre
   elas, processos separados na mesma `.venv`; uma falha de episódio (403, 429 etc.) registrada como resultado, sem
   parar as rodadas; nada em `src/` durante o aceite.
 - Aceite aprovado (08/11), depois de ouvir `rodada_4/branch/20.mp3`: a frente fica pronta para integração.
@@ -270,7 +274,7 @@ aprovados. Está toda no `techdigest.log`, linhas 16012 a 16237: os rotacionados
 
 ### Pendências
 
-- Avisar a frente 0 de que a frente está pronta, agora com o corte das pausas (`133ff31`). Na integração, a sessão
+- Avisar a frente 0 de que a frente está pronta, agora com o corte das pausas (`8492af8`). Na integração, a sessão
   desta frente faz o rebase da `melhoria/audio` sobre a `testes`. A linha do `_silencio` no `tts.py` já está sem o
   `f`, como a frente 4 também deixa, e o corte das pausas não mexeu no `_silencio`; o conflito, se vier, se resolve
   com a string sem o `f`. Antes do avanço rápido da `master`, a frente 2 precisa ter lembrado do `aiohttp` (ver
