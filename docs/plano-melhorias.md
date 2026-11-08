@@ -177,7 +177,7 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
 | 0 | onda 0 concluída; espera as frentes prontas para a integração | `testes`, nascida da `master` em `64bd21b` | `coordenacao` apagada depois do passo 7 |
 | 1 Áudio | não começada | `melhoria/audio`, `64bd21b` | worktree `techdigest-audio` pronta: 667 testes, versões da produção |
 | 2 Versões | não começada | `melhoria/versoes`, `64bd21b` | worktree `techdigest-versoes` pronta: 667 testes, versões da produção |
-| 3 Registro | não começada | `melhoria/registro`, `64bd21b` | worktree `techdigest-registro` pronta: 667 testes, versões da produção |
+| 3 Registro | na `testes` | `melhoria/registro`, `b181d3d` | gravação atômica do registro integrada por avanço rápido; 671 testes passam na `testes` |
 | 4 ruff | não começada | `melhoria/ruff`, `64bd21b` | worktree `techdigest-ruff` pronta: 667 testes, versões da produção |
 | 8 Schema | não começada (medição na onda 1) | `melhoria/schema`, `64bd21b` | worktree `techdigest-schema` pronta: 667 testes, versões da produção |
 | 5, 6, 7 e 9 | não começadas | — | worktrees criadas quando o dono abrir o chat delas (passos 8 e 9 da onda 0) |
@@ -188,3 +188,5 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
   worktrees da onda 1 e a `techdigest-testes` têm `.venv` com as versões da produção (60 pacotes, `pip freeze` igual), o
   link `data/agrupamento` para a pasta principal e 667 testes passando. As skills `techdigest-retomar` e
   `techdigest-rodada-modelo` foram atualizadas para as frentes. A onda 1 pode abrir.
+- 08/11/2026: frente 3 (registro) na `testes`. `git merge --ff-only melhoria/registro` levou a `testes` de `7d8760b` a
+  `b181d3d`; a suíte inteira deu 671 passando. A `master` não mudou.
