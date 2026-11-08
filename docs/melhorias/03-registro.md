@@ -89,3 +89,8 @@ inteira e a seção "Estado" de docs/melhorias/03-registro.md atualizada.
 - 08/11/2026: **pronta para integração**. O dono aprovou o aceite separado. Branch `melhoria/registro`, código em
   `f6f54e9`, sem push. 671 testes passam. Próximo passo, com a frente 0: rebase sobre a `testes` e avanço rápido dela.
   Sem pendência nesta frente.
+- 08/11/2026: **rebaseada sobre a `testes`** (`7d8760b`, só documentos a mais: `docs/plano-melhorias.md` e
+  `docs/melhorias/00-coordenacao.md`), sem conflito. Os commits da branch passaram a ser `b89b5aa` (o código, antes
+  `f6f54e9`) e `e5299da` (o estado, antes `3a13a54`), mais o deste registro. 671 testes passam depois do rebase; a suíte
+  não pediu pacote nenhum, então a `.venv` não foi reinstalada. O `src/techdigest.egg-info` foi restaurado antes do
+  rebase e não entrou em commit. Sem push. Próximo passo, da frente 0: o avanço rápido da `testes` para esta branch.
