@@ -133,5 +133,8 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
   - Decisões do dono: documentos e regras na `master`; o commit na branch da worktree e o `pip freeze` com a worktree de
     onde vem o avanço; o link `data/agrupamento` nas seis pastas; o avanço rápido da `trabalho`; a `coordenacao` apagada.
   - Pendências: `claude/plano-melhorias.md` e `claude/andamento.md` no Projeto (chat do navegador); o push da `master`
-    (do dono); os zips soltos em `docs/` da pasta principal e da `techdigest-fase4` (do dono); as worktrees das ondas 2 e 3
+    (do dono); as worktrees das ondas 2 e 3
     quando o dono abrir o chat delas.
+- 08/11/2026: frente 1 (áudio) na `testes`: `melhoria/audio` em `63ea31f`, avanço rápido de `4bce887`; `Would make no
+  changes` e 695 testes, em duas execuções. Resolvidos hoje: o zip solto da `techdigest-fase4` (apagado; a cópia de `~/dumb`
+  fica) e o `.env` da `techdigest-testes` (conferido pelo dono).

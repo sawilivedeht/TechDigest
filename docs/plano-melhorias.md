@@ -176,9 +176,9 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
 | Frente | Etapa | Branch e último commit | Observação |
 |---|---|---|---|
 | 0 | onda 0 concluída; espera as frentes prontas para a integração | `testes`, nascida da `master` em `64bd21b` | `coordenacao` apagada depois do passo 7 |
-| 1 Áudio | não começada | `melhoria/audio`, `64bd21b` | worktree `techdigest-audio` pronta: 667 testes, versões da produção |
-| 2 Versões | na `testes` | `melhoria/versoes`, `2c4c899` | `uv.lock` e `.python-version`; `egg-info` fora do git; `.venv` da `testes` refeita pelo uv, versões idênticas às da produção; 674 testes passam na `testes` |
-| 3 Registro | na `testes` | `melhoria/registro`, `a482b0a` | gravação atômica integrada; aceite estendido: processo morto, três testes que falham com a gravação direta; 674 testes passam na `testes` |
+| 1 Áudio | na `testes` | `melhoria/audio`, `63ea31f` | turnos sintetizados em paralelo, integrados por avanço rápido; 695 testes passam na `testes` |
+| 2 Versões | na `testes` | `melhoria/versoes`, `2c4c899` | `uv.lock` e `.python-version`; `egg-info` fora do git; `.venv` da `testes` refeita pelo uv, versões idênticas às da produção; 695 testes passam na `testes` |
+| 3 Registro | na `testes` | `melhoria/registro`, `a482b0a` | gravação atômica integrada; aceite estendido: processo morto, três testes que falham com a gravação direta; 695 testes passam na `testes` |
 | 4 ruff | não começada | `melhoria/ruff`, `64bd21b` | worktree `techdigest-ruff` pronta: 667 testes, versões da produção |
 | 8 Schema | não começada (medição na onda 1) | `melhoria/schema`, `64bd21b` | worktree `techdigest-schema` pronta: 667 testes, versões da produção |
 | 5, 6, 7 e 9 | não começadas | — | worktrees criadas quando o dono abrir o chat delas (passos 8 e 9 da onda 0) |
@@ -197,3 +197,7 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
   `2c4c899`. A `.venv` da `testes` passou para o uv (`uv sync --locked --extra dev`, Python 3.14.9 do sistema, `Would make
   no changes`); o `pip freeze` da produção e o `uv pip freeze` da `testes` não têm nenhuma linha diferente. A suíte deu 674
   passando, em duas execuções. O `egg-info` saiu do git (regra 5 feita). A `master` não mudou.
+- 08/11/2026: frente 1 (áudio) na `testes`. `git merge --ff-only melhoria/audio` levou a `testes` de `4bce887` a `63ea31f`
+  (`audio/tts.py`, `tests/test_tts.py`, o passo 5 da Architecture no `CLAUDE.md` e `docs/melhorias/01-audio.md`). O `uv sync
+  --locked --check --extra dev` deu `Would make no changes` e a suíte deu 695 passando, em duas execuções. A `master` e a
+  `trabalho` seguem em `64bd21b`.
