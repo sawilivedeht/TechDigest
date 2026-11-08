@@ -102,6 +102,28 @@ a suíte inteira e a seção "Estado" de docs/melhorias/01-audio.md atualizada.
 - 07/11/2026: não começada.
 - 08/11/2026: etapa 1 (medição) feita; etapa 2 aprovada pelo dono, em implementação. Branch `melhoria/audio`, sobre
   `64bd21b`. 667 testes passam.
+- 08/11/2026: etapa 2 implementada, à espera do ok do dono para o aceite separado. Branch `melhoria/audio`, sobre
+  `ddd46b8` (a medição). 681 testes passam (os 667 e os 14 de `tests/test_tts.py`).
+
+### Implementação (etapa 2)
+
+- `src/techdigest/audio/tts.py`: um só `asyncio.run` por episódio (`_sintetizar_turnos`), com um `asyncio.TaskGroup` e
+  um `asyncio.Semaphore(CONCORRENCIA_TTS)`; cada turno grava `turno_NNN.mp3` e a lista do ffmpeg segue a ordem dos turnos.
+  `_sintetizar_turno` repete um turno só nas `ERROS_PASSAGEIROS_TTS` (`aiohttp.ClientConnectionError`, `TimeoutError`,
+  `WebSocketError`), até `TENTATIVAS_TTS` (3) vezes no total, com `PAUSA_ENTRE_TENTATIVAS_TTS_S` (2 s) entre elas e um
+  WARNING por nova tentativa (`Síntese do turno N falhou (tentativa k de 3): <tipo>: <mensagem>`). Uma falha que persiste
+  cancela os outros turnos e chega ao pipeline como a exceção original. As pausas `pausa_curta.mp3` e `pausa_longa.mp3`
+  são geradas uma vez cada; a string do `_silencio` ficou sem o `f`. Assinatura, retorno, vozes, bitrate e concatenação
+  não mudam; o `pipeline.py` não mudou.
+- `tests/test_tts.py` (14 testes, com o `edge_tts.Communicate` e o `subprocess.run` falsos): a ordem da lista e a pausa
+  certa, com as sínteses terminando fora de ordem; no máximo 3 (ou o valor da constante) ao mesmo tempo; as duas pausas;
+  cinco erros passageiros repetidos; o erro que persiste chegando como ele mesmo e cancelando os outros turnos; 403, 429,
+  503 e `NoAudioReceived` sem nova tentativa; o roteiro vazio. Sem o desembrulho do `ExceptionGroup`, 5 deles falham.
+- Conferido antes do commit: o `scripts/resumo_lotes.py` não lê o WARNING novo (com 40 deles injetados no log de 07/11,
+  a saída fica idêntica) e a linha do `✅` não muda (o `pipeline.py` e o `_duracao` são os mesmos).
+- `CLAUDE.md`, "Architecture", passo 5: os turnos em paralelo, as novas tentativas e as duas pausas.
+- **Para a frente 2:** o `tts.py` importa o `aiohttp` direto, sem ele estar no `pyproject.toml` (vem com o edge-tts;
+  3.14.5 nas duas `.venv`). Ao fixar as versões, lembrar dele.
 
 ### Medição (etapa 1)
 
@@ -151,6 +173,6 @@ aprovados. Está toda no `techdigest.log`, linhas 16012 a 16237: os rotacionados
 
 ### Pendências
 
-- O commit da implementação (`tts.py` e `tests/test_tts.py`), depois de conferir que o `scripts/resumo_lotes.py` não lê
-  o WARNING novo e que a linha do `✅` fica idêntica.
-- O aceite separado, com o ok do dono.
+- O aceite separado, depois do ok do dono a este commit: os itens 19 (o mais curto), um mediano (o 17 ou o 12) e 20 (o
+  mais longo) de 07/11, com a `master` e a branch em rodadas alternadas, pelo menos duas de cada versão; o tempo, a
+  duração pelo ffprobe (igual, com folga de 1 a 2%) e as novas tentativas de cada rodada; o dono ouve um episódio.
