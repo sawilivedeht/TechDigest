@@ -70,7 +70,8 @@ Valem junto com `docs/regras-de-sessao.md` (a frente 0 as copia para lá):
 4. Documentos compartilhados (`CLAUDE.md`, `docs/producao.md`, `docs/regras-de-sessao.md`, `docs/referencia/`): cada
    frente muda só o trecho do seu assunto. O estado de produção do `CLAUDE.md` ("Repo notes"), as skills
    (`~/.claude/skills`) e o `CLAUDE.local.md` mudam só na integração, pela frente 0.
-5. Sem commit de `src/techdigest.egg-info`, que muda a cada instalação, até a frente 2 tirá-lo do git.
+5. Sem commit de `src/techdigest.egg-info`, que muda a cada instalação, até a frente 2 tirá-lo do git. (Feita na frente 2, 08/11:
+   o `egg-info` saiu do git e está no `.gitignore`.)
 6. A cada commit: a suíte inteira passa (`.venv/bin/pytest`) e a seção "Estado" do arquivo da frente é atualizada. As
    suítes de várias worktrees podem rodar ao mesmo tempo: o `tests/conftest.py` cria uma pasta temporária nova a cada vez.
 7. Modelo: uma rodada por vez na máquina inteira, e nenhuma durante uma execução real do dono. Antes,
@@ -176,7 +177,7 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
 |---|---|---|---|
 | 0 | onda 0 concluída; espera as frentes prontas para a integração | `testes`, nascida da `master` em `64bd21b` | `coordenacao` apagada depois do passo 7 |
 | 1 Áudio | não começada | `melhoria/audio`, `64bd21b` | worktree `techdigest-audio` pronta: 667 testes, versões da produção |
-| 2 Versões | não começada | `melhoria/versoes`, `64bd21b` | worktree `techdigest-versoes` pronta: 667 testes, versões da produção |
+| 2 Versões | na `testes` | `melhoria/versoes`, `2c4c899` | `uv.lock` e `.python-version`; `egg-info` fora do git; `.venv` da `testes` refeita pelo uv, versões idênticas às da produção; 674 testes passam na `testes` |
 | 3 Registro | na `testes` | `melhoria/registro`, `a482b0a` | gravação atômica integrada; aceite estendido: processo morto, três testes que falham com a gravação direta; 674 testes passam na `testes` |
 | 4 ruff | não começada | `melhoria/ruff`, `64bd21b` | worktree `techdigest-ruff` pronta: 667 testes, versões da produção |
 | 8 Schema | não começada (medição na onda 1) | `melhoria/schema`, `64bd21b` | worktree `techdigest-schema` pronta: 667 testes, versões da produção |
@@ -192,3 +193,7 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
   `b181d3d`; a suíte inteira deu 671 passando. A `master` não mudou.
 - 08/11/2026: frente 3 com os testes de processo morto. `git merge --ff-only melhoria/registro` levou a `testes` de
   `5a913e1` a `a482b0a` (só o commit dos testes); a suíte deu 674 passando, em duas execuções. A `master` não mudou.
+- 08/11/2026: frente 2 (versões) na `testes`. `git merge --ff-only melhoria/versoes` levou a `testes` de `9aec835` a
+  `2c4c899`. A `.venv` da `testes` passou para o uv (`uv sync --locked --extra dev`, Python 3.14.9 do sistema, `Would make
+  no changes`); o `pip freeze` da produção e o `uv pip freeze` da `testes` não têm nenhuma linha diferente. A suíte deu 674
+  passando, em duas execuções. O `egg-info` saiu do git (regra 5 feita). A `master` não mudou.

@@ -172,5 +172,5 @@ The number of words of the script follows the material the generation receives (
 - `data/` (SQLite db, audio, logs, the record of each run under `data/execucoes/`, grouping samples and CSVs, simulation folders under `data/simulacoes/`) is runtime state and is gitignored. `config/sites_de_partido.txt` is versioned: it is configuration, not state. The model lock and the Ollama log live outside the project, in `~/.local/state/techdigest/`.
 - `docs/roteiro-fase4.md` is the plan of phase 4, with the owner's decisions and the state of each item; it is updated at every stage.
 - **Improvements in parallel fronts (from 07/11/2026):** `docs/plano-melhorias.md` has the fronts, the waves, their rules and the integration through the `testes` branch (front 0); `docs/melhorias/NN-nome.md` keeps the state of each front, updated at every commit of it. Production does not change until the fronts are merged into `master`; the `trabalho` branch and `docs/roteiro-fase4.md` stay for the work of the roadmap.
-- `src/techdigest.egg-info/` is committed, so reinstalling the package can produce diffs there.
+- `src/techdigest.egg-info/` is gitignored: every install regenerates it.
 - `selectolax` is pinned below 1.0 because `googlenewsdecoder` depends on a backend that 1.0 removed.

@@ -45,7 +45,6 @@ continua valendo.
   frente aberta.
 - Nos documentos compartilhados (`CLAUDE.md`, `docs/producao.md`, este arquivo, `docs/referencia/`), só o trecho do
   assunto da frente. O estado de produção do `CLAUDE.md`, as skills e o `CLAUDE.local.md` mudam só na integração.
-- Sem commit de `src/techdigest.egg-info` até a frente 2 decidir.
 - A cada commit, a suíte inteira passa e a seção "Estado" do arquivo da frente é atualizada.
 - Uma rodada com o modelo por vez na máquina inteira, e nenhuma durante a execução real do dono:
   `systemctl --user is-active techdigest-teste.target` deve dar `inactive` antes.
