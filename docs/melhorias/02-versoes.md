@@ -77,10 +77,10 @@ docs/melhorias/02-versoes.md atualizada.
 
 ## Estado
 
-- **08/11/2026: aceite separado feito pela sessão; espera o ok do dono.** Branch `melhoria/versoes`, a partir da
-  `64bd21b`. Commit 1: `0e23a55` ("chore: tira o src/techdigest.egg-info do git"). Commit 2, o deste Estado: "build:
-  versões travadas pelo uv.lock e Python pelo .python-version". Suíte: 667 passam na `.venv` nova, feita pelo uv a
-  partir do lock (e 667 na `.venv` do pip, no commit 1).
+- **08/11/2026: pronta para integração.** Aceite separado aprovado pelo dono em 08/11/2026. Branch `melhoria/versoes`,
+  a partir da `64bd21b`. Commit 1: `0e23a55` ("chore: tira o src/techdigest.egg-info do git"). Commit 2: `df67c9d`
+  ("build: versões travadas pelo uv.lock e Python pelo .python-version"). Depois deles, só o commit deste Estado, sem
+  código. Suíte: 667 passam na `.venv` nova, feita pelo uv a partir do lock (e 667 na `.venv` do pip, no commit 1).
 - **Decisão do dono (08/11/2026):** uv, com lock universal (sem `environments` no `[tool.uv]`), porque quem baixar o
   projeto do GitHub pode usar Windows ou macOS. Aceite do lock: os 60 pacotes do `pip freeze` da produção com a mesma
   versão; os extras, só os de outras plataformas (`colorama`, `tzdata`, `httpx2-jsfetch`), listados; qualquer outro
@@ -125,8 +125,8 @@ docs/melhorias/02-versoes.md atualizada.
     ("Commands": a instalação e o `--check`, um item sobre as versões, o `uv` nos requisitos de sistema),
     `docs/producao.md` (passo 1 de "Antes": o `--check` no lugar da comparação do `pip freeze`) e
     `docs/regras-de-sessao.md` (a regra do `pip freeze` vira a do `uv.lock`).
-- **Próximo:** o aceite do dono; com ele, a frente fica "pronta para integração" e a frente 0 é avisada. A
-  `.venv.pip-20261108` desta worktree só é apagada com o ok do dono.
+- **Próximo:** a frente 0 é avisada e integra a frente na `testes`. A `.venv.pip-20261108` desta worktree fica até a
+  frente 0 integrar (decisão do dono de 08/11/2026).
 - **Pendências para a frente 0 (integração):**
   - `CLAUDE.md`, "Repo notes": a nota "`src/techdigest.egg-info/` is committed, so reinstalling the package can produce
     diffs there" fica falsa; sugestão: "`src/techdigest.egg-info/` is gitignored: every install regenerates it".
