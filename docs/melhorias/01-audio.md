@@ -112,6 +112,16 @@ a suíte inteira e a seção "Estado" de docs/melhorias/01-audio.md atualizada.
   Medição das pausas, cinco variantes do item 20 e a escolha do dono, de ouvido: a variante E, implementada em
   `133ff31` e conferida contra a variante ouvida. **De novo pronta para integração.** Branch `melhoria/audio`, sobre
   `133ff31`. 688 testes passam (os 681 e 7 novos de `tests/test_tts.py`).
+- 08/11/2026: nada em curso: nenhum script rodando, sessão de teste `inactive`, branch limpa (fora o
+  `src/techdigest.egg-info/SOURCES.txt`, que não entra nos commits). Pronta para integração, sobre `5d3f5cc`. A
+  variante escolhida pelo dono é a E: pontas de cada fala aparadas com `atrim` (0,05 s de margem) e teto de 0,45 s
+  nos silêncios de dentro das falas. Conferência do código novo (`E_final/20.mp3`) contra a variante E ouvida:
+  235,08 s contra 234,83 s (+0,11%) e silêncio na troca de 0,77 s contra 0,75 s. 688 testes passam; os 7 novos de
+  `tests/test_tts.py` cobrem as funções puras dos cortes (a leitura do silencedetect, os trechos mantidos nas pontas e
+  no meio da fala, o filtro do `atrim`), a fala cortada entrando na lista do ffmpeg com as WAV e o ajuste de cada fala
+  logo depois da síntese dela. Os instantes para ouvir (trocas e pausas do Otávio) estão em
+  `/home/sytw/Projetos/techdigest/data/agrupamento/pausas_20261108/conferencia_E_final.md`. Próximo passo: avisar a
+  frente 0 de que a frente está pronta, agora com o corte das pausas (`133ff31`).
 
 ### Pausas (08/11/2026, depois do aceite)
 
