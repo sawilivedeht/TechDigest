@@ -104,6 +104,40 @@ a suíte inteira e a seção "Estado" de docs/melhorias/01-audio.md atualizada.
   `64bd21b`. 667 testes passam.
 - 08/11/2026: etapa 2 implementada, à espera do ok do dono para o aceite separado. Branch `melhoria/audio`, sobre
   `ddd46b8` (a medição). 681 testes passam (os 667 e os 14 de `tests/test_tts.py`).
+- 08/11/2026: aceite separado medido (24 gerações, nenhuma falha, nenhuma nova tentativa), à espera de o dono ouvir um
+  episódio. Branch `melhoria/audio`, sobre `62a3942` (a implementação). 681 testes passam.
+
+### Aceite separado (08/11/2026, 13:18 a 13:23)
+
+Os itens 19 (o mais curto, 9 turnos), 17 (o mediano, 11) e 20 (o mais longo, 11) da execução de 07/11, com o código
+da `master` (`64bd21b`) e o da branch (`62a3942`), cada versão num processo, na mesma `.venv` (edge-tts 7.3.1), de uma
+cópia tirada por `git archive` (nada mudou em `src/`). 4 rodadas, cada uma com as duas versões, a ordem trocando
+entre elas (M B, B M, M B, B M). Só o Edge-TTS e o ffmpeg: sem o modelo e sem o Telegram. Scripts, mp3 e resultado em
+`/home/sytw/Projetos/techdigest/data/agrupamento/audio_paralelo_20261108/` (`aceite.py`, `gerar.py`,
+`comparar_envelope.py`, `resultado.md`, `envelope.txt`, `rodada_N/<versao>/<item>.mp3`).
+
+| item | turnos | master: tempo médio (mín.–máx.) | branch: tempo médio (mín.–máx.) | ganho | duração (ffprobe) nas 8 gerações | produção 07/11 |
+|---|---|---|---|---|---|---|
+| 19 | 9 | 12,6 s (12,1–12,9) | 4,6 s (4,6–4,7) | 8,0 s (63%) | 168,50 s | 168,50 s |
+| 17 | 11 | 15,3 s (14,9–15,7) | 5,8 s (5,7–5,9) | 9,5 s (62%) | 217,36 s | 217,36 s |
+| 20 | 11 | 15,9 s (15,5–16,4) | 6,0 s (5,9–6,1) | 9,9 s (62%) | 249,45 s | 249,45 s |
+| os 3 | 31 | 43,8 s | 16,4 s | 27,4 s (62%) | | |
+
+- A branch levou 0,375 do tempo da `master` (2,7 vezes mais rápida, com 3 sínteses ao mesmo tempo), estável nas 4
+  rodadas, fosse qual fosse a versão que saísse primeiro.
+- Duração: igual nas 8 gerações de cada episódio e igual à do mp3 da produção de 07/11 (diferença 0,00%, folga de 2%).
+- Nenhuma falha e nenhuma nova tentativa nas 24 gerações; o Edge-TTS não barrou as 3 conexões ao mesmo tempo.
+- A ordem dos turnos: o md5 do mp3 (e do PCM) muda a cada geração, até entre duas da `master`, porque o Edge-TTS
+  devolve bytes um pouco diferentes a cada chamada. Pelo áudio decodificado, as 8 gerações de cada episódio têm o mesmo
+  número de amostras, e o envelope de volume (janelas de 100 ms) da primeira da `master` tem correlação 0,9999 com as
+  outras três da `master` e com as quatro da branch; com dois blocos de 20 s trocados, cai para 0,77 a 0,84.
+- **A `master` foi muito mais rápida hoje que na produção:** os mesmos episódios levaram 27, 42 e 64 s em 07/11 às
+  01h (3,0 a 5,8 s por turno), e 12,6 a 15,9 s agora (1,4 s por turno). A causa não está medida: a hora, a rede, ou a
+  máquina com o modelo carregado. Aplicada aos 875 s de áudio de 07/11, a proporção do aceite daria uns 328 s, uns
+  9 min a menos dos 59; o ganho real na produção se confere na primeira execução real depois da integração, com o
+  `medir_audio.py` da etapa 1 (`--inicio` e `--registro` da execução).
+- Para o dono ouvir: `rodada_4/branch/20.mp3` (o mais longo, 11 turnos, 4,2 min), e, para comparar,
+  `rodada_4/master/20.mp3`.
 
 ### Implementação (etapa 2)
 
@@ -170,9 +204,14 @@ aprovados. Está toda no `techdigest.log`, linhas 16012 a 16237: os rotacionados
 - Aceite separado só depois do ok do dono ao commit da implementação: os itens 19 (o mais curto), um mediano e 20 (o
   mais longo) de 07/11, rodadas alternadas entre a `master` e a branch, pelo menos duas de cada versão, com as novas
   tentativas registradas.
+- Ok ao commit `62a3942` (08/11). Aceite com os itens 19, 17 e 20, 4 rodadas com a ordem de partida trocando entre
+  elas, processos separados na mesma `.venv`; uma falha de episódio (403, 429 etc.) registrada como resultado, sem
+  parar as rodadas; nada em `src/` durante o aceite.
 
 ### Pendências
 
-- O aceite separado, depois do ok do dono a este commit: os itens 19 (o mais curto), um mediano (o 17 ou o 12) e 20 (o
-  mais longo) de 07/11, com a `master` e a branch em rodadas alternadas, pelo menos duas de cada versão; o tempo, a
-  duração pelo ffprobe (igual, com folga de 1 a 2%) e as novas tentativas de cada rodada; o dono ouve um episódio.
+- O dono ouve `rodada_4/branch/20.mp3` (e, se quiser, `rodada_4/master/20.mp3`). Com o ok dele, a frente fica
+  "pronta para integração" e a frente 0 é avisada.
+- Depois da integração, na primeira execução real: medir o áudio (`Vozes:` → `✅`) com o `medir_audio.py` da etapa 1,
+  numa cópia em pasta nova (ele grava `medicao.csv` e `resumo.txt` na própria pasta), para saber o ganho na produção,
+  onde o Edge-TTS foi 2 a 4 vezes mais lento por turno que no aceite.
