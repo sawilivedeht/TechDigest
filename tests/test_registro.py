@@ -4,6 +4,7 @@ import datetime
 import io
 import json
 import math
+from pathlib import Path
 from types import SimpleNamespace
 
 import checar_fidelidade
@@ -124,3 +125,59 @@ def test_o_aviso_da_janela_e_a_proporcao_do_item_vao_para_o_registro(tmp_path):
     assert (entrada["aviso_da_janela"], entrada["proporcao_do_texto"]) == (aviso, 2.3)
     sem_aviso = reg.item([artigo], "aprovado", {}, None, 1.0)
     assert (sem_aviso["aviso_da_janela"], sem_aviso["proporcao_do_texto"]) == ("", None)
+
+
+# ── A gravação atômica (frente 3 das melhorias de 07/11/2026) ─────────────────────────────────────────────────────
+
+def _arquivos(pasta: Path) -> list[str]:
+    return sorted(p.name for p in pasta.iterdir())
+
+
+def _artigo_curto(titulo: str = "Prefeitura multa construtora") -> dict:
+    return {"veiculo": "Jornal do Vale", "titulo": titulo, "url": "https://jornaldovale.example/multa", "texto": "texto " * 300}
+
+
+def test_a_gravacao_nao_deixa_temporario_e_os_json_sao_validos(tmp_path):
+    reg = registro.RegistroDaExecucao(tmp_path, agora=datetime.datetime(2026, 11, 8, 8, 0, 0))
+    reg.entregue(reg.item([_artigo_curto()], "aprovado", {}, _episodio(300), 1.0))
+    assert _arquivos(reg.pasta) == ["01_aprovado_prefeitura-multa-construtora.json", "amostra.json",
+                                    "relatorio_20261108-080000.json"]
+    for nome in _arquivos(reg.pasta):
+        json.loads((reg.pasta / nome).read_text(encoding="utf-8"))
+    assert json.loads(reg.relatorio.read_text(encoding="utf-8"))["episodios"][0]["entregue"]
+
+
+@pytest.mark.parametrize("onde", ["fsync", "replace"])
+def test_uma_falha_no_meio_da_gravacao_deixa_o_arquivo_anterior_inteiro(tmp_path, monkeypatch, onde):
+    """O fsync falha com o temporário já escrito; o replace, na troca. Nos dois casos a pasta fica como estava."""
+    reg = registro.RegistroDaExecucao(tmp_path, agora=datetime.datetime(2026, 11, 8, 8, 0, 0))
+    reg.filtrado("https://pt.org.br/x", "Nota do partido", "site de partido (pt.org.br)", False)
+    antes = {nome: (reg.pasta / nome).read_bytes() for nome in _arquivos(reg.pasta)}
+
+    def disco_cheio(*args):
+        raise OSError(28, "No space left on device")
+
+    with monkeypatch.context() as m:
+        m.setattr(registro.os, onde, disco_cheio)
+        with pytest.raises(OSError):
+            reg.abandonado("https://g1.example/a", "Outro item", "reprovado pelo QA em 2 execuções")
+        with pytest.raises(OSError):
+            reg.item([_artigo_curto()], "aprovado", {}, _episodio(300), 1.0)
+    # nenhum arquivo cortado, nenhum temporário e nenhum episódio novo
+    assert {nome: (reg.pasta / nome).read_bytes() for nome in _arquivos(reg.pasta)} == antes
+
+    reg.gravar()                                               # a gravação seguinte leva o que ficou na memória
+    relatorio = json.loads(reg.relatorio.read_text(encoding="utf-8"))
+    assert [a["titulo"] for a in relatorio["abandonados"]] == ["Outro item"] and relatorio["episodios"] == []
+
+
+def test_os_arquivos_mantem_o_formato_e_a_permissao_de_antes(tmp_path):
+    reg = registro.RegistroDaExecucao(tmp_path, agora=datetime.datetime(2026, 11, 8, 8, 0, 0))
+    entrada = reg.item([_artigo_curto("Prefeitura de São José multa construtora")], "aprovado", {}, _episodio(300), 1.0)
+    referencia = tmp_path / "referencia.txt"                   # como o write_text de antes criava os arquivos
+    referencia.write_text("x", encoding="utf-8")
+    for caminho in (reg.amostra, reg.relatorio, Path(entrada["arquivo"])):
+        bruto = caminho.read_text(encoding="utf-8")
+        assert bruto == json.dumps(json.loads(bruto), ensure_ascii=False, indent=1)   # indentação 1, acentos sem escape
+        assert caminho.stat().st_mode & 0o777 == referencia.stat().st_mode & 0o777
+    assert "São José" in reg.amostra.read_text(encoding="utf-8")

@@ -63,3 +63,27 @@ inteira e a seção "Estado" de docs/melhorias/03-registro.md atualizada.
 ## Estado
 
 - 07/11/2026: não começada.
+- 08/11/2026: **aceite separado** (falta o ok do dono para ficar pronta para integração). Branch `melhoria/registro`, um
+  commit sobre `64bd21b` (`fix(registro): grava o registro de cada execução de forma atômica`). 671 testes passam (667 +
+  4).
+  - Feito: `registro._gravar_atomico(caminho, texto)` grava em `<nome>.<pid>.tmp` na mesma pasta, faz `flush` e
+    `os.fsync` do arquivo e troca com `os.replace`; numa falha apaga o temporário e deixa o erro subir (o `_anotar` do
+    pipeline o registra no log, como antes). Usada no `gravar()` (amostra e relatório, nessa ordem) e no `item()` (o JSON
+    do episódio, antes do relatório). `CLAUDE.md`, passo 7, e o docstring do módulo dizem que a reescrita é atômica.
+  - Testes novos em `tests/test_registro.py`: sem temporário e com os JSON válidos depois da gravação; uma falha no
+    `os.fsync` (temporário já escrito) ou no `os.replace` deixa a pasta byte a byte como estava, sem temporário e sem
+    episódio novo, e a gravação seguinte leva o que ficou na memória; o formato (indentação 1, acentos sem escape) e a
+    permissão iguais aos de um `write_text`.
+  - Aceite separado: um script fora do repositório roda o mesmo cenário (todos os métodos do registro, dois itens com o
+    provider falso, sem LLM) com o `registro.py` de `64bd21b` e com o novo, na mesma base: os quatro arquivos
+    (`amostra.json`, o relatório e os dois episódios) têm os mesmos bytes, fora o `criada_em` da amostra.
+  - Medido no registro real de 07/11 (`/home/sytw/Projetos/techdigest/data/execucoes/20261107-010136/`, só leitura):
+    uns 42 `gravar()` (criação, coleta, 20 itens e 20 entregas) e 20 episódios, ou seja, uns 104 arquivos gravados e
+    104 `fsync` numa execução de 59 minutos, e não umas 20 gravações; no fim, amostra de 103 KB e relatório de 127 KB.
+  - Decisões do dono (08/11): temporário visível `<nome>.<pid>.tmp`, `open` em vez de `tempfile` (mantém a permissão
+    644), `fsync` só do arquivo, não da pasta (sem ele a troca pode voltar à versão anterior inteira numa queda de
+    energia, nunca a uma cortada), a sobra de um processo morto fica até a pasta sair, e a falha em `item()` segue como
+    antes (os candidatos já entraram na amostra, a entrada não entra no relatório).
+  - Fora do escopo, não feito: `scripts/testar_episodio.py`, que grava os relatórios dele com `write_text`; unificar com
+    a troca de `ai/janela.py`; `docs/referencia/scripts.md`.
+  - Pendência: o ok do dono no aceite separado, para a frente ficar pronta para integração.

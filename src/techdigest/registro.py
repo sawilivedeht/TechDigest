@@ -11,15 +11,17 @@ Cada execução grava, em `EXECUCOES_DIR/<data-hora>/`, o mesmo formato que `scr
   o arquivo do episódio; e, à parte, os itens que o filtro tirou e os abandonados pelo limite de tentativas;
 - um JSON por episódio, aprovado ou não (do reprovado, a última versão inteira, com a correção já aplicada).
 
-O relatório é reescrito depois de cada item: se a execução parar no meio, fica o que já foi feito. Uma falha ao gravar
-nunca derruba a execução (o pipeline registra o erro no log e segue). As pastas com mais de `EXECUCOES_DIAS` dias saem
-no começo de cada execução.
+O relatório é reescrito depois de cada item: se a execução parar no meio, fica o que já foi feito. Cada arquivo é
+gravado de forma atômica (`_gravar_atomico`): um processo morto no meio da gravação deixa a versão anterior inteira,
+nunca um JSON cortado. Uma falha ao gravar nunca derruba a execução (o pipeline registra o erro no log e segue). As
+pastas com mais de `EXECUCOES_DIAS` dias saem no começo de cada execução.
 
 As funções que montam as partes do relatório (`lados_para_registro`, `cortes_para_registro`, `orcamento_para_registro`)
 são as mesmas que o `testar_episodio.py` usa.
 """
 import datetime
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -29,6 +31,27 @@ from techdigest.ai.summarizer import TETO_PRINCIPAL, TETO_RELACIONADO
 
 FORMATO_DA_PASTA = "%Y%m%d-%H%M%S"
 _NOME_DA_PASTA = re.compile(r"\d{8}-\d{6}(?:-\d+)?")
+
+
+def _gravar_atomico(caminho: Path, texto: str) -> None:
+    """Grava `texto` em `caminho` sem nunca deixar o arquivo cortado (frente 3 das melhorias de 07/11/2026).
+
+    O texto vai para `<nome>.<pid>.tmp` na mesma pasta, que termina em ".tmp" e por isso nenhuma leitura do registro
+    pega; depois do `fsync`, `os.replace` o troca pelo definitivo, de uma vez, no mesmo sistema de arquivos. Um processo
+    morto no meio deixa a versão anterior inteira (e, na pior hipótese, o temporário, que sai com a pasta). O `open` em
+    vez do `tempfile` mantém a permissão de antes (644 com a umask 022). Numa falha, o temporário é apagado e o erro
+    sobe, para o pipeline registrá-lo no log como antes.
+    """
+    provisorio = caminho.with_name(f"{caminho.name}.{os.getpid()}.tmp")
+    try:
+        with open(provisorio, "w", encoding="utf-8") as arquivo:
+            arquivo.write(texto)
+            arquivo.flush()
+            os.fsync(arquivo.fileno())
+        os.replace(provisorio, caminho)
+    except BaseException:
+        provisorio.unlink(missing_ok=True)
+        raise
 
 
 def lados_para_registro(analise, chamadas: list[dict] | None = None) -> dict:
@@ -224,7 +247,7 @@ class RegistroDaExecucao:
             situacao_curta = "aprovado" if situacao == "aprovado" else "reprovado" if situacao.startswith("reprovado") else "falhou"
             slug = re.sub(r"\W+", "-", str(episodio.get("titulo_reescrito", "")).lower())[:40].strip("-")
             arquivo = self.pasta / f"{n:02d}_{situacao_curta}_{slug}.json"
-            arquivo.write_text(json.dumps(episodio, ensure_ascii=False, indent=1), encoding="utf-8")
+            _gravar_atomico(arquivo, json.dumps(episodio, ensure_ascii=False, indent=1))
             entrada["arquivo"] = str(arquivo)
             entrada["titulo"] = episodio.get("titulo_reescrito")
         self.episodios.append(entrada)
@@ -241,13 +264,15 @@ class RegistroDaExecucao:
         self.gravar()
 
     def gravar(self) -> None:
-        self.amostra.write_text(json.dumps(
+        """Reescreve a amostra e o relatório, cada um de forma atômica. A amostra vai antes: o relatório nunca aponta
+        para um id que ela ainda não tem (e o JSON de um episódio já foi gravado quando o relatório o cita)."""
+        _gravar_atomico(self.amostra, json.dumps(
             {"criada_em": datetime.datetime.now().astimezone().isoformat(timespec="seconds"), "incluir_vistos": False,
-             "candidatos": self.candidatos}, ensure_ascii=False, indent=1), encoding="utf-8")
-        self.relatorio.write_text(json.dumps(
+             "candidatos": self.candidatos}, ensure_ascii=False, indent=1))
+        _gravar_atomico(self.relatorio, json.dumps(
             {"amostra": str(self.amostra), "limiar": None, "num_ctx": self.num_ctx, "episodios": self.episodios,
              "filtrados": self.filtrados, "abandonados": self.abandonados,
              **({} if self.feeds is None else {"feeds": self.feeds}),
              **({} if self.etapa3 is None else {"etapa3": self.etapa3}),
              **({"agrupamento_falhou": self.agrupamento_falhou} if self.agrupamento_falhou else {})},
-            ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+            ensure_ascii=False, indent=1, default=str))
