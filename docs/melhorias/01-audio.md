@@ -108,6 +108,50 @@ a suíte inteira e a seção "Estado" de docs/melhorias/01-audio.md atualizada.
   episódio. Branch `melhoria/audio`, sobre `62a3942` (a implementação). 681 testes passam.
 - 08/11/2026: **pronta para integração.** O dono ouviu `rodada_4/branch/20.mp3` e aprovou o aceite. Branch
   `melhoria/audio`, sobre `f650432` (o aceite). 681 testes passam.
+- 08/11/2026: o dono achou longas as pausas "entre falas do mesmo personagem"; a frente voltou a "em implementação".
+  Medição das pausas, cinco variantes do item 20 e a escolha do dono, de ouvido: a variante E, implementada em
+  `133ff31` e conferida contra a variante ouvida. **De novo pronta para integração.** Branch `melhoria/audio`, sobre
+  `133ff31`. 688 testes passam (os 681 e 7 novos de `tests/test_tts.py`).
+
+### Pausas (08/11/2026, depois do aceite)
+
+Fora do git, em `/home/sytw/Projetos/techdigest/data/agrupamento/pausas_20261108/`: `medir_pausas.py` e `medicao.txt`
+(a medição, com os instantes de cada troca e de cada pausa longa), `variantes.py`, `gerar_variante.py`, `variantes.md`
+(as variantes), `conferencia_E_final.md` e os mp3 em `<variante>/20.mp3` (`A`, `C`, `D`, `E`, `F` e `E_final`, o do
+código commitado). As WAV de conferência de cada fala foram apagadas depois do commit.
+
+**Medição** (silencedetect a -50 dB; -60 e -40 dB mudam no máximo 0,04 s), nos mp3 da branch da rodada 4 do aceite:
+- Não existe emenda entre falas do mesmo personagem: nos itens 19, 17 e 20, e em todos os 108 episódios gravados em
+  `data/execucoes/` (1030 emendas), a Helena e o analista se alternam. A `PAUSA_MESMO_PERSONAGEM_S` nunca é usada.
+- O que o dono ouviu são as pausas de fim de frase dentro das falas do Otávio: a voz `pt-BR-AntonioNeural` pára uns
+  0,91 s em cada fim de frase de dentro da fala (10 por episódio, todas dele); a Helena (`FranciscaNeural`), no máximo
+  0,31 s. É da voz do Edge-TTS, não do `tts.py`.
+- A troca de personagem dura 1,66 s: a pausa de 0,65 s e uns 1,01 s de silêncio do próprio Edge-TTS, uns 0,18 s no
+  começo de cada fala e uns 0,83 s no fim. A pausa e as pontas são silêncio digital, e não dá para separá-las pelo
+  nível: as pontas foram medidas no começo e no fim do arquivo, onde não há pausa ao lado.
+
+**Variantes do item 20** (cópias do código da branch, `PAUSA_MESMO_PERSONAGEM_S` e troca de 0,65 s em todas; a B, com
+0,15 s para o mesmo personagem, foi descartada porque sairia igual à A):
+
+| variante | o que muda | duração | silêncio na troca | pausas do Otávio | maior pico removido |
+|---|---|---|---|---|---|
+| A | nada | 249,45 s | 1,66 s | 0,91 s | — |
+| C | pontas aparadas (`silenceremove`, -60 dB, margem de 0,05 s) | 239,42 s | 0,75 s | 0,91 s | -60,2 dBFS |
+| D | teto de 0,45 s dentro das falas (silencedetect e `atrim`) | 244,87 s | 1,66 s | 0,45 s | -60,5 dBFS |
+| **E** | **C + D (a escolhida)** | **234,83 s** | **0,75 s** | **0,45 s** | **-59,4 dBFS** |
+| F | teto de 0,35 s dentro das falas | 243,87 s | 1,66 s | 0,35 s | -57,6 dBFS |
+
+Em todas, o que ficou de cada fala é idêntico ao original fora das margens de 0,05 s; o `silenceremove` da C e da E
+altera essas margens em até 282 de 32768 (pico delas -38 dBFS), e por isso o código usa `atrim` também nas pontas.
+
+**O código commitado (`133ff31`) contra a variante E:**
+- Nas 11 falas originais guardadas da variante E, o `_ajustar_fala` deixou o que fica idêntico ao original, amostra
+  por amostra, e tirou 14,39 s com pico de no máximo -59,4 dBFS; cada fala ficou de 5 a 68 ms mais longa que na E (o
+  `atrim` começa no primeiro instante acima de -60 dB; o `silenceremove` media em janelas de 20 ms).
+- Gerado de novo pelo Edge-TTS: 235,08 s contra 234,83 s (+0,11%); trocas de 0,77 s (0,75 a 0,80) contra 0,75; pausas do
+  Otávio de no máximo 0,46 s contra 0,45; Helena igual (0,31 s). O tempo de geração foi 6,0 s, o mesmo do aceite sem o
+  corte (5,9 a 6,1 s): o ajuste de cada fala corre enquanto as outras são sintetizadas.
+- Os instantes das trocas e das pausas do Otávio no `E_final/20.mp3` estão em `conferencia_E_final.md`.
 
 ### Aceite separado (08/11/2026, 13:18 a 13:23)
 
@@ -210,13 +254,18 @@ aprovados. Está toda no `techdigest.log`, linhas 16012 a 16237: os rotacionados
   elas, processos separados na mesma `.venv`; uma falha de episódio (403, 429 etc.) registrada como resultado, sem
   parar as rodadas; nada em `src/` durante o aceite.
 - Aceite aprovado (08/11), depois de ouvir `rodada_4/branch/20.mp3`: a frente fica pronta para integração.
+- Pausas (08/11, depois do aceite): as pausas pareceram longas ao dono. Variantes A, C, D, E e F (a B descartada, a F
+  acrescentada com o teto de 0,35 s, o maior silêncio da Helena), `PAUSA_MESMO_PERSONAGEM_S` sem mudança, WAV até a
+  concatenação. O dono ouviu as cinco e escolheu a **E**, com o `atrim` no lugar do `silenceremove` nas pontas.
 
 ### Pendências
 
-- Avisar a frente 0 de que a frente está pronta. Na integração, a sessão desta frente faz o rebase da `melhoria/audio`
-  sobre a `testes`. A linha do `_silencio` no `tts.py` já está sem o `f`, como a frente 4 também deixa, e o conflito,
-  se vier, se resolve com a string sem o `f`. Antes do avanço rápido da `master`, a frente 2 precisa ter lembrado do
-  `aiohttp` (ver "Implementação").
+- Avisar a frente 0 de que a frente está pronta, agora com o corte das pausas (`133ff31`). Na integração, a sessão
+  desta frente faz o rebase da `melhoria/audio` sobre a `testes`. A linha do `_silencio` no `tts.py` já está sem o
+  `f`, como a frente 4 também deixa, e o corte das pausas não mexeu no `_silencio`; o conflito, se vier, se resolve
+  com a string sem o `f`. Antes do avanço rápido da `master`, a frente 2 precisa ter lembrado do `aiohttp` (ver
+  "Implementação").
 - Depois da integração, na primeira execução real: medir o áudio (`Vozes:` → `✅`) com o `medir_audio.py` da etapa 1,
   numa cópia em pasta nova (ele grava `medicao.csv` e `resumo.txt` na própria pasta), para saber o ganho na produção,
-  onde o Edge-TTS foi 2 a 4 vezes mais lento por turno que no aceite.
+  onde o Edge-TTS foi 2 a 4 vezes mais lento por turno que no aceite; e conferir num episódio dela, com o
+  `medir_pausas.py` adaptado, a troca de uns 0,77 s e as pausas do analista de no máximo 0,45 s.
