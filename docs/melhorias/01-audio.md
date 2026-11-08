@@ -106,6 +106,8 @@ a suíte inteira e a seção "Estado" de docs/melhorias/01-audio.md atualizada.
   `ddd46b8` (a medição). 681 testes passam (os 667 e os 14 de `tests/test_tts.py`).
 - 08/11/2026: aceite separado medido (24 gerações, nenhuma falha, nenhuma nova tentativa), à espera de o dono ouvir um
   episódio. Branch `melhoria/audio`, sobre `62a3942` (a implementação). 681 testes passam.
+- 08/11/2026: **pronta para integração.** O dono ouviu `rodada_4/branch/20.mp3` e aprovou o aceite. Branch
+  `melhoria/audio`, sobre `f650432` (o aceite). 681 testes passam.
 
 ### Aceite separado (08/11/2026, 13:18 a 13:23)
 
@@ -137,7 +139,7 @@ entre elas (M B, B M, M B, B M). Só o Edge-TTS e o ffmpeg: sem o modelo e sem o
   9 min a menos dos 59; o ganho real na produção se confere na primeira execução real depois da integração, com o
   `medir_audio.py` da etapa 1 (`--inicio` e `--registro` da execução).
 - Para o dono ouvir: `rodada_4/branch/20.mp3` (o mais longo, 11 turnos, 4,2 min), e, para comparar,
-  `rodada_4/master/20.mp3`.
+  `rodada_4/master/20.mp3`. Ouvido e aprovado pelo dono em 08/11.
 
 ### Implementação (etapa 2)
 
@@ -207,11 +209,14 @@ aprovados. Está toda no `techdigest.log`, linhas 16012 a 16237: os rotacionados
 - Ok ao commit `62a3942` (08/11). Aceite com os itens 19, 17 e 20, 4 rodadas com a ordem de partida trocando entre
   elas, processos separados na mesma `.venv`; uma falha de episódio (403, 429 etc.) registrada como resultado, sem
   parar as rodadas; nada em `src/` durante o aceite.
+- Aceite aprovado (08/11), depois de ouvir `rodada_4/branch/20.mp3`: a frente fica pronta para integração.
 
 ### Pendências
 
-- O dono ouve `rodada_4/branch/20.mp3` (e, se quiser, `rodada_4/master/20.mp3`). Com o ok dele, a frente fica
-  "pronta para integração" e a frente 0 é avisada.
+- Avisar a frente 0 de que a frente está pronta. Na integração, a sessão desta frente faz o rebase da `melhoria/audio`
+  sobre a `testes`. A linha do `_silencio` no `tts.py` já está sem o `f`, como a frente 4 também deixa, e o conflito,
+  se vier, se resolve com a string sem o `f`. Antes do avanço rápido da `master`, a frente 2 precisa ter lembrado do
+  `aiohttp` (ver "Implementação").
 - Depois da integração, na primeira execução real: medir o áudio (`Vozes:` → `✅`) com o `medir_audio.py` da etapa 1,
   numa cópia em pasta nova (ele grava `medicao.csv` e `resumo.txt` na própria pasta), para saber o ganho na produção,
   onde o Edge-TTS foi 2 a 4 vezes mais lento por turno que no aceite.
