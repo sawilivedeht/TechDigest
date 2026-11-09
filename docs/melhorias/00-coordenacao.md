@@ -62,14 +62,18 @@ antecipar um grupo, o procedimento é o mesmo.
    - `.venv/bin/python scripts/checar_fidelidade.py --relatorio <relatório da simulação>`;
    - o dono ouve alguns episódios.
 4. Com o ok do dono, na pasta principal: `git merge --ff-only testes`; a `.venv` de produção alinhada pela decisão da
-   frente 2 (comparar as versões com as da `testes`); as units copiadas para `~/.config/systemd/user` e `daemon-reload` se a
-   frente 5 entrou (o timer continua com o dono); as skills, o `CLAUDE.local.md` e o estado de produção do `CLAUDE.md`
+   frente 2 (comparar as versões com as da `testes`); só a `ollama.service` com `MemoryMax=20G` é copiada para `~/.config/systemd/user`, com a sessão de teste parada
+   (`systemctl --user is-active techdigest-teste.target` deve dar `inactive`); as quatro units do timer (`techdigest.service`,
+   `techdigest.timer`, `techdigest-inibir.service` e `techdigest-aviso.service`) NÃO são copiadas nem ligadas pelo merge
+   (decisão do dono, seção "Com o timer" de `docs/producao.md`); `daemon-reload` depois da cópia; as skills, o `CLAUDE.local.md` e o estado de produção do `CLAUDE.md`
    atualizados; as cópias `claude/CLAUDE.md` e `skills` do Projeto também. A primeira execução real depois disso é do dono.
    Depois do merge, o dono apaga a linha `RSS_FEEDS` INTEIRA do `.env` da pasta principal, nunca esvaziada: um `RSS_FEEDS=` vazio
    conta como definido e a execução termina sem coletar nenhum feed (status 0, "Nenhuma notícia entregue"). Enquanto a linha
    existir, vale ela e não o `config/feeds.txt`, com o aviso no log a cada execução. Só depois do merge: o código da `master`
    de hoje não lê o `config/feeds.txt`, e sem a linha cairia nos feeds padrão do código, que não são os que rodam. No merge,
-   conferir também se as skills e o `CLAUDE.local.md` citam `RSS_FEEDS`.
+   conferir também se as skills e o `CLAUDE.local.md` citam `RSS_FEEDS`. Depois que o dono ligar o timer, conferir a primeira execução real (`systemctl --user is-active ollama.service
+   techdigest-inibir.service` dá `active` duas vezes; `systemd-inhibit --list` mostra o bloqueio) e testar o caso sem
+   sessão do polkit.
 5. `git worktree remove` das frentes integradas e as branches apagadas. O plano e o andamento registram o merge.
 
 ## Texto para `docs/regras-de-sessao.md`
@@ -152,3 +156,17 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
   execuções, `ruff check .` limpo e `config.ler_feeds()` com 9 URLs (sem ler o `.env`). Aprovada pelo dono em 09/11: o
   `RSS_FEEDS` definido manda, mesmo vazio, com aviso no log. No merge na `master`, o dono apaga a linha `RSS_FEEDS` inteira
   do `.env` da pasta principal (ver o passo 4 da Integração). A `master` e a `trabalho` seguem em `64bd21b`.
+- 09/11/2026: frente 5 (systemd) na `testes`. `git merge --ff-only melhoria/systemd` levou a `testes` de `fe6b66e` a `7f73972`,
+  em dois avanços: `a50eadf`, e depois o commit de documentos da frente (`7f73972`, sem hash antigo), que ela fez depois do
+  primeiro avanço. Hashes finais da branch: `1f64fdc`, `2d95c21`, `6b92a21`, `a50eadf` e `7f73972`; antes do rebase sobre
+  `fe6b66e`, os quatro primeiros eram `c07229f`, `dee29cb`, `735b9b3` e `fc27ac7`. Aceite do dono de 09/11, 19:24, como informa
+  o `05-systemd.md`. `Would make no changes`, 753 testes em duas rodadas (733 da frente e 20 da frente 6), `ruff check .`
+  limpo; o diff `fe6b66e..7f73972` tem 12 arquivos, sem `pipeline.py`, `pyproject.toml` nem `uv.lock`. Neste commit, por
+  decisão G13 da frente 5 (ver `05-systemd.md`): o docstring de `pipeline.run` passa a citar o `OnFailure=` da
+  `techdigest.service` e o estado de produção do `CLAUDE.md` deixa de dizer que não há unit nem timer (as units estão
+  versionadas e não instaladas; o timer segue desligado). Nada foi instalado nem copiado. `testes` em `7f73972` antes deste
+  commit de documentos. A `master` e a `trabalho` seguem em `64bd21b`.
+- Melhoria futura, depois do merge e sem segurar a integração (lacuna C10 da frente 5): com o timer, uma noite sem nenhuma
+  entrega passa calada. Na execução real de 05/11, com o edge-tts dando 403, cada item falhou isolado e o pipeline terminou
+  com status 0 depois de 181 min ("Nenhuma notícia entregue nesta execução (181 min)"); nem o pipeline nem o `OnFailure=`
+  avisam esse caso. Corrigir é mexer no `pipeline.py` (por exemplo, um aviso quando sai 0 de N com candidatos).

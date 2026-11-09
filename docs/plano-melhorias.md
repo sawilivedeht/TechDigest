@@ -107,13 +107,18 @@ no fim; se o dono quiser antecipar um grupo de frentes, o procedimento é o mesm
    dentro da sessão de teste, como numa rodada); o `scripts/resumo_lotes.py` com o `--log` da simulação; o
    `scripts/checar_fidelidade.py --relatorio` no registro dela; o dono ouve alguns episódios.
 4. Com o ok do dono: avanço rápido da `master` para a `testes` na pasta principal; a `.venv` de produção alinhada pela
-   decisão da frente 2; as units copiadas para `~/.config/systemd/user` se a frente 5 entrou (o timer continua com o dono);
+   decisão da frente 2; só a `ollama.service` com `MemoryMax=20G` é copiada para `~/.config/systemd/user`, com a sessão de teste parada
+   (`systemctl --user is-active techdigest-teste.target` deve dar `inactive`); as quatro units do timer (`techdigest.service`,
+   `techdigest.timer`, `techdigest-inibir.service` e `techdigest-aviso.service`) NÃO são copiadas nem ligadas pelo merge
+   (decisão do dono, seção "Com o timer" de `docs/producao.md`);
    as skills, o `CLAUDE.local.md` e o estado de produção do `CLAUDE.md` atualizados; a primeira execução real à mão pelo
    dono. Depois do merge, o dono apaga a linha `RSS_FEEDS` INTEIRA do `.env` da pasta principal, nunca esvaziada: um `RSS_FEEDS=` vazio
    conta como definido e a execução termina sem coletar nenhum feed (status 0, "Nenhuma notícia entregue"). Enquanto a linha
    existir, vale ela e não o `config/feeds.txt`, com o aviso no log a cada execução. Só depois do merge: o código da `master`
    de hoje não lê o `config/feeds.txt`, e sem a linha cairia nos feeds padrão do código, que não são os que rodam. No merge,
-   conferir também se as skills e o `CLAUDE.local.md` citam `RSS_FEEDS`.
+   conferir também se as skills e o `CLAUDE.local.md` citam `RSS_FEEDS`. Depois que o dono ligar o timer, conferir a primeira execução real (`systemctl --user is-active ollama.service
+   techdigest-inibir.service` dá `active` duas vezes; `systemd-inhibit --list` mostra o bloqueio) e testar o caso sem
+   sessão do polkit.
 5. Depois do merge de uma frente: `git worktree remove` e a branch apagada.
 
 ## Mapa de conflitos
@@ -180,14 +185,15 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
 
 | Frente | Etapa | Branch e último commit | Observação |
 |---|---|---|---|
-| 0 | onda 0 concluída; integrando as frentes na `testes` | `testes`, nascida da `master` em `64bd21b`; frentes 1, 2, 3, 4 e 6 integradas até `d05cb23` | `coordenacao` apagada depois do passo 7; 715 testes e `ruff check .` limpo na `testes` |
+| 0 | onda 0 concluída; integrando as frentes na `testes` | `testes`, nascida da `master` em `64bd21b`; frentes 1, 2, 3, 4, 5 e 6 integradas; `testes` em `7f73972` antes deste commit de documentos | `coordenacao` apagada depois do passo 7; 753 testes e `ruff check .` limpo na `testes` |
 | 1 Áudio | na `testes` | `melhoria/audio`, `63ea31f` | turnos sintetizados em paralelo, integrados por avanço rápido; 715 testes passam na `testes` |
 | 2 Versões | na `testes` | `melhoria/versoes`, `2c4c899` | `uv.lock` e `.python-version`; `egg-info` fora do git; `.venv` da `testes` refeita pelo uv, versões idênticas às da produção; 715 testes passam na `testes` |
 | 3 Registro | na `testes` | `melhoria/registro`, `a482b0a` | gravação atômica integrada; aceite estendido: processo morto, três testes que falham com a gravação direta; 715 testes passam na `testes` |
 | 4 ruff | na `testes` | `melhoria/ruff`, `a0db7a8` | ruff 0.17.4 só com as regras F e ISC, 3 avisos corrigidos (duas linhas do `email_smtp.py` e uma do `refazer_qa.py`); `uv.lock` com 65 pacotes; 715 testes passam na `testes` |
 | 8 Schema | não começada (medição na onda 1) | `melhoria/schema`, `64bd21b` | worktree `techdigest-schema` pronta: 667 testes, versões da produção |
 | 6 Feeds | na `testes` | `melhoria/feeds`, `d05cb23` | `config/feeds.txt` com 9 URLs; o `RSS_FEEDS` definido no ambiente ou no `.env` manda, mesmo vazio, com aviso no log; 715 testes passam na `testes` |
-| 5, 7 e 9 | não começadas | — | worktrees criadas quando o dono abrir o chat delas (passos 8 e 9 da onda 0) |
+| 5 systemd | na `testes` | `melhoria/systemd`: `1f64fdc`, `2d95c21`, `6b92a21`, `a50eadf` e `7f73972` | units do pipeline, do timer, do bloqueio do sono e do aviso de falha em `deploy/systemd/`, versionadas e não instaladas; `MemoryMax=20G` na `ollama.service`; rebaseada sobre `fe6b66e` (o merge-base era `121fa7b`); aceite do dono de 09/11, 19:24, como informa o `05-systemd.md`; 753 testes passam na `testes` |
+| 7 e 9 | não começadas | — | worktrees criadas quando o dono abrir o chat delas (passos 8 e 9 da onda 0) |
 
 - 07/11/2026: plano criado.
 - 07/11/2026: onda 0 concluída. O commit `64bd21b` (o plano, os arquivos das frentes, as regras e o `CLAUDE.md`, só
@@ -219,3 +225,17 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
   execuções, `ruff check .` limpo e `config.ler_feeds()` com 9 URLs (sem ler o `.env`). Aprovada pelo dono em 09/11: o
   `RSS_FEEDS` definido manda, mesmo vazio, com aviso no log. No merge na `master`, o dono apaga a linha `RSS_FEEDS` inteira
   do `.env` da pasta principal (ver o passo 4 da Integração). A `master` e a `trabalho` seguem em `64bd21b`.
+- 09/11/2026: frente 5 (systemd) na `testes`. `git merge --ff-only melhoria/systemd` levou a `testes` de `fe6b66e` a `7f73972`,
+  em dois avanços: `a50eadf`, e depois o commit de documentos da frente (`7f73972`, sem hash antigo), que ela fez depois do
+  primeiro avanço. Hashes finais da branch: `1f64fdc`, `2d95c21`, `6b92a21`, `a50eadf` e `7f73972`; antes do rebase sobre
+  `fe6b66e`, os quatro primeiros eram `c07229f`, `dee29cb`, `735b9b3` e `fc27ac7`. Aceite do dono de 09/11, 19:24, como informa
+  o `05-systemd.md`. `Would make no changes`, 753 testes em duas rodadas (733 da frente e 20 da frente 6), `ruff check .`
+  limpo; o diff `fe6b66e..7f73972` tem 12 arquivos, sem `pipeline.py`, `pyproject.toml` nem `uv.lock`. Neste commit, por
+  decisão G13 da frente 5 (ver `05-systemd.md`): o docstring de `pipeline.run` passa a citar o `OnFailure=` da
+  `techdigest.service` e o estado de produção do `CLAUDE.md` deixa de dizer que não há unit nem timer (as units estão
+  versionadas e não instaladas; o timer segue desligado). Nada foi instalado nem copiado. `testes` em `7f73972` antes deste
+  commit de documentos. A `master` e a `trabalho` seguem em `64bd21b`.
+- Melhoria futura, depois do merge e sem segurar a integração (lacuna C10 da frente 5): com o timer, uma noite sem nenhuma
+  entrega passa calada. Na execução real de 05/11, com o edge-tts dando 403, cada item falhou isolado e o pipeline terminou
+  com status 0 depois de 181 min ("Nenhuma notícia entregue nesta execução (181 min)"); nem o pipeline nem o `OnFailure=`
+  avisam esse caso. Corrigir é mexer no `pipeline.py` (por exemplo, um aviso quando sai 0 de N com candidatos).

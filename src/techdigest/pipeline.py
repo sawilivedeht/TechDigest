@@ -45,8 +45,9 @@ def run(sem_audio: bool = False):
 
     Quando a execução não começa, para numa trava da máquina ou termina com um erro inesperado, o
     processo avisa antes de sair (ajuste 8 e decisão do dono de 25/10/2026; ver `_avisar`): pelo
-    Telegram, em produção, e no `AVISO.txt` da pasta, na simulação. O `OnFailure=` da futura unit
-    fica só com o que o processo não consegue avisar (OOM, tempo esgotado, sinal).
+    Telegram, em produção, e no `AVISO.txt` da pasta, na simulação. O `OnFailure=` da
+    `techdigest.service` (`deploy/systemd/`) dispara o `aviso_de_falha.py`, que avisa o que o
+    processo não consegue avisar (tempo esgotado, OOM, sinal, core dump, erro antes de começar).
     """
     andamento = _Andamento()
     try:
