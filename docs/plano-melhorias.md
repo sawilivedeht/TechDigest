@@ -109,7 +109,11 @@ no fim; se o dono quiser antecipar um grupo de frentes, o procedimento é o mesm
 4. Com o ok do dono: avanço rápido da `master` para a `testes` na pasta principal; a `.venv` de produção alinhada pela
    decisão da frente 2; as units copiadas para `~/.config/systemd/user` se a frente 5 entrou (o timer continua com o dono);
    as skills, o `CLAUDE.local.md` e o estado de produção do `CLAUDE.md` atualizados; a primeira execução real à mão pelo
-   dono.
+   dono. Depois do merge, o dono apaga a linha `RSS_FEEDS` INTEIRA do `.env` da pasta principal, nunca esvaziada: um `RSS_FEEDS=` vazio
+   conta como definido e a execução termina sem coletar nenhum feed (status 0, "Nenhuma notícia entregue"). Enquanto a linha
+   existir, vale ela e não o `config/feeds.txt`, com o aviso no log a cada execução. Só depois do merge: o código da `master`
+   de hoje não lê o `config/feeds.txt`, e sem a linha cairia nos feeds padrão do código, que não são os que rodam. No merge,
+   conferir também se as skills e o `CLAUDE.local.md` citam `RSS_FEEDS`.
 5. Depois do merge de uma frente: `git worktree remove` e a branch apagada.
 
 ## Mapa de conflitos
@@ -119,11 +123,11 @@ no fim; se o dono quiser antecipar um grupo de frentes, o procedimento é o mesm
 | `pyproject.toml` | 2, 4, 9 | Cada uma mexe só na sua seção. Se a 2 adotar lockfile, a que entrar depois na `testes` refaz o lock. Resolvido para a 4: ela já refez o `uv.lock` (65 pacotes) sobre o da 2 |
 | `.gitignore` | 2 | — |
 | `src/techdigest/audio/tts.py` | 1, 4 | Resolvido: a frente 1 tirou o `f` no `d8dc640`; a frente 4 não toca o `tts.py` |
-| `src/techdigest/config.py` | 6; 8 e 9 na onda 3 | A 8 e a 9 só depois da 6 integrada |
+| `src/techdigest/config.py` | 6; 8 e 9 na onda 3 | A 6 já entrou (`ler_feeds` e `CAMINHO_DOS_FEEDS`); a 8 e a 9 só mexem no `config.py` depois dela |
 | `src/techdigest/registro.py` | 3 | — |
 | `src/techdigest/delivery/email_smtp.py`, `scripts/refazer_qa.py` | 4 | — |
 | `deploy/systemd/` | 5 | — |
-| `docs/producao.md` | 2, 5 | Trechos diferentes: a instalação (2) e o timer (5) |
+| `docs/producao.md` | 2, 5, 6 | Trechos diferentes: a instalação (2), o timer (5) e "Trocar um feed" (6) |
 | `docs/referencia/scripts.md` | 5, 7 | Trechos diferentes: a unit do Ollama (5) e a rodada (7) |
 | `docs/regras-de-sessao.md` | 0, 2 | A 2 só troca a regra do `pip freeze`, e só se o dono adotar o lockfile |
 | `CLAUDE.md` | todas | Só o trecho do assunto; o estado de produção, na integração |
@@ -158,7 +162,7 @@ frentes, o chat de cada uma consegue ler o código dela; senão, o dono cola o `
 | As regras do ruff e o destino do `email_smtp.py` (corrigir duas linhas ou apagar o módulo) | 4 | onda 1; decidida em 08/11: só F e ISC, e corrigir as duas linhas do `email_smtp.py` |
 | Um único merge na `master` no fim, com todas as frentes | 0 | 08/11 |
 | Horário do timer, `Wants=` ou `Requires=`, os valores de memória, `linger` | 5 | onda 2 |
-| A lista de feeds (copiada do `.env`) e a precedência entre o arquivo e o `RSS_FEEDS` | 6 | onda 2 |
+| A lista de feeds (copiada do `.env`) e a precedência entre o arquivo e o `RSS_FEEDS` | 6 | onda 2; lista copiada do `.env` em 08/11; precedência: o `RSS_FEEDS` definido manda, mesmo vazio, com aviso no log; aprovada em 09/11 |
 | O formato dos comandos da rodada e se a execução real à mão também usa o script | 7 | onda 2 |
 | Rodar o experimento do schema, se a medição justificar | 8 | onda 3 |
 | Fazer ou não a frente 9 | 9 | onda 3 |
@@ -176,13 +180,14 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
 
 | Frente | Etapa | Branch e último commit | Observação |
 |---|---|---|---|
-| 0 | onda 0 concluída; integrando as frentes na `testes` | `testes`, nascida da `master` em `64bd21b`; frentes 1, 2, 3 e 4 integradas até `a0db7a8` | `coordenacao` apagada depois do passo 7; 695 testes e `ruff check .` limpo na `testes` |
-| 1 Áudio | na `testes` | `melhoria/audio`, `63ea31f` | turnos sintetizados em paralelo, integrados por avanço rápido; 695 testes passam na `testes` |
-| 2 Versões | na `testes` | `melhoria/versoes`, `2c4c899` | `uv.lock` e `.python-version`; `egg-info` fora do git; `.venv` da `testes` refeita pelo uv, versões idênticas às da produção; 695 testes passam na `testes` |
-| 3 Registro | na `testes` | `melhoria/registro`, `a482b0a` | gravação atômica integrada; aceite estendido: processo morto, três testes que falham com a gravação direta; 695 testes passam na `testes` |
-| 4 ruff | na `testes` | `melhoria/ruff`, `a0db7a8` | ruff 0.17.4 só com as regras F e ISC, 3 avisos corrigidos (duas linhas do `email_smtp.py` e uma do `refazer_qa.py`); `uv.lock` com 65 pacotes; 695 testes passam na `testes` |
+| 0 | onda 0 concluída; integrando as frentes na `testes` | `testes`, nascida da `master` em `64bd21b`; frentes 1, 2, 3, 4 e 6 integradas até `d05cb23` | `coordenacao` apagada depois do passo 7; 715 testes e `ruff check .` limpo na `testes` |
+| 1 Áudio | na `testes` | `melhoria/audio`, `63ea31f` | turnos sintetizados em paralelo, integrados por avanço rápido; 715 testes passam na `testes` |
+| 2 Versões | na `testes` | `melhoria/versoes`, `2c4c899` | `uv.lock` e `.python-version`; `egg-info` fora do git; `.venv` da `testes` refeita pelo uv, versões idênticas às da produção; 715 testes passam na `testes` |
+| 3 Registro | na `testes` | `melhoria/registro`, `a482b0a` | gravação atômica integrada; aceite estendido: processo morto, três testes que falham com a gravação direta; 715 testes passam na `testes` |
+| 4 ruff | na `testes` | `melhoria/ruff`, `a0db7a8` | ruff 0.17.4 só com as regras F e ISC, 3 avisos corrigidos (duas linhas do `email_smtp.py` e uma do `refazer_qa.py`); `uv.lock` com 65 pacotes; 715 testes passam na `testes` |
 | 8 Schema | não começada (medição na onda 1) | `melhoria/schema`, `64bd21b` | worktree `techdigest-schema` pronta: 667 testes, versões da produção |
-| 5, 6, 7 e 9 | não começadas | — | worktrees criadas quando o dono abrir o chat delas (passos 8 e 9 da onda 0) |
+| 6 Feeds | na `testes` | `melhoria/feeds`, `d05cb23` | `config/feeds.txt` com 9 URLs; o `RSS_FEEDS` definido no ambiente ou no `.env` manda, mesmo vazio, com aviso no log; 715 testes passam na `testes` |
+| 5, 7 e 9 | não começadas | — | worktrees criadas quando o dono abrir o chat delas (passos 8 e 9 da onda 0) |
 
 - 07/11/2026: plano criado.
 - 07/11/2026: onda 0 concluída. O commit `64bd21b` (o plano, os arquivos das frentes, as regras e o `CLAUDE.md`, só
@@ -208,3 +213,9 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
   deu `Would make no changes`. A suíte deu 695 passando em duas execuções e o `ruff check .` não teve avisos; tirar uma
   vírgula da linha 25 de `ai/verbos.py` dá ISC001 e ISC004 (desfeito). O dono decidiu fazer um único merge na `master`
   no fim, com todas as frentes. A `master` e a `trabalho` seguem em `64bd21b`.
+- 09/11/2026: frente 6 (feeds) na `testes`. `git merge --ff-only melhoria/feeds` levou a `testes` de `121fa7b` a `d05cb23`
+  (`config.py`, `collectors/rss.py`, `config/feeds.txt`, `tests/test_feeds.py`, `CLAUDE.md`, `docs/producao.md` e
+  `docs/melhorias/06-feeds.md`; `pyproject.toml` e `uv.lock` não mudaram). `Would make no changes`, 715 testes em duas
+  execuções, `ruff check .` limpo e `config.ler_feeds()` com 9 URLs (sem ler o `.env`). Aprovada pelo dono em 09/11: o
+  `RSS_FEEDS` definido manda, mesmo vazio, com aviso no log. No merge na `master`, o dono apaga a linha `RSS_FEEDS` inteira
+  do `.env` da pasta principal (ver o passo 4 da Integração). A `master` e a `trabalho` seguem em `64bd21b`.

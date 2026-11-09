@@ -65,6 +65,11 @@ antecipar um grupo, o procedimento é o mesmo.
    frente 2 (comparar as versões com as da `testes`); as units copiadas para `~/.config/systemd/user` e `daemon-reload` se a
    frente 5 entrou (o timer continua com o dono); as skills, o `CLAUDE.local.md` e o estado de produção do `CLAUDE.md`
    atualizados; as cópias `claude/CLAUDE.md` e `skills` do Projeto também. A primeira execução real depois disso é do dono.
+   Depois do merge, o dono apaga a linha `RSS_FEEDS` INTEIRA do `.env` da pasta principal, nunca esvaziada: um `RSS_FEEDS=` vazio
+   conta como definido e a execução termina sem coletar nenhum feed (status 0, "Nenhuma notícia entregue"). Enquanto a linha
+   existir, vale ela e não o `config/feeds.txt`, com o aviso no log a cada execução. Só depois do merge: o código da `master`
+   de hoje não lê o `config/feeds.txt`, e sem a linha cairia nos feeds padrão do código, que não são os que rodam. No merge,
+   conferir também se as skills e o `CLAUDE.local.md` citam `RSS_FEEDS`.
 5. `git worktree remove` das frentes integradas e as branches apagadas. O plano e o andamento registram o merge.
 
 ## Texto para `docs/regras-de-sessao.md`
@@ -141,3 +146,9 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
 - 08/11/2026: frente 4 (ruff) na `testes`: `melhoria/ruff` em `a0db7a8`, avanço rápido de `3278e70`; ruff 0.17.4 só com F
   e ISC, `uv.lock` com 65 pacotes, 695 testes em duas execuções e `ruff check .` limpo. Decisão do dono: um único merge na
   `master` no fim, com todas as frentes.
+- 09/11/2026: frente 6 (feeds) na `testes`: `melhoria/feeds` em `d05cb23`, avanço rápido, levou a `testes` de `121fa7b` a `d05cb23`
+  (`config.py`, `collectors/rss.py`, `config/feeds.txt`, `tests/test_feeds.py`, `CLAUDE.md`, `docs/producao.md` e
+  `docs/melhorias/06-feeds.md`; `pyproject.toml` e `uv.lock` não mudaram). `Would make no changes`, 715 testes em duas
+  execuções, `ruff check .` limpo e `config.ler_feeds()` com 9 URLs (sem ler o `.env`). Aprovada pelo dono em 09/11: o
+  `RSS_FEEDS` definido manda, mesmo vazio, com aviso no log. No merge na `master`, o dono apaga a linha `RSS_FEEDS` inteira
+  do `.env` da pasta principal (ver o passo 4 da Integração). A `master` e a `trabalho` seguem em `64bd21b`.
