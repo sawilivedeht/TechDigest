@@ -8,7 +8,7 @@ Arquivo no Projeto: `claude/frentes/04-ruff.md` · no repositório: `docs/melhor
 | Worktree | `/home/sytw/Projetos/techdigest-ruff` |
 | Onda | 1 |
 | Depende de | nada |
-| Conflita com | frente 1 (linha 55 do `tts.py`); frentes 2 e 9 no `pyproject.toml` |
+| Conflita com | frente 1 (linha 55 do `tts.py`; resolvido: a correção já estava na `testes`); frentes 2 e 9 no `pyproject.toml` |
 
 ## Objetivo
 
@@ -37,10 +37,11 @@ select = ["F", "ISC"]
 O ruff lê o `requires-python` do `pyproject.toml`. No extra `dev`, o `ruff` com a versão fixa (a instalada na hora), para as
 regras não mudarem sozinhas.
 
-Com essa configuração, sobram 4 avisos para corrigir:
+Com essa configuração, a `master` de 07/11 tinha 4 avisos; 3 são corrigidos nesta frente:
 - `src/techdigest/delivery/email_smtp.py:5`: `re` importado e não usado;
 - `src/techdigest/delivery/email_smtp.py:31`: `html` atribuída e não usada (o `send_digest_email` não faz nada);
-- `src/techdigest/audio/tts.py:55`: f-string sem variável (`f"anullsrc=r=24000:cl=mono"`); a frente 1 faz a mesma correção;
+- `src/techdigest/audio/tts.py:55`: f-string sem variável (`f"anullsrc=r=24000:cl=mono"`): fora desta frente, porque já
+  estava corrigido na `testes` (`d8dc640`, da frente 1);
 - `scripts/refazer_qa.py:27`: `dataclasses.field` importado e não usado.
 
 ## Decisões do dono
@@ -108,3 +109,27 @@ inteira e a seção "Estado" de docs/melhorias/04-ruff.md atualizada.
     modificado antes da sessão e ficou fora do commit); no rebase, a frente 1 mantém a linha 55 do `tts.py` sem o `f`, e
     a linha do extra `dev` pode conflitar com a frente 2; depois da integração, o hook do Claude Code com o
     `ruff check`.
+- 08/11/2026, rebase sobre a `testes` (`3278e70`): pronta para integração; o avanço rápido da `testes` é da frente 0.
+  Branch `melhoria/ruff`: `bc827ea` (o `chore(ruff)`, antes `15b4367`) e o commit deste registro. 695 testes passam, em
+  duas rodadas: são os 695 da `testes` (667 da `master`, 7 da frente 3 e 21 da frente 1), porque esta frente não muda
+  nenhum teste.
+  - O `tts.py` saiu desta frente: o `f` sem variável da linha 55 já estava corrigido na `testes`, pelo `d8dc640`
+    (`feat(audio): sintetiza turnos em paralelo e gera as pausas uma vez`, da frente 1, na `melhoria/audio`), achado com
+    `git log testes -S'f"anullsrc=r=24000:cl=mono"'`. O rebase mesclou o `tts.py` sozinho, e o commit desta frente não o
+    toca mais. São 3 avisos corrigidos aqui, e não 4: o `import re` e a atribuição `html` do `email_smtp.py` e o `field`
+    do `refazer_qa.py`.
+  - Conflito só no `CLAUDE.md`, resolvido com o ok do dono: ficam as duas linhas do `uv sync` da frente 2, com "pytest and
+    ruff" no comentário de `uv sync --locked --extra dev`; a frase do linter troca a "There is no linter and no formatter
+    configured." da `testes`, e o trecho do `requirements.txt` fica no item "Versions" da frente 2. O `pyproject.toml` não
+    conflitou: a `testes` não o mudou.
+  - O `uv.lock` entrou no próprio `chore(ruff)`, em amend, como manda a regra da frente 2: refeito pelo `uv lock` (uv
+    0.13.7), ganhou só o `ruff 0.17.4` (64 pacotes antes, 65 depois, nenhum saiu). A `.venv` foi refeita pelo lock
+    (`uv sync --locked --extra dev`; a antiga, feita pelo pip, ficou em `.venv.pip-20261108`), e `uv lock --check` e
+    `uv sync --locked --check --extra dev` (`Would make no changes`) passam. O `src/techdigest.egg-info` saiu do git na
+    `testes`; o `uv sync` o recria no disco, ignorado pelo `.gitignore`.
+  - Aceite de novo: `.venv/bin/ruff check .` sem avisos; a suíte, 695 em duas rodadas; a vírgula da linha 25 de
+    `ai/verbos.py` tirada de verdade dá `ISC001` e `ISC004`, e o `git checkout --` do arquivo deixa o
+    `git diff --exit-code` em 0.
+  - Pendências: o avanço rápido da `testes` (frente 0), com o `ruff check .` depois de cada frente que entrar; apagar a
+    `.venv.pip-20261108` quando o dono quiser; depois da integração, o hook do Claude Code com o `ruff check`. As
+    pendências da entrada anterior foram resolvidas nesta.
