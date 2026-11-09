@@ -133,6 +133,12 @@ Depois: `systemctl --user status techdigest.service` e `journalctl --user -u tec
   conferência da GPU e o pipeline avisa.
 - Se o próprio aviso de falha não consegue enviar, a `techdigest-aviso.service` fica em falha
   (`systemctl --user --failed`) e o log traz `Aviso de parada não enviado`.
+- O erro antes de começar só avisa se o próprio aviso consegue rodar. Ele usa a mesma `.venv`, mas importa muito
+  menos que o pipeline: o pacote `techdigest` com a configuração (pydantic, pydantic-settings, python-dotenv) e, para
+  enviar, o requests (conferido em 09/11/2026). Um pacote que só o pipeline usa (edge-tts, trafilatura, feedparser,
+  aiohttp, lxml...) quebrado ou ausente derruba o pipeline e não o aviso, que avisa. Se o problema estiver num dos
+  pacotes do aviso, ou na própria `.venv` (o Python dela, o pacote `techdigest`), o aviso também não roda: a
+  `techdigest-aviso.service` fica em falha, o que só aparece em `systemctl --user --failed`, e nada chega ao Telegram.
 
 ### Sono e tampa
 

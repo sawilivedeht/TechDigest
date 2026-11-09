@@ -175,7 +175,7 @@ inteira e a seção "Estado" de docs/melhorias/05-systemd.md atualizada.
   `MemoryHigh=`, com a data e a medida no comentário; o teste em `tests/test_units.py` (o teto acima do maior pico
   medido, 18,8 GiB, e nenhum `MemoryHigh=`); o trecho da unit do Ollama em `docs/referencia/scripts.md`; e em
   `docs/producao.md` o teto valendo também para a execução à mão (passo 1 de "Rodar", com o modo de atualizar a cópia
-  instalada, e "Com o timer"). O hash deste commit entra na próxima atualização.
+  instalada, e "Com o timer"). Commit 2: `dee29cb`.
   - Testes: 732 passam (731 e o teste do teto). O `ruff check .` não dá avisos. O `systemd-analyze --user verify` com
     os seis arquivos de `deploy/systemd/` não dá mensagens (status 0).
   - Prova por mutação: o `MemoryMax=` retirado da `ollama.service` → falha
@@ -188,3 +188,27 @@ inteira e a seção "Estado" de docs/melhorias/05-systemd.md atualizada.
   - Pendências: a revisão do dono; depois da instalação, pelo dono, o caso sem sessão do polkit e a conferência da
     primeira execução (`docs/producao.md`, "A primeira execução"); na integração, pela frente 0, a cópia da
     `ollama.service` com o teto para `~/.config/systemd/user` e o docstring do `pipeline.run` (acima).
+- 09/11/2026: quatro perguntas do dono na revisão dos dois commits (só leitura, menos a frase da 4).
+  1. O `deliver_aviso` levanta exceção em toda falha, sem devolver valor: o `_post` levanta `FalhaDeRede` (erro do
+     requests), `RuntimeError` (resposta não-JSON, `ok` falso, simulação), e um canal desconhecido levanta
+     `NotImplementedError`. O falso de `tests/test_aviso_de_falha.py` levanta `RuntimeError`, como o real. Nada muda.
+  2. A `ollama.service` só fica ativa depois que o `ExecStartPost` acha a linha `inference compute` com `library=CUDA`,
+     e no log dela o `Listening on 127.0.0.1:11434` vem uns 2 s antes dessa linha (07/11: 01:00:10,328 e 01:00:12,272):
+     com o `After=`, o servidor já ouve quando o pipeline começa. A conferência da GPU antes da coleta não chama a API
+     (lê o `/proc`, o log e o `nvidia-smi`). A primeira chamada (o `client.ps()` de `conferir_ollama`) não tem nova
+     tentativa, mas só vem depois da coleta e da extração do primeiro item: na execução real de 07/11, início às
+     01:01:36, GPU às 01:01:38, coleta até 01:02:39 (com feeds fora), primeira chamada terminada às 01:03:14 (34,3 s, com
+     a carga do modelo). Sem risco à vista; nada muda.
+  3. A pasta `~/.local/state/techdigest` é usada: o log da `ollama.service` (`ExecStartPre=truncate` e
+     `StandardOutput=append:`, que o systemd abre antes de criar qualquer pasta), a trava do modelo (`trava.py`) e a
+     parte fixa (`ai/janela.py`). Os dois últimos criam a pasta, mas só rodam depois que o Ollama subiu. O `mkdir -p`
+     fica, para uma instalação do zero.
+  4. O aviso importa o pacote `techdigest`, o pydantic, o pydantic-core, o pydantic-settings, o python-dotenv, o
+     annotated-types, o typing-extensions e o typing-inspection; para enviar, o requests, o urllib3, o idna, o certifi e
+     o charset-normalizer. O pipeline puxa também o edge-tts, o trafilatura, o feedparser, o aiohttp, o lxml e outros.
+     Uma `.venv` quebrada só nos pacotes do pipeline derruba o pipeline e não o aviso; quebrada nos do aviso, ou na
+     própria `.venv`, derruba os dois. Commit à parte (este): a frase em `docs/producao.md`, "O que avisa no Telegram".
+  - Observação levada ao dono, fora do escopo da frente: a execução de 05/11 com o edge-tts errado (403) terminou com
+    "Nenhuma notícia entregue nesta execução (181 min)" e status 0. Nem o pipeline nem o `OnFailure=` avisam esse caso;
+    com o timer, ele passaria calado.
+  - Testes: 732 passam; `ruff check .` sem avisos; `systemd-analyze --user verify` com os seis arquivos, status 0.
