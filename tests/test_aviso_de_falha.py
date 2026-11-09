@@ -1,7 +1,10 @@
 """O aviso de falha da execução pelo timer (`aviso_de_falha.py`): quando avisa, quando só registra, e que numa simulação
 não envia nada. O ambiente (as variáveis MONITOR_*), o journal e o `deliver_aviso` são falsos."""
+import json
 import logging
 import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -188,3 +191,33 @@ def test_status_1_sem_o_id_da_execucao_avisa(enviados, monkeypatch):
     del ambiente["MONITOR_INVOCATION_ID"]
     assert af.executar(ambiente) == 0
     assert ": saiu com status 1, e o journal não pôde ser lido para saber se o pipeline avisou." in enviados[0]
+
+
+# O aviso leve: ele tem de rodar mesmo quando um pacote que só o pipeline usa está quebrado na .venv.
+
+PACOTES_SO_DO_PIPELINE = ("edge_tts", "trafilatura", "feedparser", "aiohttp", "lxml", "techdigest.pipeline")
+FRASE_DA_PRODUCAO = ("Um pacote que só o pipeline usa (edge-tts, trafilatura, feedparser, aiohttp, lxml...) quebrado ou "
+                     "ausente derruba o pipeline e não o aviso, que avisa.")
+PRODUCAO = Path(__file__).resolve().parents[1] / "docs" / "producao.md"
+_IMPORTA_O_AVISO = f"""
+import json, sys
+from techdigest import config
+config.Settings.model_config["env_file"] = None      # como no conftest: o .env da pasta não entra
+import techdigest.aviso_de_falha
+print(json.dumps([nome for nome in {PACOTES_SO_DO_PIPELINE!r} if nome in sys.modules]))
+"""
+
+
+def test_o_aviso_nao_importa_os_pacotes_que_so_o_pipeline_usa():
+    """Num processo novo (o Python da .venv, isolado do ambiente com -I), importar o aviso não traz nenhum pacote que só o
+    pipeline usa: um deles quebrado na .venv (o ModuleNotFoundError de um erro antes de começar) derruba o pipeline, e o
+    aviso ainda roda e avisa. É o que `docs/producao.md` promete em "O que avisa no Telegram"."""
+    assert FRASE_DA_PRODUCAO in " ".join(PRODUCAO.read_text(encoding="utf-8").split()), (
+        "a frase citada por este teste saiu de docs/producao.md (\"O que avisa no Telegram\"): atualize FRASE_DA_PRODUCAO")
+    saida = subprocess.run([sys.executable, "-I", "-c", _IMPORTA_O_AVISO], capture_output=True, text=True, timeout=60)
+    assert saida.returncode == 0, f"o import do aviso falhou num processo novo:\n{saida.stderr}"
+    importados = json.loads(saida.stdout.strip().splitlines()[-1])
+    assert importados == [], (
+        f"importar techdigest.aviso_de_falha trouxe {', '.join(importados)}, que só o pipeline usa. Com isso deixa de ser "
+        f"verdade a frase de docs/producao.md, em \"O que avisa no Telegram\": \"{FRASE_DA_PRODUCAO}\" Um desses pacotes "
+        "quebrado na .venv derrubaria também o aviso, e o erro antes de começar não chegaria ao Telegram.")

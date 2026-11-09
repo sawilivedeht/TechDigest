@@ -207,8 +207,22 @@ inteira e a seção "Estado" de docs/melhorias/05-systemd.md atualizada.
      annotated-types, o typing-extensions e o typing-inspection; para enviar, o requests, o urllib3, o idna, o certifi e
      o charset-normalizer. O pipeline puxa também o edge-tts, o trafilatura, o feedparser, o aiohttp, o lxml e outros.
      Uma `.venv` quebrada só nos pacotes do pipeline derruba o pipeline e não o aviso; quebrada nos do aviso, ou na
-     própria `.venv`, derruba os dois. Commit à parte (este): a frase em `docs/producao.md`, "O que avisa no Telegram".
+     própria `.venv`, derruba os dois. Commit à parte, `735b9b3`: a frase em `docs/producao.md`, "O que avisa no
+     Telegram".
   - Observação levada ao dono, fora do escopo da frente: a execução de 05/11 com o edge-tts errado (403) terminou com
     "Nenhuma notícia entregue nesta execução (181 min)" e status 0. Nem o pipeline nem o `OnFailure=` avisam esse caso;
     com o timer, ele passaria calado.
   - Testes: 732 passam; `ruff check .` sem avisos; `systemd-analyze --user verify` com os seis arquivos, status 0.
+- 09/11/2026: o teste que mantém o aviso leve (proposta aceita pelo dono), num commit à parte:
+  `test_o_aviso_nao_importa_os_pacotes_que_so_o_pipeline_usa`, em `tests/test_aviso_de_falha.py`. Ele importa o
+  `techdigest.aviso_de_falha` num processo novo (o Python da `.venv`, com `-I`, e o `.env` desligado como no conftest) e
+  falha se `edge_tts`, `trafilatura`, `feedparser`, `aiohttp`, `lxml` ou `techdigest.pipeline` estiverem em
+  `sys.modules`. A mensagem de falha cita a frase de `docs/producao.md` que deixaria de ser verdadeira, e o teste
+  também confere que essa frase continua lá. A cobertura está em `docs/referencia/scripts.md`.
+  - Prova por mutação: com `import techdigest.pipeline` no `aviso_de_falha.py`, o teste falha com "importar
+    techdigest.aviso_de_falha trouxe edge_tts, trafilatura, feedparser, aiohttp, lxml, techdigest.pipeline, que só o
+    pipeline usa. Com isso deixa de ser verdade a frase de docs/producao.md, em "O que avisa no Telegram": ..."; desfeita,
+    o `src/` voltou igual ao commit e os 31 testes do arquivo passam.
+  - Testes: 733 passam; `ruff check .` sem avisos; `systemd-analyze --user verify` com os seis arquivos, status 0; nada
+    instalado.
+  - Etapa: aceite separado; pronta para o aceite do dono.
