@@ -19,6 +19,11 @@ notícias como vistas em `data/digest.db`. Não há timer; cada execução sai d
 
 1. Suba o Ollama pela unit, nunca com `ollama serve` à mão:
    `systemctl --user start techdigest-teste.target`
+   A unit do Ollama tem um teto de memória (`MemoryMax=20G`, frente 5, decisão de 09/11/2026), que vale também para
+   esta execução à mão: se o servidor passar dele, o kernel primeiro tira o modelo da memória (tudo fica lento) e
+   depois encerra o servidor, e o pipeline para com "o Ollama não responde" e avisa. A cópia instalada só ganha o teto
+   quando a unit é copiada de novo, com a sessão de teste parada:
+   `cp deploy/systemd/ollama.service ~/.config/systemd/user/ && systemctl --user daemon-reload`.
 2. Confira a GPU no log da unit:
    `grep "inference compute" ~/.local/state/techdigest/ollama_serve.log | tail -1` deve trazer `library=CUDA`. Sem essa
    linha o pipeline para antes de carregar o modelo (foi o que aconteceu nas tentativas de 07/11 à 0h55).
@@ -92,6 +97,8 @@ Na pasta principal, com a `master` já com a frente 5:
     systemctl --user enable --now techdigest.timer
     systemctl --user list-timers techdigest.timer      # a próxima execução
 
+A `ollama.service` com o teto de memória vai junto, se ainda não foi copiada (passo 1 de "Rodar").
+
 Sem `loginctl enable-linger` (decisão de 09/11/2026). Sem linger, o gerenciador de units do usuário só existe enquanto
 há uma sessão sua aberta (a tela bloqueada conta como sessão aberta): o timer só dispara com você logado, e uma
 execução perdida roda no login seguinte (`Persistent=true`). O bloqueio do sono também depende da sessão: o polkit só
@@ -142,6 +149,7 @@ Depois: `systemctl --user status techdigest.service` e `journalctl --user -u tec
 
 A execução à mão continua como está acima. A trava do modelo impede duas ao mesmo tempo: a que chega depois para e
 avisa. O mesmo vale para uma rodada de teste que esteja segurando a trava à 01:00: a execução do timer para e avisa.
+O teto de memória do Ollama (`MemoryMax=20G`) vale para as duas, porque as duas sobem a mesma `ollama.service`.
 
 ### Desligar e desinstalar
 

@@ -29,6 +29,16 @@ ExecStart=/usr/local/bin/ollama serve
 ExecStartPost=/usr/bin/timeout 60 /usr/bin/sh -c "until grep -q 'inference compute' $$0; do sleep 0.5; done; grep 'inference compute' $$0 | grep -qi 'library=cuda'" %S/techdigest/ollama_serve.log
 # Desliga o cache de prompt do llama-server: com ele, a memória anônima crescia durante a rodada (ver CLAUDE.md).
 Environment=LLAMA_ARG_CACHE_RAM=0
+# Teto de memória do servidor (frente 5, decisão do dono de 09/11/2026): a última defesa contra um servidor que cresce
+# sem parar. No teto, o kernel primeiro tira da memória as páginas do arquivo do modelo (que voltam a ser lidas do
+# disco, e tudo fica lento) e só encerra o servidor quando a memória anônima não cabe; aí o freio "o Ollama não
+# responde" (ai/maquina.py) para a execução e avisa. Medida: o "memory peak" que o systemd grava no journal a cada
+# parada desta unit, de 17/10 a 07/11/2026. Na primeira carga do modelo de cada boot, 17,0 a 18,7G em 10 de 11 boots
+# (maior pico, 18,7G em 24/10; o systemd trunca, então entre 18,7 e 18,8 GiB), porque essa carga põe o cache do arquivo
+# do modelo (15,9 GiB mapeados) na conta desta unit; nas subidas seguintes do mesmo boot, 1,1 a 7G. 20G (base 1024,
+# como o "G" do journal) é o maior pico mais 1,2 a 1,3 GiB, de 6 a 7%. Vale para tudo o que sobe esta unit: o timer,
+# as rodadas de teste e as execuções à mão. Sem MemoryHigh=: perto do pico a frio, ele desaceleraria execuções normais.
+MemoryMax=20G
 # O padrão de OLLAMA_LOG. O systemd abre este arquivo antes de criar um StateDirectory=, então a pasta vem
 # da instalação, e não de StateDirectory=.
 StandardOutput=append:%S/techdigest/ollama_serve.log

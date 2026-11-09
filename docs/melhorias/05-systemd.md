@@ -62,7 +62,7 @@ Em `deploy/systemd/`, todos com um cabeçalho em comentário que explica a escol
 - `techdigest.timer`: `OnCalendar=*-*-* 01:00:00`, `Persistent=true`, `WantedBy=timers.target`.
 - `techdigest-aviso.service`: `Type=oneshot`, `ExecStart=%h/Projetos/techdigest/.venv/bin/python -m
   techdigest.aviso_de_falha`.
-- Commit 2: `MemoryMax=20G` em `ollama.service`, com a data e a medida no comentário.
+- `ollama.service` (commit 2): `MemoryMax=20G`, sem `MemoryHigh=`, com a data e a medida no comentário.
 
 Diferenças do rascunho de 07/11, pela leitura de 08 e 09/11:
 - o `systemd-inhibit` saiu do `ExecStart` do pipeline: ele devolve 1 quando o filho morre por um sinal (medido:
@@ -144,9 +144,9 @@ inteira e a seção "Estado" de docs/melhorias/05-systemd.md atualizada.
 
 - 07/11/2026: não começada.
 - 08/11/2026: em plano. Leitura feita (só leitura; nada instalado, copiado nem ligado) e plano apresentado ao dono.
-- 09/11/2026: em implementação. Commit 1 feito na `melhoria/systemd`, a partir de `121fa7b` (a `testes` com as frentes
-  1 a 4): as quatro units, o `aviso_de_falha.py`, os testes e os documentos. O commit 2 (`MemoryMax=20G` na
-  `ollama.service`) espera a revisão do dono.
+- 09/11/2026: em implementação. Commit 1, `c07229f`, na `melhoria/systemd`, a partir de `121fa7b` (a `testes` com as
+  frentes 1 a 4): as quatro units, o `aviso_de_falha.py`, os testes e os documentos. Aceito pelo dono pelo relatório; a
+  revisão dos arquivos continua no chat da frente, e uma correção, se houver, entra num commit à parte.
   - Testes: 731 passam (695 antes e 36 novos: 30 em `tests/test_aviso_de_falha.py`, 6 em `tests/test_units.py`). O
     `ruff check .` não dá avisos. O `systemd-analyze --user verify` com os seis arquivos de `deploy/systemd/` não dá
     mensagens (status 0); com o `ExecStart=` trocado por um caminho que não existe, ele acusa ("is not executable"),
@@ -171,5 +171,20 @@ inteira e a seção "Estado" de docs/melhorias/05-systemd.md atualizada.
     `techdigest.service` (`deploy/systemd/`) dispara o `aviso_de_falha.py`, que avisa o que o processo não consegue
     avisar (tempo esgotado, OOM, sinal, core dump, erro antes de começar)." Na integração também: o estado de produção
     do `CLAUDE.md` ("Repo notes" ainda diz que não há timer nem unit do pipeline).
-  - Pendências: o commit 2, depois da revisão do dono; depois da instalação, pelo dono, o caso sem sessão do polkit e a
-    conferência da primeira execução (`docs/producao.md`, "A primeira execução").
+- 09/11/2026: commit 2 (o dono autorizou sem esperar a revisão do commit 1): `MemoryMax=20G` na `ollama.service`, sem
+  `MemoryHigh=`, com a data e a medida no comentário; o teste em `tests/test_units.py` (o teto acima do maior pico
+  medido, 18,8 GiB, e nenhum `MemoryHigh=`); o trecho da unit do Ollama em `docs/referencia/scripts.md`; e em
+  `docs/producao.md` o teto valendo também para a execução à mão (passo 1 de "Rodar", com o modo de atualizar a cópia
+  instalada, e "Com o timer"). O hash deste commit entra na próxima atualização.
+  - Testes: 732 passam (731 e o teste do teto). O `ruff check .` não dá avisos. O `systemd-analyze --user verify` com
+    os seis arquivos de `deploy/systemd/` não dá mensagens (status 0).
+  - Prova por mutação: o `MemoryMax=` retirado da `ollama.service` → falha
+    `test_a_unit_do_ollama_tem_teto_de_memoria_acima_do_maior_pico_medido` (`KeyError: 'MemoryMax'`); desfeita, os 10
+    testes de `tests/test_units.py` voltaram a passar.
+  - Nada instalado: `~/.config/systemd/user` só com `ollama.service` e `techdigest-teste.target` (a cópia instalada da
+    `ollama.service` continua sem o teto, igual à da `master`), nenhum techdigest em `systemctl --user list-timers
+    --all`, `Linger=no`.
+  - Etapa: aceite separado. A frente fica pronta para integração com o ok do dono à revisão dos dois commits.
+  - Pendências: a revisão do dono; depois da instalação, pelo dono, o caso sem sessão do polkit e a conferência da
+    primeira execução (`docs/producao.md`, "A primeira execução"); na integração, pela frente 0, a cópia da
+    `ollama.service` com o teto para `~/.config/systemd/user` e o docstring do `pipeline.run` (acima).

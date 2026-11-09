@@ -38,6 +38,19 @@ def test_a_unit_do_ollama_sobe_o_servidor_que_as_conferencias_da_gpu_procuram():
     assert unit["StopWhenUnneeded"] == ["yes"]
 
 
+MAIOR_PICO_MEDIDO_GIB = 18.8    # o "18.7G" do journal (17/10 a 07/11/2026), que o systemd trunca: abaixo de 18,8 GiB
+
+
+def test_a_unit_do_ollama_tem_teto_de_memoria_acima_do_maior_pico_medido():
+    """Um teto abaixo do pico a frio estrangularia a primeira carga do modelo de cada boot (o cache do arquivo do modelo
+    entra na conta da unit). Sem MemoryHigh=, que desaceleraria as execuções normais perto do pico."""
+    unit = _diretivas("ollama.service")
+    assert "MemoryHigh" not in unit
+    assert unit["MemoryMax"] == ["20G"]
+    gib = float(unit["MemoryMax"][0].removesuffix("G"))      # G é base 1024 no systemd (systemd.resource-control(5))
+    assert gib > MAIOR_PICO_MEDIDO_GIB
+
+
 def test_a_sessao_de_teste_mantem_o_ollama_no_ar_e_cai_com_ele():
     target = _diretivas("techdigest-teste.target")
     assert target["BindsTo"] == ["ollama.service"] and target["After"] == ["ollama.service"]
