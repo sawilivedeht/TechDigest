@@ -2,7 +2,7 @@ import smtplib
 from email.message import EmailMessage
 from pathlib import Path
 from techdigest.config import Settings
-import re, datetime
+import datetime
 
 settings = Settings()
 
@@ -28,7 +28,7 @@ def send_digest(subject: str, html: str, attachments: list[str] | None = None):
         smtp.send_message(msg)
 
 def send_digest_email(items: list[dict], audios: list[str]) -> None:
-    html = render_html(items)          
+    """Nunca foi terminado: não envia nada."""
 
 def render_html(items: list[dict]) -> str:
     cards = ""

@@ -82,3 +82,29 @@ inteira e a seção "Estado" de docs/melhorias/04-ruff.md atualizada.
 ## Estado
 
 - 07/11/2026: não começada.
+- 08/11/2026: aceite separado, esperando o ok do dono. Branch `melhoria/ruff`, um commit sobre `64bd21b` (o hash fica com
+  o chat do navegador). 667 testes passam.
+  - Decisões do dono (08/11): só `F` e `ISC`; o `email_smtp.py` fica, com as duas linhas corrigidas.
+  - Feito: o `ruff==0.17.4` no extra `dev` e o `[tool.ruff.lint]` no `pyproject.toml`, como na configuração recomendada;
+    os 4 avisos corrigidos, uma linha cada (o corpo do `send_digest_email` virou só a docstring; o `datetime` continua em
+    uso no `render_html`, e nenhum F401 novo apareceu); no `CLAUDE.md`, a linha `.venv/bin/ruff check .`, a frase do
+    linter e o comentário do extra `dev`.
+  - Números do ruff 0.17.4 (o "Por que" traz os do 0.16, de 07/11): com as regras padrão, 111 avisos (o 0.16 dava 129),
+    46 no pacote (o 0.16 dava 56), 11 em `scripts/` e 54 em `tests/`; os 13 `BLE001` do pacote são os 13
+    `except Exception`. Com a configuração recomendada, exatamente os 4 avisos. O `B` traria 39 a mais: 35 `B905`, 3
+    `B023` em `scripts/testar_episodio.py:433-434` e 1 `B020` em `src/techdigest/ai/lados.py:440`, os 4 últimos falsos
+    positivos. O formatador não foi rodado, nem com `--check`: o "61 dos 67 arquivos" não foi conferido.
+  - Os 22 `ISC004` que o `per-file-ignores` esconde (20 em `tests/`, 2 em `scripts/`) foram conferidos um por um: todos
+    são textos longos partidos de propósito, nenhum é vírgula esquecida.
+  - Prévia do aceite, antes de editar, numa cópia de `ai/verbos.py` passada pela entrada padrão: sem a vírgula do meio da
+    linha 25, `ISC001` e `ISC004`; sem a vírgula do fim da linha 73, `ISC004`.
+  - Aceite separado (08/11): o `pyproject.toml` lido pelo `tomllib`; `.venv/bin/ruff check .`, só com o `pyproject.toml`,
+    sem avisos; `.venv/bin/pytest`, 667 passam; a vírgula da linha 25 de `ai/verbos.py` tirada de verdade dá `ISC001` e
+    `ISC004`, e a mudança desfeita deixa o `git diff --exit-code` do arquivo em 0.
+  - Revisão do dono (08/11): a frase do linter no `CLAUDE.md` ficou mais curta, sem o exemplo do `ISC`, no mesmo commit
+    (amend); `ruff check .` e a suíte rodados de novo.
+  - Pendências: na `testes`, o `uv.lock` é refeito com o `ruff` do extra `dev` (esta frente não rodou `pip install` nem
+    `uv lock`); antes do rebase sobre a `testes`, `git restore src/techdigest.egg-info` (o `SOURCES.txt` já vinha
+    modificado antes da sessão e ficou fora do commit); no rebase, a frente 1 mantém a linha 55 do `tts.py` sem o `f`, e
+    a linha do extra `dev` pode conflitar com a frente 2; depois da integração, o hook do Claude Code com o
+    `ruff check`.

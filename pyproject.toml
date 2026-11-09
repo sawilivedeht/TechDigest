@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff==0.17.4"]
 
 [project.scripts]
 techdigest = "techdigest.main:run"
@@ -31,3 +31,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["scripts"]
+
+[tool.ruff.lint]
+select = ["F", "ISC"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ISC004"]     # textos longos partidos de propósito
+"scripts/**" = ["ISC004"]   # textos longos partidos de propósito
