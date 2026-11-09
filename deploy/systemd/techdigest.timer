@@ -1,0 +1,19 @@
+# O horário da execução do TechDigest (decisão do dono de 09/11/2026): todo dia à 01:00. Não vem instalado nem ligado:
+# a instalação está em docs/producao.md, "Com o timer".
+#
+# Com a máquina suspensa à 01:00, a execução roda quando ela volta (systemd.timer(5): um horário que passou durante a
+# suspensão é processado na volta). Persistent=true cobre o resto: a máquina desligada à 01:00, ou o timer inativo.
+# Sem linger, o gerenciador de units do usuário só existe com uma sessão aberta: o timer só dispara com o dono logado,
+# e uma execução perdida roda no login seguinte. O WakeSystem= não serve aqui: acordar a máquina exige privilégio e só
+# funciona no gerenciador do sistema (systemd.timer(5)). Antes de desinstalar: systemctl --user clean --what=state
+# techdigest.timer, que apaga a data da última execução guardada por Persistent=.
+
+[Unit]
+Description=Horário do TechDigest
+
+[Timer]
+OnCalendar=*-*-* 01:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

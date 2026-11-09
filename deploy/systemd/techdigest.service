@@ -1,0 +1,28 @@
+# A execução do TechDigest pelo timer (techdigest.timer): o pipeline da pasta principal, como unit de usuário.
+# Não vem instalada: a instalação e o timer são decisão do dono (docs/producao.md, "Com o timer").
+#
+# O pipeline é o processo principal, sem o systemd-inhibit na frente: o systemd-inhibit devolve 1 quando o filho morre
+# por um sinal, o mesmo status do pipeline que parou e já avisou, e sem sessão aberta ele nem chegaria a iniciar o
+# pipeline. O bloqueio do sono fica na techdigest-inibir.service, que sobe junto.
+#
+# Wants=, e não Requires=, para o Ollama: se a unit dele não sobe (sem o driver da NVIDIA, por exemplo), o pipeline
+# começa mesmo assim, para na conferência da GPU (ai/gpu.py) e avisa pelo caminho de sempre. Com Requires=, ele nem
+# começaria e não entraria em falha: nenhum aviso sairia. O Wants= também mantém o Ollama no ar durante a execução,
+# apesar do StopWhenUnneeded=yes dele (conferido em 09/11/2026 com duas units transitórias, docs/melhorias/05-systemd.md).
+#
+# O que o pipeline não consegue avisar (o tempo máximo, o OOM, um sinal, um erro antes de começar) vai pelo OnFailure=
+# para a techdigest-aviso.service. Ela é o OnFailure= só desta unit: com dois serviços apontando para ela, o systemd
+# não passaria as variáveis MONITOR_* que dizem o motivo.
+
+[Unit]
+Description=TechDigest: coleta, gera e entrega os episódios
+Wants=ollama.service techdigest-inibir.service
+After=ollama.service techdigest-inibir.service
+OnFailure=techdigest-aviso.service
+
+[Service]
+Type=exec
+WorkingDirectory=%h/Projetos/techdigest
+ExecStart=%h/Projetos/techdigest/.venv/bin/techdigest
+# Nenhum item novo começa depois de MAX_RUNTIME_MIN (180 min); aqui o systemd encerra o processo e o aviso de falha avisa.
+RuntimeMaxSec=4h

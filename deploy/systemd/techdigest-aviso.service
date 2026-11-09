@@ -1,0 +1,15 @@
+# O aviso de falha da techdigest.service (o OnFailure= dela): src/techdigest/aviso_de_falha.py. O systemd lhe passa
+# o motivo (MONITOR_SERVICE_RESULT, MONITOR_EXIT_CODE, MONITOR_EXIT_STATUS, MONITOR_INVOCATION_ID, MONITOR_UNIT).
+#
+# Com status 1, o pipeline já avisou se a linha "Aviso de parada:" está no journal daquela execução: aí só registra.
+# Em qualquer outro caso avisa no Telegram, pelo mesmo deliver_aviso do pipeline: o tempo máximo, o OOM, um sinal, um
+# core dump, o status 1 sem aquela linha (um erro antes de o pipeline começar), o aviso do pipeline que não foi
+# enviado, o journal que não pôde ser lido e as variáveis que faltam. Um aviso duplicado vale mais que um silêncio.
+
+[Unit]
+Description=Aviso de falha do TechDigest no Telegram
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Projetos/techdigest
+ExecStart=%h/Projetos/techdigest/.venv/bin/python -m techdigest.aviso_de_falha

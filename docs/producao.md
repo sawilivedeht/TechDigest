@@ -68,3 +68,84 @@ coleta sem nenhum feed.
 
 Chaves em vigor: `AGRUPAMENTO_ATIVO=false` e `DISPUTA_FONTE_UNICA=false`. Ligar qualquer uma depende do dono
 (`docs/roteiro-fase4.md`).
+
+## Com o timer
+
+As units do timer estão em `deploy/systemd/` e não vêm instaladas: o timer só roda depois que você instalar e ligar
+(frente 5 das melhorias, decisões de 09/11/2026). São quatro, além das duas do Ollama, que já estão instaladas
+(`ollama.service` e `techdigest-teste.target`):
+
+| Unit | O que faz |
+|---|---|
+| `techdigest.timer` | Dispara a `techdigest.service` todo dia à 01:00 (`OnCalendar=*-*-* 01:00:00`, `Persistent=true`) |
+| `techdigest.service` | A execução: o `.venv/bin/techdigest` da pasta principal como processo principal; `Wants=` e `After=` para o Ollama e para o bloqueio do sono; no máximo 4 horas (`RuntimeMaxSec=4h`) |
+| `techdigest-inibir.service` | O bloqueio do sono durante a execução (`systemd-inhibit --what=sleep:idle`); para sozinha quando a execução termina (`StopWhenUnneeded=yes`) |
+| `techdigest-aviso.service` | O aviso de falha (`python -m techdigest.aviso_de_falha`), disparado pelo `OnFailure=` da `techdigest.service` |
+
+### Instalar e ligar
+
+Na pasta principal, com a `master` já com a frente 5:
+
+    mkdir -p ~/.config/systemd/user ~/.local/state/techdigest
+    cp deploy/systemd/techdigest.service deploy/systemd/techdigest.timer deploy/systemd/techdigest-inibir.service deploy/systemd/techdigest-aviso.service ~/.config/systemd/user/
+    systemctl --user daemon-reload
+    systemctl --user enable --now techdigest.timer
+    systemctl --user list-timers techdigest.timer      # a próxima execução
+
+Sem `loginctl enable-linger` (decisão de 09/11/2026). Sem linger, o gerenciador de units do usuário só existe enquanto
+há uma sessão sua aberta (a tela bloqueada conta como sessão aberta): o timer só dispara com você logado, e uma
+execução perdida roda no login seguinte (`Persistent=true`). O bloqueio do sono também depende da sessão: o polkit só
+deixa uma unit de usuário bloquear o sono com uma sessão sua aberta, e sem ela pede senha de administrador. O caso sem
+sessão fica para conferir depois da instalação.
+
+### A primeira execução
+
+Durante a primeira execução pelo timer (ou por `systemctl --user start techdigest.service`, que é uma execução real,
+com Telegram), confira que o Ollama e o bloqueio do sono ficam no ar enquanto ela roda:
+
+    systemctl --user is-active ollama.service techdigest-inibir.service   # active, active
+    systemd-inhibit --list                                                 # uma linha TechDigest, sleep:idle, block
+
+Depois: `systemctl --user status techdigest.service` e `journalctl --user -u techdigest.service`. O
+`scripts/resumo_lotes.py` lê o log de sempre, `data/logs/techdigest.log`.
+
+### O que avisa no Telegram
+
+- **O pipeline parou sozinho** (trava ocupada, freio da máquina, erro inesperado, falhas seguidas de entrega, todos os
+  feeds fora): ele avisa, como na execução à mão, e sai com status 1. O aviso de falha acha a linha `Aviso de parada:`
+  no journal daquela execução e só registra.
+- **O que o pipeline não consegue avisar**: o aviso de falha manda uma mensagem curta, "TechDigest (techdigest.service)
+  parou às HH:MM: <motivo>". Os motivos: passou das 4 horas, encerrado por falta de memória, encerrado por um sinal,
+  core dump, status 1 sem o aviso do pipeline (um erro antes de começar, como uma `.venv` fora do `uv.lock`), o aviso
+  do pipeline que não foi enviado, o journal que não pôde ser lido, o systemd que não conseguiu iniciar o pipeline
+  (status de 200 em diante) e qualquer outra falha da unit. Um aviso duplicado vale mais que um silêncio.
+- **Sem aviso**: um `systemctl --user stop`, um logout ou um desligamento no meio da execução. Para o systemd, SIGTERM,
+  SIGINT, SIGHUP e SIGPIPE vindos de fora são uma saída limpa (`SuccessExitStatus=`, `systemd.service(5)`), e o
+  `OnFailure=` não dispara. O que não foi entregue volta na próxima execução.
+- Se o Ollama não sobe (sem o driver da NVIDIA, por exemplo), a execução começa mesmo assim (`Wants=`), para na
+  conferência da GPU e o pipeline avisa.
+- Se o próprio aviso de falha não consegue enviar, a `techdigest-aviso.service` fica em falha
+  (`systemctl --user --failed`) e o log traz `Aviso de parada não enviado`.
+
+### Sono e tampa
+
+- A tampa ignora o bloqueio do sono: `LidSwitchIgnoreInhibited=` é `yes` por padrão no logind. Nesta máquina a tampa só
+  suspende na bateria (`/etc/systemd/logind.conf.d/10-tampa.conf`); na tomada, com a tampa fechada, ela fica acordada.
+- Com a máquina suspensa à 01:00, a execução roda quando ela volta: um horário que passou durante a suspensão é
+  processado na volta (`systemd.timer(5)`). O `Persistent=true` cobre a máquina desligada à 01:00 e você deslogado.
+- O `WakeSystem=` não serve num timer de usuário: acordar a máquina exige privilégio e só funciona no gerenciador do
+  sistema (`systemd.timer(5)`). Nenhum timer acorda a máquina.
+- Não há suspensão por ociosidade (o Hyprland roda sem hypridle). O bloqueio segura um `systemctl suspend` seu, sem
+  root, e os programas que respeitam bloqueios.
+
+### Junto com a execução à mão
+
+A execução à mão continua como está acima. A trava do modelo impede duas ao mesmo tempo: a que chega depois para e
+avisa. O mesmo vale para uma rodada de teste que esteja segurando a trava à 01:00: a execução do timer para e avisa.
+
+### Desligar e desinstalar
+
+    systemctl --user disable --now techdigest.timer
+    systemctl --user clean --what=state techdigest.timer    # antes de apagar a unit: a data da última execução
+    rm ~/.config/systemd/user/techdigest.service ~/.config/systemd/user/techdigest.timer ~/.config/systemd/user/techdigest-inibir.service ~/.config/systemd/user/techdigest-aviso.service
+    systemctl --user daemon-reload

@@ -1,0 +1,14 @@
+# O bloqueio do sono durante a execução do timer: o mesmo systemd-inhibit da execução à mão (docs/producao.md), numa
+# unit à parte. Sobe com a techdigest.service (o Wants= dela) e para quando ela termina (StopWhenUnneeded=yes).
+#
+# À parte para que o pipeline seja o processo principal da techdigest.service (ver o comentário dela) e para que um
+# bloqueio recusado não impeça a execução: o polkit só deixa uma unit de usuário bloquear o sono com uma sessão do
+# usuário aberta. A tampa ignora este bloqueio (LidSwitchIgnoreInhibited= é "yes" por padrão no logind).
+
+[Unit]
+Description=TechDigest: não deixa a máquina dormir durante a execução
+StopWhenUnneeded=yes
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/systemd-inhibit --what=sleep:idle --who=TechDigest --why="execucao do timer" /usr/bin/sleep infinity
