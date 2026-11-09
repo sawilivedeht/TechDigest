@@ -138,3 +138,6 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
 - 08/11/2026: frente 1 (áudio) na `testes`: `melhoria/audio` em `63ea31f`, avanço rápido de `4bce887`; `Would make no
   changes` e 695 testes, em duas execuções. Resolvidos hoje: o zip solto da `techdigest-fase4` (apagado; a cópia de `~/dumb`
   fica) e o `.env` da `techdigest-testes` (conferido pelo dono).
+- 08/11/2026: frente 4 (ruff) na `testes`: `melhoria/ruff` em `a0db7a8`, avanço rápido de `3278e70`; ruff 0.17.4 só com F
+  e ISC, `uv.lock` com 65 pacotes, 695 testes em duas execuções e `ruff check .` limpo. Decisão do dono: um único merge na
+  `master` no fim, com todas as frentes.

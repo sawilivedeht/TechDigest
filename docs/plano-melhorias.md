@@ -116,9 +116,9 @@ no fim; se o dono quiser antecipar um grupo de frentes, o procedimento é o mesm
 
 | Arquivo | Frentes | Como evitar |
 |---|---|---|
-| `pyproject.toml` | 2, 4, 9 | Cada uma mexe só na sua seção. Se a 2 adotar lockfile, a que entrar depois na `testes` refaz o lock |
+| `pyproject.toml` | 2, 4, 9 | Cada uma mexe só na sua seção. Se a 2 adotar lockfile, a que entrar depois na `testes` refaz o lock. Resolvido para a 4: ela já refez o `uv.lock` (65 pacotes) sobre o da 2 |
 | `.gitignore` | 2 | — |
-| `src/techdigest/audio/tts.py` | 1, 4 | A 4 só tira o `f` da linha 55 (`f"anullsrc=r=24000:cl=mono"`); a 1 mantém a string sem o `f` ao rebasear |
+| `src/techdigest/audio/tts.py` | 1, 4 | Resolvido: a frente 1 tirou o `f` no `d8dc640`; a frente 4 não toca o `tts.py` |
 | `src/techdigest/config.py` | 6; 8 e 9 na onda 3 | A 8 e a 9 só depois da 6 integrada |
 | `src/techdigest/registro.py` | 3 | — |
 | `src/techdigest/delivery/email_smtp.py`, `scripts/refazer_qa.py` | 4 | — |
@@ -155,7 +155,8 @@ frentes, o chat de cada uma consegue ler o código dela; senão, o dono cola o `
 | Aprovar os documentos na `master` e as regras novas | 0 | onda 0 |
 | Seguir com os turnos em paralelo, depois da medição | 1 | onda 1 |
 | uv, pip-tools ou só fixar o `edge-tts` | 2 | onda 1 |
-| As regras do ruff e o destino do `email_smtp.py` (corrigir duas linhas ou apagar o módulo) | 4 | onda 1 |
+| As regras do ruff e o destino do `email_smtp.py` (corrigir duas linhas ou apagar o módulo) | 4 | onda 1; decidida em 08/11: só F e ISC, e corrigir as duas linhas do `email_smtp.py` |
+| Um único merge na `master` no fim, com todas as frentes | 0 | 08/11 |
 | Horário do timer, `Wants=` ou `Requires=`, os valores de memória, `linger` | 5 | onda 2 |
 | A lista de feeds (copiada do `.env`) e a precedência entre o arquivo e o `RSS_FEEDS` | 6 | onda 2 |
 | O formato dos comandos da rodada e se a execução real à mão também usa o script | 7 | onda 2 |
@@ -175,11 +176,11 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
 
 | Frente | Etapa | Branch e último commit | Observação |
 |---|---|---|---|
-| 0 | onda 0 concluída; espera as frentes prontas para a integração | `testes`, nascida da `master` em `64bd21b` | `coordenacao` apagada depois do passo 7 |
+| 0 | onda 0 concluída; integrando as frentes na `testes` | `testes`, nascida da `master` em `64bd21b`; frentes 1, 2, 3 e 4 integradas até `a0db7a8` | `coordenacao` apagada depois do passo 7; 695 testes e `ruff check .` limpo na `testes` |
 | 1 Áudio | na `testes` | `melhoria/audio`, `63ea31f` | turnos sintetizados em paralelo, integrados por avanço rápido; 695 testes passam na `testes` |
 | 2 Versões | na `testes` | `melhoria/versoes`, `2c4c899` | `uv.lock` e `.python-version`; `egg-info` fora do git; `.venv` da `testes` refeita pelo uv, versões idênticas às da produção; 695 testes passam na `testes` |
 | 3 Registro | na `testes` | `melhoria/registro`, `a482b0a` | gravação atômica integrada; aceite estendido: processo morto, três testes que falham com a gravação direta; 695 testes passam na `testes` |
-| 4 ruff | não começada | `melhoria/ruff`, `64bd21b` | worktree `techdigest-ruff` pronta: 667 testes, versões da produção |
+| 4 ruff | na `testes` | `melhoria/ruff`, `a0db7a8` | ruff 0.17.4 só com as regras F e ISC, 3 avisos corrigidos (duas linhas do `email_smtp.py` e uma do `refazer_qa.py`); `uv.lock` com 65 pacotes; 695 testes passam na `testes` |
 | 8 Schema | não começada (medição na onda 1) | `melhoria/schema`, `64bd21b` | worktree `techdigest-schema` pronta: 667 testes, versões da produção |
 | 5, 6, 7 e 9 | não começadas | — | worktrees criadas quando o dono abrir o chat delas (passos 8 e 9 da onda 0) |
 
@@ -201,3 +202,9 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
   (`audio/tts.py`, `tests/test_tts.py`, o passo 5 da Architecture no `CLAUDE.md` e `docs/melhorias/01-audio.md`). O `uv sync
   --locked --check --extra dev` deu `Would make no changes` e a suíte deu 695 passando, em duas execuções. A `master` e a
   `trabalho` seguem em `64bd21b`.
+- 08/11/2026: frente 4 (ruff) na `testes`. `git merge --ff-only melhoria/ruff` levou a `testes` de `3278e70` a `a0db7a8`
+  (`pyproject.toml`, `uv.lock`, `CLAUDE.md`, `email_smtp.py`, `scripts/refazer_qa.py` e `docs/melhorias/04-ruff.md`; o
+  `tts.py` não aparece). A `.venv` não tinha o ruff: `uv sync --locked --extra dev` o instalou (0.17.4) e o `--check`
+  deu `Would make no changes`. A suíte deu 695 passando em duas execuções e o `ruff check .` não teve avisos; tirar uma
+  vírgula da linha 25 de `ai/verbos.py` dá ISC001 e ISC004 (desfeito). O dono decidiu fazer um único merge na `master`
+  no fim, com todas as frentes. A `master` e a `trabalho` seguem em `64bd21b`.
