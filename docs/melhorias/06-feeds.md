@@ -103,3 +103,38 @@ inteira e a seção "Estado" de docs/melhorias/06-feeds.md atualizada.
     a execução termina com "Nenhuma notícia entregue" e status 0. Depois do merge, a linha inteira sai do `.env`.
   - Pendente: a prova por mutação (depois do commit, para o `git checkout --` voltar ao código commitado) e o aceite
     separado, que é do dono (ele lê o `.env`; a sessão não).
+- 09/11/2026: aceite separado. Commit `0de125d` na `melhoria/feeds` (sem push): 715 testes passando (695 + 20) e
+  `ruff check .` sem avisos, antes do commit e de novo depois das mutações. Prova por mutação no código commitado, cada
+  uma desfeita com `git checkout -- src/techdigest/config.py` (`git status` vazio depois de cada uma), rodando
+  `pytest tests/test_feeds.py -q --tb=no -rf`:
+  1. Precedência pelo valor (`if self.rss_feeds:` no lugar de `if "rss_feeds" in self.model_fields_set:`):
+     ```
+     FAILED tests/test_feeds.py::test_o_rss_feeds_do_ambiente_manda_mesmo_vazio_com_aviso[-esperado1]
+     FAILED tests/test_feeds.py::test_o_rss_feeds_do_env_manda_mesmo_vazio_com_aviso[RSS_FEEDS=-esperado1]
+     2 failed, 18 passed in 0.04s
+     ```
+  2. Sem a checagem de URL repetida (as duas linhas do `if url in linha_de:` tiradas):
+     ```
+     FAILED tests/test_feeds.py::test_recusa_a_url_repetida_e_compara_o_texto_exato
+     1 failed, 19 passed in 0.03s
+     ```
+  3. Sem a checagem de esquema (`if not partes.netloc` no lugar de
+     `if partes.scheme not in ("http", "https") or not partes.netloc`):
+     ```
+     FAILED tests/test_feeds.py::test_recusa_a_linha_que_nao_e_url_com_o_numero_dela[ftp://a.example/feed]
+     1 failed, 19 passed in 0.04s
+     ```
+  4. Extra, o defeito do ajuste 1 (`def ler_feeds(caminho: str | Path = CAMINHO_DOS_FEEDS)`, sem resolver o `None`):
+     ```
+     FAILED tests/test_feeds.py::test_sem_rss_feeds_vale_o_arquivo_sem_aviso - Ass...
+     FAILED tests/test_feeds.py::test_a_troca_do_caminho_por_monkeypatch_muda_o_que_settings_feeds_devolve
+     FAILED tests/test_feeds.py::test_o_env_sem_rss_feeds_deixa_o_arquivo_mandar
+     FAILED tests/test_feeds.py::test_sem_rss_feeds_e_sem_arquivo_e_erro - Failed:...
+     FAILED tests/test_feeds.py::test_o_arquivo_vazio_sem_rss_feeds_e_erro_e_nao_lista_vazia
+     5 failed, 15 passed in 0.03s
+     ```
+  - Pendente: o aceite do dono, que compara o `RSS_FEEDS` do `.env` dele com o `config/feeds.txt` da worktree,
+    imprimindo só se o `RSS_FEEDS` veio do `.env`, as contagens e se as listas são iguais, sem nenhuma URL. Esperado
+    `True 9 9 True`, mais a linha do aviso da precedência no stderr. O primeiro `True` diz que a lista `a` veio mesmo do
+    `.env`: sem ele, o `Settings` cairia no próprio arquivo, e o `9 9 True` sairia sem provar nada.
+    `cd /home/sytw/Projetos/techdigest-feeds && .venv/bin/python -c 'from techdigest import config; s = config.Settings(_env_file="/home/sytw/Projetos/techdigest/.env"); a = s.feeds; b = list(config.ler_feeds()); print("rss_feeds" in s.model_fields_set, len(a), len(b), a == b)'`
