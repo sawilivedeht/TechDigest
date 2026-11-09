@@ -138,3 +138,11 @@ inteira e a seção "Estado" de docs/melhorias/06-feeds.md atualizada.
     `True 9 9 True`, mais a linha do aviso da precedência no stderr. O primeiro `True` diz que a lista `a` veio mesmo do
     `.env`: sem ele, o `Settings` cairia no próprio arquivo, e o `9 9 True` sairia sem provar nada.
     `cd /home/sytw/Projetos/techdigest-feeds && .venv/bin/python -c 'from techdigest import config; s = config.Settings(_env_file="/home/sytw/Projetos/techdigest/.env"); a = s.feeds; b = list(config.ler_feeds()); print("rss_feeds" in s.model_fields_set, len(a), len(b), a == b)'`
+- 09/11/2026: aceite do dono feito, rodado por ele na worktree, com o `.env` da pasta principal. Saída:
+  ```
+  RSS_FEEDS definido no ambiente ou no .env: a coleta usa ele, não o /home/sytw/Projetos/techdigest-feeds/config/feeds.txt
+  True 9 9 True
+  ```
+  O `RSS_FEEDS` veio do `.env` (primeiro `True`), as duas listas têm 9 URLs e são iguais, na mesma ordem, e o aviso da
+  precedência saiu. Etapa: aceite separado concluído; "pronta para integração" com o ok do dono, e então a frente 0 é
+  avisada. Depois do merge na `master`, a linha `RSS_FEEDS` sai inteira do `.env` (ver `docs/producao.md`).
