@@ -146,3 +146,8 @@ inteira e a seção "Estado" de docs/melhorias/06-feeds.md atualizada.
   O `RSS_FEEDS` veio do `.env` (primeiro `True`), as duas listas têm 9 URLs e são iguais, na mesma ordem, e o aviso da
   precedência saiu. Etapa: aceite separado concluído; "pronta para integração" com o ok do dono, e então a frente 0 é
   avisada. Depois do merge na `master`, a linha `RSS_FEEDS` sai inteira do `.env` (ver `docs/producao.md`).
+- 09/11/2026: pronta para integração. O dono aprovou o aceite. A `testes` não avançou depois de `121fa7b` (`git log
+  121fa7b..testes` vazio), então não houve rebase e os hashes acima continuam valendo (`0de125d` e `121fa7b` conferidos
+  com `git merge-base --is-ancestor` contra a `melhoria/feeds`). Na branch, antes deste commit: `uv sync --locked --check
+  --extra dev` deu `Would make no changes`, a suíte 715 passando e `ruff check .` sem avisos. O avanço rápido da `testes`
+  para a `melhoria/feeds` fica com a frente 0.
