@@ -129,7 +129,7 @@ def collect_rss(feeds: list[str] | None = None, coleta: ColetaRSS | None = None,
     entre as rodadas, não dentro do feed. Um feed recuperado volta à posição que tinha na lista, para a intercalação
     não mudar. `coleta`, se vier, é preenchida com os feeds que ficaram de fora e os recuperados.
     """
-    urls = list(feeds or settings.feeds)      # ⬅️ .env = fonte de verdade
+    urls = list(feeds or settings.feeds)      # ⬅️ config/feeds.txt, ou o RSS_FEEDS se definido (ver Settings.feeds)
     coleta = coleta if coleta is not None else ColetaRSS()
     coleta.total = len(urls)
     tentativas = max(1, settings.feed_tentativas)

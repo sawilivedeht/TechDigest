@@ -1,0 +1,10 @@
+# Feeds do TechDigest, uma URL por linha. A ordem importa (intercalação do boletim duplo).
+https://news.google.com/rss/search?q=politica+brasiLeira+when:2d&hl=pt-BR&gl=BR&ceid=BR:pt-419
+https://news.google.com/rss/search?q=brasil+when:2d&hl=pt-BR&gl=BR&ceid=BR:pt-419
+https://www.tecnologiaeclasse.com.br/feed
+https://diolinux.com.br/feed
+https://canaltech.com.br/rss/
+https://tecnoblog.net/feed/
+https://www.hardware.com.br/feed/
+https://news.google.com/rss/search?q=pol%C3%ADtica+when:2d&hl=pt-BR&gl=BR&ceid=BR:pt-419
+https://news.google.com/rss/search?q=intelig%C3%AAncia+artificial+when:2d&hl=pt-BR&gl=BR&ceid=BR:pt-419

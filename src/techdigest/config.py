@@ -1,11 +1,47 @@
+import logging
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
+from urllib.parse import urlsplit
+
+logger = logging.getLogger("techdigest.config")
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 # Fora das pastas do projeto, para a pasta principal e a worktree verem o mesmo arquivo: é o %S/techdigest
 # das units de usuário (deploy/systemd), onde a unit do Ollama grava a saída do servidor.
 PASTA_DE_ESTADO = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "techdigest"
+
+# A lista de feeds, versionada (frente 6 das melhorias, 09/11/2026). A ordem é a da intercalação do boletim duplo
+# (collectors/rss.py). O RSS_FEEDS, se definido, vale no lugar dela (ver Settings.feeds).
+CAMINHO_DOS_FEEDS = BASE_DIR / "config" / "feeds.txt"
+
+
+def ler_feeds(caminho: str | Path | None = None) -> tuple[str, ...]:
+    """As URLs do arquivo de feeds, na ordem em que estão, cada uma como está escrita (maiúsculas e codificação mantidas).
+
+    Uma URL por linha. Linha vazia e linha que começa com "#" ficam de fora; não há comentário depois da URL, porque "#"
+    numa URL é o fragmento. Uma linha que não é uma URL http(s) com host e sem espaço, uma URL repetida (o texto exato) e
+    um arquivo sem nenhuma URL levantam ValueError: um erro de digitação na lista não pode tirar um feed da coleta calado.
+    `caminho` None é o CAMINHO_DOS_FEEDS lido na hora da chamada, não na definição da função, para os testes poderem
+    trocá-lo.
+    """
+    caminho = CAMINHO_DOS_FEEDS if caminho is None else caminho
+    linha_de: dict[str, int] = {}
+    for numero, linha in enumerate(Path(caminho).read_text(encoding="utf-8").splitlines(), 1):
+        url = linha.strip()
+        if not url or url.startswith("#"):
+            continue
+        partes = urlsplit(url)
+        if partes.scheme not in ("http", "https") or not partes.netloc or any(c.isspace() for c in url):
+            raise ValueError(f"{caminho}, linha {numero}: {url!r} não é uma URL http(s) "
+                             "(uma por linha, sem espaço e sem comentário depois dela)")
+        if url in linha_de:
+            raise ValueError(f"{caminho}, linha {numero}: {url!r} repete a linha {linha_de[url]}")
+        linha_de[url] = numero
+    if not linha_de:
+        raise ValueError(f"{caminho}: nenhuma URL (uma por linha; a linha que começa com # é comentário)")
+    return tuple(linha_de)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -112,15 +148,24 @@ class Settings(BaseSettings):
     db_path: str = str(BASE_DIR / "data" / "digest.db")
     audio_dir: str = str(BASE_DIR / "data" / "audio")
 
-    rss_feeds: str = (
-        "https://www.theverge.com/rss/index.xml,"
-        "https://feeds.arstechnica.com/arstechnica/index,"
-        "https://hnrss.org/frontpage"
-    )
+    # Os feeds ficam em config/feeds.txt. O RSS_FEEDS (separado por vírgula), definido no ambiente ou no .env, mesmo
+    # vazio, vale no lugar do arquivo: o teste da simulação o põe vazio para nada ser coletado. O padrão nunca vira lista:
+    # sem o RSS_FEEDS, quem manda é o arquivo
+    rss_feeds: str = ""
 
     @property
     def feeds(self) -> list[str]:
-        return [f.strip() for f in self.rss_feeds.split(",") if f.strip()]
+        """Os feeds da coleta, na ordem da intercalação do boletim duplo.
+
+        O RSS_FEEDS, se definido no ambiente ou no .env (mesmo vazio; o pydantic-settings o põe em `model_fields_set`),
+        com um aviso no log quando o arquivo também existe; senão, `ler_feeds()`, que levanta erro com o arquivo ausente,
+        sem URL ou com uma linha inválida. Lido a cada acesso, sem cache: a coleta lê uma vez por execução (collect_rss).
+        """
+        if "rss_feeds" in self.model_fields_set:
+            if CAMINHO_DOS_FEEDS.exists():
+                logger.warning("RSS_FEEDS definido no ambiente ou no .env: a coleta usa ele, não o %s", CAMINHO_DOS_FEEDS)
+            return [f.strip() for f in self.rss_feeds.split(",") if f.strip()]
+        return list(ler_feeds())
 
 
 settings = Settings()

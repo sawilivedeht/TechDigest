@@ -38,6 +38,23 @@ notícias como vistas em `data/digest.db`. Não há timer; cada execução sai d
   o que não foi entregue volta na próxima execução. Se a causa foi o Ollama subido à mão, comece de novo pelo passo 1.
 - Item reprovado pelo QA em 2 execuções é abandonado (`reprovacoes` no banco).
 
+## Trocar um feed
+
+A lista de feeds fica em `config/feeds.txt`, versionada: uma URL por linha, na ordem da intercalação do boletim duplo
+(a ordem decide quais feeds entram primeiro no `MAX_NEWS`). A linha que começa com `#` é comentário; uma linha que não é
+URL, uma URL repetida ou um arquivo sem URL param a execução (aviso de parada, status 1). Para incluir, tirar, reordenar
+ou corrigir um feed:
+
+1. Edite o `config/feeds.txt` numa branch de trabalho, nunca direto na `master`.
+2. No mesmo commit, atualize a lista literal `FEEDS_DO_REPOSITORIO` de `tests/test_feeds.py`: o teste do arquivo do
+   repositório confere as URLs uma a uma, na ordem, e falha com qualquer troca até a lista dele acompanhar.
+3. A suíte inteira e o `ruff check .`, o commit e, com o seu ok, o avanço rápido da `master`.
+
+Enquanto o `RSS_FEEDS` estiver no `.env`, vale ele, e não o arquivo: a cada execução o log traz
+`RSS_FEEDS definido no ambiente ou no .env: a coleta usa ele, não o .../config/feeds.txt`. Depois do merge da frente 6
+na `master`, apague a linha `RSS_FEEDS` do `.env` inteira: um `RSS_FEEDS=` vazio também conta como definido e deixa a
+coleta sem nenhum feed.
+
 ## Onde ficam os registros
 
 | O quê | Onde |
@@ -47,6 +64,7 @@ notícias como vistas em `data/digest.db`. Não há timer; cada execução sai d
 | Áudio e texto entregues | `data/audio/<slug>.mp3` |
 | Banco de notícias vistas | `data/digest.db` (não editar à mão) |
 | Log do Ollama e trava do modelo | `~/.local/state/techdigest/` |
+| Lista de feeds | `config/feeds.txt` (versionada; o `RSS_FEEDS` do `.env`, se definido, vale no lugar dela) |
 
 Chaves em vigor: `AGRUPAMENTO_ATIVO=false` e `DISPUTA_FONTE_UNICA=false`. Ligar qualquer uma depende do dono
 (`docs/roteiro-fase4.md`).
