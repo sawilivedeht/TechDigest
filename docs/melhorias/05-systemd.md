@@ -226,3 +226,15 @@ inteira e a seção "Estado" de docs/melhorias/05-systemd.md atualizada.
   - Testes: 733 passam; `ruff check .` sem avisos; `systemd-analyze --user verify` com os seis arquivos, status 0; nada
     instalado.
   - Etapa: aceite separado; pronta para o aceite do dono.
+- 09/11/2026: aceite aprovado pelo dono em 09/11, 19:24. Pronta para integração: rebaseada sobre a `testes` em
+  `fe6b66e` (a frente 6 na `testes`), sem conflito; o git juntou sozinho os trechos das duas frentes em `CLAUDE.md` e
+  `docs/producao.md`, conferidos depois (nenhuma remoção de texto da frente 6).
+  - Hashes depois do rebase (as entradas acima citam os de antes): `c07229f` → `1f64fdc`, `dee29cb` → `2d95c21`,
+    `735b9b3` → `6b92a21`, `fc27ac7` → `a50eadf`.
+  - Conferências na `.venv` do uv: `uv sync --locked --check --extra dev` deu `Would make no changes`; 753 testes passam
+    em duas rodadas (733 desta frente e 20 da frente 6); `ruff check .` sem avisos; `systemd-analyze --user verify` com
+    os seis arquivos de `deploy/systemd/`, status 0. O `git diff --stat testes..HEAD` traz só `deploy/systemd/*`,
+    `src/techdigest/aviso_de_falha.py`, `tests/test_aviso_de_falha.py`, `tests/test_units.py`, `CLAUDE.md`,
+    `docs/producao.md`, `docs/referencia/scripts.md` e este arquivo; nada em `pipeline.py`, `pyproject.toml` ou `uv.lock`.
+  - O avanço rápido da `testes` é da frente 0, assim como o docstring do `pipeline.run` e o estado de produção do
+    `CLAUDE.md` (G13).
