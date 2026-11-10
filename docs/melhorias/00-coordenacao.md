@@ -170,3 +170,18 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
   entrega passa calada. Na execução real de 05/11, com o edge-tts dando 403, cada item falhou isolado e o pipeline terminou
   com status 0 depois de 181 min ("Nenhuma notícia entregue nesta execução (181 min)"); nem o pipeline nem o `OnFailure=`
   avisam esse caso. Corrigir é mexer no `pipeline.py` (por exemplo, um aviso quando sai 0 de N com candidatos).
+- 10/11/2026: frente 8 (schema) fechada, sem código, por decisão do dono de 10/11: a etapa 2 (o JSON Schema no `format`)
+  não acontece. A medição (só leitura, sem modelo; os números estão no `08-schema.md`) leu o log da produção de 05/10 a
+  07/11, com 53 inícios, os 10 relatórios da produção, as simulações e as rodadas. Só 2 execuções da produção, 05/11 (89
+  itens) e 07/11 (20), rodaram com a nova tentativa do JSON incompleto, e nenhuma chamada foi refeita. Em 885 itens no
+  total (491 da produção, 128 das simulações e 266 das rodadas), 1 caso: o C3.48 da regressão de 29/10, numa rodada antes
+  da nova tentativa: a geração fechou o JSON com 2 das 8 chaves e derrubou o item, 21 s perdidos. A essa taxa, cerca de
+  0,1 evento numa execução de 89 itens e 0,02 numa de 20. `git merge --ff-only melhoria/schema` levou a `testes` de
+  `3e1045e` a `653c51f` (só `docs/melhorias/08-schema.md`, 96 inserções). `Would make no changes`, 753 testes em duas
+  execuções e `ruff check .` limpo. `testes` em `653c51f` antes deste commit de documentos. A `master` e a `trabalho`
+  seguem em `64bd21b`.
+- Melhoria futura, depois do merge e sem segurar a integração (vista na medição da frente 8): na execução real de 05/11,
+  às 09:32, uma geração falhou com `RuntimeError: Ollama respondeu HTTP 500: prediction aborted, token repeat limit reached`
+  (o Ollama interrompe a geração quando detecta repetição). Uma ocorrência em cerca de 885 itens, nenhuma em simulação ou
+  rodada. O código converte o erro em `RuntimeError` (`ai/llm.py:213`): só aquele item é pulado, a execução segue e o item
+  volta na seguinte; não conta como `QAReprovado`. A nova tentativa do JSON incompleto não cobre esse erro.

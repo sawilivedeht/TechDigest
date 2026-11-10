@@ -128,7 +128,7 @@ no fim; se o dono quiser antecipar um grupo de frentes, o procedimento é o mesm
 | `pyproject.toml` | 2, 4, 9 | Cada uma mexe só na sua seção. Se a 2 adotar lockfile, a que entrar depois na `testes` refaz o lock. Resolvido para a 4: ela já refez o `uv.lock` (65 pacotes) sobre o da 2 |
 | `.gitignore` | 2 | — |
 | `src/techdigest/audio/tts.py` | 1, 4 | Resolvido: a frente 1 tirou o `f` no `d8dc640`; a frente 4 não toca o `tts.py` |
-| `src/techdigest/config.py` | 6; 8 e 9 na onda 3 | A 6 já entrou (`ler_feeds` e `CAMINHO_DOS_FEEDS`); a 8 e a 9 só mexem no `config.py` depois dela |
+| `src/techdigest/config.py` | 6; 9 na onda 3 | A 6 já entrou (`ler_feeds` e `CAMINHO_DOS_FEEDS`); a 9 só mexe no `config.py` depois dela |
 | `src/techdigest/registro.py` | 3 | — |
 | `src/techdigest/delivery/email_smtp.py`, `scripts/refazer_qa.py` | 4 | — |
 | `deploy/systemd/` | 5 | — |
@@ -169,7 +169,7 @@ frentes, o chat de cada uma consegue ler o código dela; senão, o dono cola o `
 | Horário do timer, `Wants=` ou `Requires=`, os valores de memória, `linger` | 5 | onda 2 |
 | A lista de feeds (copiada do `.env`) e a precedência entre o arquivo e o `RSS_FEEDS` | 6 | onda 2; lista copiada do `.env` em 08/11; precedência: o `RSS_FEEDS` definido manda, mesmo vazio, com aviso no log; aprovada em 09/11 |
 | O formato dos comandos da rodada e se a execução real à mão também usa o script | 7 | onda 2 |
-| Rodar o experimento do schema, se a medição justificar | 8 | onda 3 |
+| Rodar o experimento do schema, se a medição justificar | 8 | onda 3; dispensada em 10/11 (medição: zero chamadas refeitas) |
 | Fazer ou não a frente 9 | 9 | onda 3 |
 
 ## Instruções do Projeto (texto sugerido)
@@ -185,12 +185,12 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
 
 | Frente | Etapa | Branch e último commit | Observação |
 |---|---|---|---|
-| 0 | onda 0 concluída; integrando as frentes na `testes` | `testes`, nascida da `master` em `64bd21b`; frentes 1, 2, 3, 4, 5 e 6 integradas; `testes` em `7f73972` antes deste commit de documentos | `coordenacao` apagada depois do passo 7; 753 testes e `ruff check .` limpo na `testes` |
+| 0 | onda 0 concluída; integrando as frentes na `testes` | `testes`, nascida da `master` em `64bd21b`; frentes 1, 2, 3, 4, 5 e 6 integradas e a 8 fechada; falta a 7 e, se o dono quiser, a 9; `testes` em `653c51f` antes deste commit de documentos | `coordenacao` apagada depois do passo 7; 753 testes e `ruff check .` limpo na `testes` |
 | 1 Áudio | na `testes` | `melhoria/audio`, `63ea31f` | turnos sintetizados em paralelo, integrados por avanço rápido; 715 testes passam na `testes` |
 | 2 Versões | na `testes` | `melhoria/versoes`, `2c4c899` | `uv.lock` e `.python-version`; `egg-info` fora do git; `.venv` da `testes` refeita pelo uv, versões idênticas às da produção; 715 testes passam na `testes` |
 | 3 Registro | na `testes` | `melhoria/registro`, `a482b0a` | gravação atômica integrada; aceite estendido: processo morto, três testes que falham com a gravação direta; 715 testes passam na `testes` |
 | 4 ruff | na `testes` | `melhoria/ruff`, `a0db7a8` | ruff 0.17.4 só com as regras F e ISC, 3 avisos corrigidos (duas linhas do `email_smtp.py` e uma do `refazer_qa.py`); `uv.lock` com 65 pacotes; 715 testes passam na `testes` |
-| 8 Schema | não começada (medição na onda 1) | `melhoria/schema`, `64bd21b` | worktree `techdigest-schema` pronta: 667 testes, versões da produção |
+| 8 Schema | fechada (10/11, sem código; a etapa 2 não acontece) | `melhoria/schema`, `653c51f` | medição: nenhuma chamada refeita por JSON incompleto, 1 caso em 885 itens (o C3.48, da regressão de 29/10, antes da nova tentativa); decisão do dono de 10/11; o commit de documentos da frente entrou na `testes` por avanço rápido; 753 testes passam na `testes` |
 | 6 Feeds | na `testes` | `melhoria/feeds`, `d05cb23` | `config/feeds.txt` com 9 URLs; o `RSS_FEEDS` definido no ambiente ou no `.env` manda, mesmo vazio, com aviso no log; 715 testes passam na `testes` |
 | 5 systemd | na `testes` | `melhoria/systemd`: `1f64fdc`, `2d95c21`, `6b92a21`, `a50eadf` e `7f73972` | units do pipeline, do timer, do bloqueio do sono e do aviso de falha em `deploy/systemd/`, versionadas e não instaladas; `MemoryMax=20G` na `ollama.service`; rebaseada sobre `fe6b66e` (o merge-base era `121fa7b`); aceite do dono de 09/11, 19:24, como informa o `05-systemd.md`; 753 testes passam na `testes` |
 | 7 e 9 | não começadas | — | worktrees criadas quando o dono abrir o chat delas (passos 8 e 9 da onda 0) |
@@ -239,3 +239,18 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
   entrega passa calada. Na execução real de 05/11, com o edge-tts dando 403, cada item falhou isolado e o pipeline terminou
   com status 0 depois de 181 min ("Nenhuma notícia entregue nesta execução (181 min)"); nem o pipeline nem o `OnFailure=`
   avisam esse caso. Corrigir é mexer no `pipeline.py` (por exemplo, um aviso quando sai 0 de N com candidatos).
+- 10/11/2026: frente 8 (schema) fechada, sem código, por decisão do dono de 10/11: a etapa 2 (o JSON Schema no `format`)
+  não acontece. A medição (só leitura, sem modelo; os números estão no `08-schema.md`) leu o log da produção de 05/10 a
+  07/11, com 53 inícios, os 10 relatórios da produção, as simulações e as rodadas. Só 2 execuções da produção, 05/11 (89
+  itens) e 07/11 (20), rodaram com a nova tentativa do JSON incompleto, e nenhuma chamada foi refeita. Em 885 itens no
+  total (491 da produção, 128 das simulações e 266 das rodadas), 1 caso: o C3.48 da regressão de 29/10, numa rodada antes
+  da nova tentativa: a geração fechou o JSON com 2 das 8 chaves e derrubou o item, 21 s perdidos. A essa taxa, cerca de
+  0,1 evento numa execução de 89 itens e 0,02 numa de 20. `git merge --ff-only melhoria/schema` levou a `testes` de
+  `3e1045e` a `653c51f` (só `docs/melhorias/08-schema.md`, 96 inserções). `Would make no changes`, 753 testes em duas
+  execuções e `ruff check .` limpo. `testes` em `653c51f` antes deste commit de documentos. A `master` e a `trabalho`
+  seguem em `64bd21b`.
+- Melhoria futura, depois do merge e sem segurar a integração (vista na medição da frente 8): na execução real de 05/11,
+  às 09:32, uma geração falhou com `RuntimeError: Ollama respondeu HTTP 500: prediction aborted, token repeat limit reached`
+  (o Ollama interrompe a geração quando detecta repetição). Uma ocorrência em cerca de 885 itens, nenhuma em simulação ou
+  rodada. O código converte o erro em `RuntimeError` (`ai/llm.py:213`): só aquele item é pulado, a execução segue e o item
+  volta na seguinte; não conta como `QAReprovado`. A nova tentativa do JSON incompleto não cobre esse erro.
