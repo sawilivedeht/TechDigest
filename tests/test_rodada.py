@@ -425,12 +425,38 @@ def test_o_vigia_que_morre_para_a_sessao_e_a_rodada_nao_segue_sem_ele(falsos, mo
 
 # ------------------------------------------------------------ a interrupção
 
+@pytest.fixture
+def sobras():
+    """Os grupos de processos que um teste de interrupção deixaria vivos se falhasse: mortos no fim, passe ou não.
+
+    `marcas` são arquivos em que o comando grava o próprio PID ao começar; o rodada.py põe cada comando no seu grupo,
+    então esse PID é também o do grupo. `grupos` são outros grupos (o da rodada num processo novo). Num teste que
+    passa, todos já morreram e o killpg não acha nada.
+    """
+    marcas: list[Path] = []
+    grupos: list[int] = []
+    yield marcas, grupos
+    for marca in marcas:
+        try:
+            grupos.append(int(marca.read_text()))
+        except (OSError, ValueError):
+            pass
+    for grupo in grupos:
+        try:
+            os.killpg(grupo, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
 @pytest.mark.parametrize("sinal", [signal.SIGINT, signal.SIGTERM, signal.SIGHUP])
-def test_a_interrupcao_repassa_um_sigint_ao_comando_para_a_sessao_e_grava_o_fim(falsos, sinal):
+def test_a_interrupcao_repassa_um_sigint_ao_comando_para_a_sessao_e_grava_o_fim(falsos, sinal, sobras):
     antes = {s: signal.getsignal(s) for s in rodada.SINAIS}
-    comando = f"import os, time; os.kill(os.getppid(), {int(sinal)}); time.sleep(60)"
+    marca = falsos.base / "comando_pid"
+    sobras[0].append(marca)
+    comando = ("import os, sys, time; open(sys.argv[1], 'w').write(str(os.getpid())); "
+               f"os.kill(os.getppid(), {int(sinal)}); time.sleep(60)")
     inicio = time.monotonic()
-    assert rodada.main(falsos.argumentos("--", PY, "-c", comando)) == 128 + sinal
+    assert rodada.main(falsos.argumentos("--", PY, "-c", comando, str(marca))) == 128 + sinal
     assert time.monotonic() - inicio < 20
     assert {s: signal.getsignal(s) for s in rodada.SINAIS} == antes        # os tratadores de antes voltam
     assert "--user stop techdigest-teste.target" in falsos.acoes()
@@ -454,13 +480,15 @@ sys.exit(rodada.main(sys.argv[1:]))
 
 
 @pytest.mark.parametrize("sinal, ao_grupo", [(signal.SIGINT, True), (signal.SIGTERM, False)])
-def test_num_processo_novo_o_ctrl_c_para_a_sessao_e_nao_deixa_o_comando_vivo(falsos, sinal, ao_grupo):
+def test_num_processo_novo_o_ctrl_c_para_a_sessao_e_nao_deixa_o_comando_vivo(falsos, sinal, ao_grupo, sobras):
     """Como no terminal: o Ctrl+C vai ao grupo de processos da rodada; o SIGTERM, só a ela."""
     marca = falsos.base / "comando_pid"
+    sobras[0].append(marca)
     comando = ["--", PY, "-c", "import os, sys, time; open(sys.argv[1], 'w').write(str(os.getpid())); time.sleep(120)",
                str(marca)]
     processo = subprocess.Popen([PY, "-c", ENVOLTORIO, *falsos.argumentos(*comando)], cwd=falsos.base,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    sobras[1].append(processo.pid)          # start_new_session: o grupo da rodada tem o PID dela
     try:
         fim = time.time() + 30
         while not (marca.exists() and marca.read_text()) and time.time() < fim:

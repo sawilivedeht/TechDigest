@@ -117,6 +117,18 @@ O script não pega a trava do modelo (os comandos pegam) e não contorna os frei
   `systemd-inhibit` por comando) e os dois commits, o do código e o dos documentos depois do aceite. O segundo vem antes
   do avanço da `testes`.
 
+## Leituras e escolhas
+
+Escolhas da implementação que o plano aprovado não detalhava:
+- `--repetir 1` é erro de argumento: para uma volta só, roda-se sem `--repetir`. Portanto o `{vez}` só existe com
+  `--repetir N`, N de 2 em diante. Sem `--repetir`, um `{vez}` nos comandos é erro, e com ele é obrigatório (ajuste E).
+- Uma palavra com um operador dentro passa: `a;b`, `"x|y"`, `'p>q'`. Só a palavra solta (`|`, `||`, `&`, `&&`, `;`) e a
+  que começa com `>`, `<`, `2>` ou `&>` são recusadas no arquivo, como o dono pediu.
+- O comando nasce com o SIGINT padrão mesmo quando o `rodada.py` é lançado de um shell que ignora o SIGINT dos filhos,
+  como um `bash -c` não interativo com o processo em segundo plano. O `rodada.py` instala tratadores próprios para
+  SIGINT, SIGTERM e SIGHUP, e um sinal com tratador volta ao padrão no `exec` do comando. Visto na parte (b) do aceite:
+  o `sleep` morreu pelo SIGINT repassado.
+
 ## Testes
 
 `tests/test_rodada.py`, 49 testes. O `systemctl`, o `nvidia-smi` e o `systemd-inhibit` são falsos (scripts no `PATH`,
@@ -156,18 +168,46 @@ dizem pegá-los:
 
 O arquivo voltou idêntico (sha256 conferido).
 
+Os testes de interrupção têm um teardown, a fixture `sobras`. O comando grava o próprio PID ao começar, e no fim do teste,
+passe ou falhe, a fixture mata com SIGKILL o grupo de processos desse comando e, no teste em processo novo, também o grupo
+da rodada. Sem ele, a mutação "o comando interrompido sem o SIGINT" tinha deixado 5 processos de teste parados em `sleep`
+(mortos à mão), e um teste que falhasse de verdade deixaria também. Com o teardown, a mesma mutação derruba os mesmos 5
+testes e não sobra nenhum processo: o `pgrep -u "$USER" -f "time[.]sleep[(](60|120)[)]"` voltou vazio.
+
 ## Aceite separado
 
-- A suíte inteira e o `ruff check .`.
-- Uma rodada de verdade sem carga do modelo, pedida ao dono, em duas partes:
-  - (a) um arquivo com `ollama ps`, `systemd-inhibit --list --no-pager` e `false`. Esperado: para no terceiro com status
-    1, a sessão `inactive` no fim e o bloqueio TechDigest na saída do segundo;
-  - (b) `-- sleep 300`, interrompido com `kill -INT` no processo do `rodada.py`. Esperado: status 130, a sessão parada e
-    o `sleep` morto.
+Feito em 10/11/2026 às 19:33, com o ok do dono, nas pastas da pasta principal por caminho absoluto. Antes de cada parte,
+a sessão de teste e a `ollama.service` estavam `inactive`. Nenhuma das duas partes carregou o modelo.
+
+- A suíte inteira e o `ruff check .`: 802 testes, sem aviso.
+- (a) `/home/sytw/Projetos/techdigest/data/agrupamento/rodada_aceite_20261110_a`, `--comandos` com `ollama ps`,
+  `systemd-inhibit --list --no-pager` e `false`:
+  - status de saída 1, em 3 s; o `FIM` diz "motivo: o comando 3 saiu com status 1";
+  - a sessão subiu e o Ollama achou a GPU ("NVIDIA GeForce RTX 3050 6GB Laptop GPU (5.7 GiB)");
+  - o `ollama ps` respondeu sem modelo carregado;
+  - a lista do comando 2 tinha `TechDigest 1000 sytw 15395 systemd-inhibit sleep:idle rodada rodada_aceite_20261110_a
+    block`;
+  - a memória disponível mínima foi de 15411 MiB.
+  - Arquivos da pasta: `andamento.txt`, `comandos.txt` (a cópia do arquivo), `FIM`, `saida_1.txt` a `saida_3.txt` e
+    `vigia_memoria.log`.
+  - Depois: `inactive` e `inactive`; no `systemd-inhibit --list`, só os bloqueios do NetworkManager e do UPower; nenhum
+    `tail --pid`.
+- (b) `/home/sytw/Projetos/techdigest/data/agrupamento/rodada_aceite_20261110_b`, `-- sleep 300`, lançado de um
+  `bash -c` em segundo plano, com `kill -INT` no `rodada.py` 2 s depois do início do comando:
+  - status de saída 130, em 5 s; o `FIM` diz "comando 1: sleep 300: status 130, morto por SIGINT, 2 s" e "motivo:
+    interrompida por SIGINT; o comando 1 saiu com status 130";
+  - a sessão foi parada (`inactive` e `inactive`).
+  - Arquivos da pasta: `andamento.txt`, `comandos.txt` (`sleep 300`), `FIM`, `saida_1.txt` (vazio) e
+    `vigia_memoria.log`.
+  - Depois: só os bloqueios do NetworkManager e do UPower; nenhum `tail --pid` e nenhum `sleep 300` (o PID 15933 não
+    existe mais).
+- O `pgrep -af "tail --pid"`, escrito assim, casa com a linha do próprio shell que o roda. Nas conferências usei
+  `pgrep -af "[t]ail --pid"` e `"[s]leep 300"`, que não casam com ela.
 - O primeiro uso com o modelo é o teste conjunto da frente 0 (a simulação com áudio pelo `rodada.py`) ou a próxima rodada
   que o dono pedir.
-- Esta worktree não tem `data/agrupamento` (o link para a pasta principal das outras worktrees). Para o aceite, a
-  `--pasta` vai como caminho absoluto em `/home/sytw/Projetos/techdigest/data/agrupamento/`, ou o dono cria o link.
+- Esta worktree não tem `data/agrupamento` (o link para a pasta principal das outras worktrees), e por isso o aceite usou
+  caminho absoluto. O link e a frase "There is no linter and no formatter configured" do `docs/referencia/scripts.md`,
+  desatualizada desde a frente 4, ficam com a frente 0: o dono as leva ao chat dela.
 
 ## Documentação
 
@@ -214,12 +254,30 @@ inteira e a seção "Estado" de docs/melhorias/07-rodada.md atualizada.
 ## Estado
 
 - 07/11/2026: não começada.
-- 10/11/2026: aceite separado pendente. Branch `melhoria/rodada`, criada da `testes` em `3e1045e`; o commit do código é
-  este (`scripts/rodada.py`, `tests/test_rodada.py`, `docs/referencia/scripts.md`, `CLAUDE.md` e este arquivo).
+- 10/11/2026, 19:29: commit do código `293fe9f`, na branch `melhoria/rodada`, criada da `testes` em `3e1045e`.
   - Verificação: 802 testes passam (753 da `testes` e 49 novos), o `ruff check .` não dá aviso e o `uv sync --locked
     --check --extra dev` dá `Would make no changes`. A prova por mutação está em "Testes".
-  - Decisões do dono de 10/11: em "Decisões do dono". Nada foi subido, instalado nem rodado com o modelo.
-  - Pendências:
-    - o aceite separado (a rodada sem modelo, pedida ao dono);
-    - o commit de documentos com o resultado do aceite, antes do avanço da `testes`;
-    - a skill, pela frente 0 na integração.
+  - Decisões do dono de 10/11: em "Decisões do dono".
+  - O `git show --stat 293fe9f`, sem a linha do autor e sem o corpo da mensagem, que estão no git:
+
+    ```
+    commit 293fe9f08e71fbf7957e4b63ee35ad6d4a27314d
+    Date:   Tue Nov 10 19:29:59 2026 -0300
+
+        feat(rodada): scripts/rodada.py no lugar do vigia_memoria.sh e do rodar.sh de cada rodada
+
+     CLAUDE.md                   |   3 +-
+     docs/melhorias/07-rodada.md | 209 +++++++++++---
+     docs/referencia/scripts.md  |   3 +-
+     scripts/rodada.py           | 675 ++++++++++++++++++++++++++++++++++++++++++++
+     tests/test_rodada.py        | 482 +++++++++++++++++++++++++++++++
+     5 files changed, 1336 insertions(+), 36 deletions(-)
+    ```
+- 10/11/2026, 19:33: aceite separado feito, nas partes (a) e (b), com o ok do dono. Os resultados estão em "Aceite
+  separado".
+- 10/11/2026: commit de documentos (este), antes do avanço da `testes`. Traz o aceite, a seção "Leituras e escolhas" e o
+  teardown `sobras` nos testes de interrupção, com a nova prova da mutação em "Testes". O `scripts/rodada.py` não mudou.
+  - Verificação: 802 testes passam, o `ruff check .` não dá aviso e o lock dá `Would make no changes`.
+  - Etapa: aceite separado feito, esperando o ok do dono para ficar pronta para integração.
+  - Pendências: o ok do dono; a skill, pela frente 0 na integração. O link `data/agrupamento` desta worktree e a frase do
+    linter no `scripts.md` o dono leva ao chat da frente 0.
