@@ -75,5 +75,20 @@ inteira e a seção "Estado" de docs/melhorias/09-tipos.md atualizada.
     no changes`. Os 60 pacotes da `.venv` da produção (o `freeze` dela sem o `pip` e o `techdigest`) estão todos na
     `.venv` da frente, nas mesmas versões. O pyright roda com o `PATH` só com a `.venv/bin` (usa o node do wheel). Pela
     configuração, `.venv/bin/pyright` dá os mesmos 63 erros da medição. 802 testes passam; `ruff check .` sem avisos.
-  - Pendências: commits 2 (os 21 lugares do basic), 3 (`models.py` e as anotações do episódio) e 4 (documentos); no
-    merge, a `.venv` da produção ganha os 3 pacotes novos pelo `uv sync --locked --extra dev`.
+  - Commit 2 (os 21 lugares do basic): `.venv/bin/pyright` com 0 erros, 0 avisos.
+    - Pacote, na anotação: `kwargs: dict[str, Any]` no `llm.py` (o 401 e os 41 do 403), `parse_json(text: str | None)`
+      (o corpo já trata `None` como resposta vazia: `ValueError`, como hoje), `cast(list[float], alvos)` no
+      `orcamento.py:84` e `Veredito.resposta: dict | None` no `agrupamento.py:760` (só vem do `chat_json` ou é `None`).
+    - Pacote, `# pyright: ignore[regra]` com o motivo na mesma linha: `gpu.py:168` (`reportOptionalMemberAccess`),
+      `maquina.py:141` (`reportArgumentType`), `agrupamento.py:633` (`reportReturnType`) e `email_smtp.py:16`
+      (`reportAttributeAccessIssue`). Conferido numa cópia sem os 4 `ignore`: o pyright acha no pacote exatamente esses
+      4 erros, e nenhum outro.
+    - Scripts, os 13 lugares com `cast` e nenhum `ignore`. Os `cast` que só tiram um `None` levam o motivo na linha:
+      além dos 4 combinados (`rodada.py:437`, `452` e `589`, `checar_fidelidade.py:646`), também `rodada.py:196`
+      (`comando`), `checar_fidelidade.py:557` (o `get` do `max`) e `testar_agrupamento.py:476` (`de_outra`), e o do
+      `orcamento.py:84`, no pacote. Os outros 4 (`checar_fidelidade.py:446` e `565`, `testar_episodio.py:569`,
+      `testar_agrupamento.py:403`) ficam sem comentário: o `isinstance` da mesma linha é o motivo.
+    - No standard, sobram os 3 `possibly unbound` do `main.py:49`, fora do aceite.
+    - 802 testes passam; `ruff check .` sem avisos.
+  - Pendências: commits 3 (`models.py` e as anotações do episódio) e 4 (documentos); no merge, a `.venv` da produção
+    ganha os 3 pacotes novos pelo `uv sync --locked --extra dev`.

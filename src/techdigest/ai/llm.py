@@ -5,6 +5,7 @@ import logging
 import re
 import subprocess
 from abc import ABC, abstractmethod
+from typing import Any
 
 import requests
 
@@ -39,7 +40,7 @@ class JSONIncompleto(ValueError):
     o JSON logo depois do resumo). O Summarizer repete a mesma chamada uma vez (ver `Summarizer._chamar_inteiro`)."""
 
 
-def parse_json(text: str, chaves=None) -> dict:
+def parse_json(text: str | None, chaves=None) -> dict:
     """Parse defensivo: mensagem clara para vazio, cercas e JSON quebrado.
 
     `chaves` são as chaves obrigatórias da resposta; sem ele valem as 8 do episódio (REQUIRED_KEYS).
@@ -383,7 +384,7 @@ class OpenAIProvider(LLMProvider):
         ultimo_erro = None
 
         for i, rf in enumerate(tentativas, 1):
-            kwargs = dict(
+            kwargs: dict[str, Any] = dict(
                 model=self.model,
                 max_tokens=max_tokens,
                 messages=[

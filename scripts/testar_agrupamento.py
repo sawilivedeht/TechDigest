@@ -35,6 +35,7 @@ import time
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
+from typing import cast
 
 from techdigest import trava
 from techdigest.ai import maquina
@@ -400,7 +401,7 @@ def _consultar_llm(provider, pauta: ag.Pauta, repeticao: int) -> Chamada:
     resposta = veredito.resposta
     if resposta is None:   # a chamada falhou
         return Chamada(repeticao, pauta, segundos, dict(provider.ultimo_uso), "", veredito.erro, {}, veredito.finais)
-    motivo = resposta.get("motivo") if isinstance(resposta.get("motivo"), str) else ""
+    motivo = cast(str, resposta.get("motivo")) if isinstance(resposta.get("motivo"), str) else ""
     tipos = {pauta.artigos[n - 1]: tipo for n, tipo in ag.tipos_do_veredito(resposta, len(pauta.artigos)).items()}
     return Chamada(repeticao, pauta, segundos, dict(provider.ultimo_uso), motivo, veredito.erro, tipos, veredito.finais)
 
@@ -473,7 +474,7 @@ def _ler_rotulos(caminho: str, amostra: str) -> list[dict]:
         sys.exit(f"CSV de rótulos ilegível ({type(e).__name__}: {e}): {caminho}")
     de_outra = {linha.get("amostra") for linha in linhas} - {None, "", Path(amostra).name}
     if de_outra:
-        print(f"  ATENÇÃO: os rótulos dizem ser de outra amostra ({', '.join(sorted(de_outra))}); os ids podem não bater")
+        print(f"  ATENÇÃO: os rótulos dizem ser de outra amostra ({', '.join(sorted(cast(set[str], de_outra)))}); os ids podem não bater")   # o None saiu na subtração acima
     return rotulos
 
 

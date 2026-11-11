@@ -18,6 +18,7 @@ Não importa nada de `lados.py` nem de `qa.py`, que o usam: dos lados, só lê `
 """
 import math
 from dataclasses import dataclass
+from typing import cast
 
 FATOR = 1.75                  # palavras de roteiro por palavra de texto recebido (a calibrar na regressão)
 PISO_TOTAL = 300
@@ -81,7 +82,7 @@ def _repartir(parte: float, pesos: list[float], minimo: float) -> list[float]:
     soma = sum(pesos[i] for i in livres)
     for i in livres:
         alvos[i] = resto * pesos[i] / soma
-    return alvos
+    return cast(list[float], alvos)   # cada posição já recebeu o mínimo ou a sua parte: nenhuma ficou None
 
 
 @dataclass(frozen=True)

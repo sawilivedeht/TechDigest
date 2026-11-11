@@ -40,6 +40,7 @@ import time
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
+from typing import IO, cast
 
 from techdigest.ai import gpu
 from techdigest.ai.maquina import memoria_disponivel
@@ -193,7 +194,7 @@ def montar_plano(argv: list[str]) -> Plano:
         except ValueError as e:
             parser.error(str(e))
     else:
-        comandos = [comando]
+        comandos = [cast(list[str], comando)]   # sem --comandos e sem comando, o parser.error acima já saiu
     tem_vez = any(VEZ in palavra for palavras in comandos for palavra in palavras)
     if args.repetir is not None:
         if args.repetir < 2:
@@ -434,7 +435,7 @@ class Rodada:
         limite = time.monotonic() + ESPERA_DO_BLOQUEIO
         while not self._bloqueio_listado():
             if self.bloqueio.poll() is not None:
-                erro = self.bloqueio.stderr.read().decode("utf-8", "replace").strip()
+                erro = cast(IO[bytes], self.bloqueio.stderr).read().decode("utf-8", "replace").strip()   # o Popen acima tem stderr=PIPE
                 raise FalhaDaRodada(f"o bloqueio do sono foi recusado (systemd-inhibit saiu com "
                                     f"{self.bloqueio.returncode}: {erro or 'sem mensagem'}); nada subiu")
             if time.monotonic() > limite:
@@ -449,7 +450,7 @@ class Rodada:
                                    timeout=30)
         except (OSError, subprocess.TimeoutExpired):
             return False
-        return any("TechDigest" in linha and str(self.bloqueio.pid) in linha.split()
+        return any("TechDigest" in linha and str(cast(subprocess.Popen, self.bloqueio).pid) in linha.split()   # só chamado depois do Popen
                    for linha in saida.stdout.splitlines())
 
     def _subir_a_sessao(self) -> None:
@@ -586,7 +587,7 @@ class Rodada:
             except subprocess.TimeoutExpired:
                 os.killpg(self.bloqueio.pid, signal.SIGKILL)
                 self.bloqueio.wait()
-        self.bloqueio.stderr.close()
+        cast(IO[bytes], self.bloqueio.stderr).close()   # o Popen do bloqueio tem stderr=PIPE
 
     def _encerrar(self) -> None:
         if self.interrupcao is not None:

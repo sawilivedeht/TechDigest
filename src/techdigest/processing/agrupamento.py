@@ -630,7 +630,7 @@ def _ler_veredito(
     ausentes = sorted(set(range(1, n + 1)) - set(validos))
     if ausentes:
         problemas.append(f"id ausente: {ausentes}")
-    return grupos, isolados, tipos, problemas
+    return grupos, isolados, tipos, problemas  # pyright: ignore[reportReturnType]  # com problemas, as listas podem trazer None, e o resto não é usado
 
 
 def problemas_do_veredito(resposta, n: int) -> list[str]:
@@ -757,7 +757,7 @@ MAX_SAIDA_ETAPA3 = 512     # tokens: a resposta é um JSON curto
 class Veredito:
     """O que a etapa 3 deu para uma pauta provisória: as pautas finais, a resposta do LLM e o erro, se houve."""
     finais: list[Pauta]
-    resposta: object = None   # o JSON do LLM; None se a chamada falhou
+    resposta: dict | None = None   # o JSON do LLM (o dict do chat_json); None se a chamada falhou
     erro: str = ""            # "a chamada falhou (...)" ou "veredito descartado (...)"; vazio quando o veredito valeu
 
 

@@ -13,7 +13,7 @@ def send_digest(subject: str, html: str, attachments: list[str] | None = None):
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = settings.email_user
-    msg["To"] = ", ".join(settings.recipients)
+    msg["To"] = ", ".join(settings.recipients)  # pyright: ignore[reportAttributeAccessIssue]  # código dormente: o Settings não tem `recipients` (CLAUDE.md)
     msg.set_content("Ative a visualização HTML para ver o digest.")
     msg.add_alternative(html, subtype="html")
 

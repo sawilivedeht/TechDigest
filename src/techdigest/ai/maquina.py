@@ -138,7 +138,7 @@ class ProviderVigiado:
         if not self.local or self.gpu_depois_da_carga:
             return
         try:
-            self.gpu_depois_da_carga = gpu.modelo_na_gpu(self.provider.client, self.provider.model, self.log_ollama)
+            self.gpu_depois_da_carga = gpu.modelo_na_gpu(self.provider.client, self.provider.model, self.log_ollama)  # pyright: ignore[reportArgumentType]  # com o modelo local e sem log, a conferência antes da carga já parou a execução
         except gpu.SemGPU as e:
             raise ExecucaoInterrompida(f"depois da primeira chamada: {e}") from None
         logger.info("GPU depois da carga: %s", self.gpu_depois_da_carga)

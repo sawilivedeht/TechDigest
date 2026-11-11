@@ -25,9 +25,11 @@ import json
 import re
 import sys
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
+from typing import cast
 
 from techdigest.ai import qa
 from techdigest.ai.atribuicoes import GRUPOS as _GRUPOS
@@ -443,7 +445,7 @@ def conferir(episodio: dict, fontes: list[Fonte]) -> Resultado:
         for grupo, expressao, posicao in perguntas_abertas_a_grupos(texto):
             r.perguntas_abertas.append(Achado("pergunta aberta", grupo, expressao, local, _frase(texto, posicao)))
 
-    citadas = episodio.get("fontes_citadas") if isinstance(episodio.get("fontes_citadas"), list) else []
+    citadas = cast(list, episodio.get("fontes_citadas")) if isinstance(episodio.get("fontes_citadas"), list) else []
     r.fontes_faltando = [v for v in qa.veiculos_distintos(f.veiculo for f in fontes)
                          if not any(qa.mesmo_veiculo(v, citada) for citada in citadas)]
     r.divergencia = conferir_divergencia(episodio)
@@ -554,7 +556,7 @@ def medir(frase: str, veiculo: str, fontes: list[Fonte], fora: set[str]) -> Medi
     citado = next((v for v in por_veiculo if qa.mesmo_veiculo(v, veiculo)), veiculo)
     no_citado = len(raizes & por_veiculo.get(citado, set())) / len(raizes)
     outros = {v: len(raizes & r) / len(raizes) for v, r in por_veiculo.items() if v != citado}
-    outro = max(outros, key=outros.get, default="")
+    outro = max(outros, key=cast(Callable[[str], float], outros.get), default="")   # a chave sai do próprio `outros`: o get nunca dá None
     faltam = tuple(sorted(p for p in contam if raiz(p) not in por_veiculo.get(citado, set())))
     return Medida(len(raizes), no_citado, outro, outros.get(outro), faltam)
 
@@ -562,7 +564,7 @@ def medir(frase: str, veiculo: str, fontes: list[Fonte], fora: set[str]) -> Medi
 def _fora_da_conta(episodio: dict, fontes: list[Fonte], atores) -> set[str]:
     """As raízes que não distinguem um veículo do outro: nomes de veículos, atores e personagens e o que todos os textos têm."""
     nomes = [f.veiculo for f in fontes] + list(atores)
-    personagens = episodio.get("personagens") if isinstance(episodio.get("personagens"), list) else []
+    personagens = cast(list, episodio.get("personagens")) if isinstance(episodio.get("personagens"), list) else []
     nomes += [str(p.get("nome", "")) for p in personagens if isinstance(p, dict)] + [str(t.get("personagem", "")) for t in _roteiro(episodio)]
     fora = {raiz(p) for nome in nomes for p in qa._palavras_do_nome(nome)}
     todos = [_raizes(f.completo) for f in fontes]
@@ -643,7 +645,7 @@ def pela_regra_estrita(m: Medida) -> bool:
     """A regra estrita, só diagnóstico: MIN_PALAVRAS_DA_REGRA_ESTRITA palavras contadas ou mais e outro veículo
     DIFERENCA_DA_REGRA_ESTRITA ou mais acima do citado. Nas quatro rodadas de 12 a 14/10/2026 marcou 6 frases, 5 delas
     atribuições erradas conferidas nos textos; os limites foram escolhidos olhando as três primeiras."""
-    return outro_tem_mais(m) and m.contadas >= MIN_PALAVRAS_DA_REGRA_ESTRITA and m.no_outro - m.no_citado >= DIFERENCA_DA_REGRA_ESTRITA
+    return outro_tem_mais(m) and m.contadas >= MIN_PALAVRAS_DA_REGRA_ESTRITA and cast(float, m.no_outro) - cast(float, m.no_citado) >= DIFERENCA_DA_REGRA_ESTRITA   # o outro_tem_mais(m) já exigiu as duas frações diferentes de None
 
 
 def _medida_em_texto(m: Medida) -> str:

@@ -165,7 +165,7 @@ def carga_do_modelo_principal(log: str) -> Carga | None:
     inicio = max((i for i, linha in enumerate(linhas) if _CARGA.search(linha)), default=None)
     if inicio is None:
         return None
-    modelo = _CARGA.search(linhas[inicio]).group(1).strip('"')
+    modelo = _CARGA.search(linhas[inicio]).group(1).strip('"')  # pyright: ignore[reportOptionalMemberAccess]  # `inicio` é uma linha em que o _CARGA achou
     atual, camadas, buffers = None, None, {}
     for linha in linhas[inicio + 1:]:
         if (achado := _METADADOS.search(linha) or _RASCUNHO.search(linha)) is not None:

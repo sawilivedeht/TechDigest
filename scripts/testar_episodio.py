@@ -40,6 +40,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from typing import cast
 
 import testar_agrupamento as diag
 from techdigest import trava
@@ -563,7 +564,7 @@ def _gerar(n: int, caso: str, pauta: ag.Pauta, ids: dict, summarizer: Summarizer
     print(f"  situação: {situacao} · {segundos:.0f} s no total")
 
     if episodio is not None:
-        citadas = episodio.get("fontes_citadas") if isinstance(episodio.get("fontes_citadas"), list) else []
+        citadas = cast(list, episodio.get("fontes_citadas")) if isinstance(episodio.get("fontes_citadas"), list) else []
         relatorio.update(
             houve_divergencia=episodio.get("houve_divergencia"), fontes_citadas=citadas,
             titulo=episodio.get("titulo_reescrito"),
