@@ -119,6 +119,11 @@ no fim; se o dono quiser antecipar um grupo de frentes, o procedimento é o mesm
    conferir também se as skills e o `CLAUDE.local.md` citam `RSS_FEEDS`. Depois que o dono ligar o timer, conferir a primeira execução real (`systemctl --user is-active ollama.service
    techdigest-inibir.service` dá `active` duas vezes; `systemd-inhibit --list` mostra o bloqueio) e testar o caso sem
    sessão do polkit.
+   A skill `techdigest-rodada-modelo` só é trocada neste passo: a versão nova (o texto proposto em
+   `docs/melhorias/07-rodada.md`) chama o `scripts/rodada.py`, que a `master` ainda não tem; a antiga fica guardada, com
+   uma linha no `CHANGELOG.md` da skill. O teste conjunto do passo 3 é o primeiro uso do `rodada.py` com o modelo e do
+   vigia sob carga (conferir o `vigia_memoria.log` e o `FIM`), feito com a skill antiga, ainda no lugar, e o comando do
+   `rodada.py` escrito à mão.
 5. Depois do merge de uma frente: `git worktree remove` e a branch apagada.
 
 ## Mapa de conflitos
@@ -133,7 +138,7 @@ no fim; se o dono quiser antecipar um grupo de frentes, o procedimento é o mesm
 | `src/techdigest/delivery/email_smtp.py`, `scripts/refazer_qa.py` | 4 | — |
 | `deploy/systemd/` | 5 | — |
 | `docs/producao.md` | 2, 5, 6 | Trechos diferentes: a instalação (2), o timer (5) e "Trocar um feed" (6) |
-| `docs/referencia/scripts.md` | 5, 7 | Trechos diferentes: a unit do Ollama (5) e a rodada (7) |
+| `docs/referencia/scripts.md` | 5, 7 | Trechos diferentes: a unit do Ollama (5) e a rodada (7). Feito: a 7 nasceu da `testes` já com o trecho da 5 e só acrescentou a seção do `rodada.py` e uma frase no item dos testes |
 | `docs/regras-de-sessao.md` | 0, 2 | A 2 só troca a regra do `pip freeze`, e só se o dono adotar o lockfile |
 | `CLAUDE.md` | todas | Só o trecho do assunto; o estado de produção, na integração |
 
@@ -168,7 +173,7 @@ frentes, o chat de cada uma consegue ler o código dela; senão, o dono cola o `
 | Um único merge na `master` no fim, com todas as frentes | 0 | 08/11 |
 | Horário do timer, `Wants=` ou `Requires=`, os valores de memória, `linger` | 5 | onda 2 |
 | A lista de feeds (copiada do `.env`) e a precedência entre o arquivo e o `RSS_FEEDS` | 6 | onda 2; lista copiada do `.env` em 08/11; precedência: o `RSS_FEEDS` definido manda, mesmo vazio, com aviso no log; aprovada em 09/11 |
-| O formato dos comandos da rodada e se a execução real à mão também usa o script | 7 | onda 2 |
+| O formato dos comandos da rodada e se a execução real à mão também usa o script | 7 | onda 2; decidida em 10/11: comandos pelos dois caminhos (`-- <comando>` para um, `--comandos <arquivo>` para vários); a execução real à mão não usa o script por ora |
 | Rodar o experimento do schema, se a medição justificar | 8 | onda 3; dispensada em 10/11 (medição: zero chamadas refeitas) |
 | Fazer ou não a frente 9 | 9 | onda 3 |
 
@@ -185,7 +190,7 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
 
 | Frente | Etapa | Branch e último commit | Observação |
 |---|---|---|---|
-| 0 | onda 0 concluída; integrando as frentes na `testes` | `testes`, nascida da `master` em `64bd21b`; frentes 1, 2, 3, 4, 5 e 6 integradas e a 8 fechada; falta a 7 e, se o dono quiser, a 9; `testes` em `653c51f` antes deste commit de documentos | `coordenacao` apagada depois do passo 7; 753 testes e `ruff check .` limpo na `testes` |
+| 0 | onda 0 concluída; integrando as frentes na `testes` | `testes`, nascida da `master` em `64bd21b`; frentes 1, 2, 3, 4, 5, 6 e 7 integradas e a 8 fechada; falta só a 9, se o dono quiser; `testes` em `ced5d8f` antes deste commit de documentos | `coordenacao` apagada depois do passo 7; 802 testes e `ruff check .` limpo na `testes` |
 | 1 Áudio | na `testes` | `melhoria/audio`, `63ea31f` | turnos sintetizados em paralelo, integrados por avanço rápido; 715 testes passam na `testes` |
 | 2 Versões | na `testes` | `melhoria/versoes`, `2c4c899` | `uv.lock` e `.python-version`; `egg-info` fora do git; `.venv` da `testes` refeita pelo uv, versões idênticas às da produção; 715 testes passam na `testes` |
 | 3 Registro | na `testes` | `melhoria/registro`, `a482b0a` | gravação atômica integrada; aceite estendido: processo morto, três testes que falham com a gravação direta; 715 testes passam na `testes` |
@@ -193,7 +198,8 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
 | 8 Schema | fechada (10/11, sem código; a etapa 2 não acontece) | `melhoria/schema`, `653c51f` | medição: nenhuma chamada refeita por JSON incompleto, 1 caso em 885 itens (o C3.48, da regressão de 29/10, antes da nova tentativa); decisão do dono de 10/11; o commit de documentos da frente entrou na `testes` por avanço rápido; 753 testes passam na `testes` |
 | 6 Feeds | na `testes` | `melhoria/feeds`, `d05cb23` | `config/feeds.txt` com 9 URLs; o `RSS_FEEDS` definido no ambiente ou no `.env` manda, mesmo vazio, com aviso no log; 715 testes passam na `testes` |
 | 5 systemd | na `testes` | `melhoria/systemd`: `1f64fdc`, `2d95c21`, `6b92a21`, `a50eadf` e `7f73972` | units do pipeline, do timer, do bloqueio do sono e do aviso de falha em `deploy/systemd/`, versionadas e não instaladas; `MemoryMax=20G` na `ollama.service`; rebaseada sobre `fe6b66e` (o merge-base era `121fa7b`); aceite do dono de 09/11, 19:24, como informa o `05-systemd.md`; 753 testes passam na `testes` |
-| 7 e 9 | não começadas | — | worktrees criadas quando o dono abrir o chat delas (passos 8 e 9 da onda 0) |
+| 7 Rodada | na `testes` (11/11) | `melhoria/rodada`: `101e842`, `ac0922e` e `ced5d8f` | `scripts/rodada.py` no lugar do vigia e do `rodar.sh`; rebaseada sobre `a940eb9` (antes, `293fe9f` e `34c9e64`); aceite do dono de 10/11 (hora não registrada); 802 testes passam na `testes` (753 mais 49 de `tests/test_rodada.py`) |
+| 9 Tipos | não começada | — | worktree criada quando o dono abrir o chat dela (passos 8 e 9 da onda 0), se ele quiser a frente |
 
 - 07/11/2026: plano criado.
 - 07/11/2026: onda 0 concluída. O commit `64bd21b` (o plano, os arquivos das frentes, as regras e o `CLAUDE.md`, só
@@ -254,3 +260,18 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
   (o Ollama interrompe a geração quando detecta repetição). Uma ocorrência em cerca de 885 itens, nenhuma em simulação ou
   rodada. O código converte o erro em `RuntimeError` (`ai/llm.py:213`): só aquele item é pulado, a execução segue e o item
   volta na seguinte; não conta como `QAReprovado`. A nova tentativa do JSON incompleto não cobre esse erro.
+- 11/11/2026: frente 7 (rodada) na `testes`. A branch nasceu da `testes` em `3e1045e`; como a `testes` avançou para
+  `a940eb9` com a frente 8, a frente a rebaseou sobre `a940eb9`, sem conflito, e o `git range-diff` mostra os dois
+  commits iguais (`=`): `293fe9f` → `101e842` (script, testes e documentos) e `34c9e64` → `ac0922e` (aceite, leituras e
+  teardown dos testes de interrupção), mais o `ced5d8f` (o estado depois do rebase).
+  `git merge --ff-only melhoria/rodada` levou a `testes` de `a940eb9` a `ced5d8f` (`CLAUDE.md`,
+  `docs/melhorias/07-rodada.md`, `docs/referencia/scripts.md`, `scripts/rodada.py` e `tests/test_rodada.py`; sem
+  `pyproject.toml`, `uv.lock` nem `docs/producao.md`). `Would make no changes`, 802 testes em duas execuções (753 mais 49
+  de `tests/test_rodada.py`), `ruff check .` limpo e, depois da suíte, nenhum `tail --pid` nem `sleep 300` sobrando.
+  Rodada de aceite em 10/11 às 19:33; aprovação do dono em 10/11 (hora não registrada). As pastas do aceite,
+  `rodada_aceite_20261110_a` e `rodada_aceite_20261110_b`, estão em `data/agrupamento` da pasta principal; sugestão: ficam
+  até o merge e depois saem, por decisão do dono. O `docs/producao.md` não mudou: a execução real à mão não usa o
+  `rodada.py` por ora, e a decisão volta depois do merge. Neste commit, no item dos testes do `docs/referencia/scripts.md`,
+  as duas frases desatualizadas: a do linter (desde a frente 4) e a das versões, que estão no `uv.lock` (desde a frente
+  2). Fora do git, o link `data/agrupamento` da `techdigest-rodada`, como nas worktrees da onda 1. `testes` em `ced5d8f`
+  antes deste commit de documentos. A `master` e a `trabalho` seguem em `64bd21b`.

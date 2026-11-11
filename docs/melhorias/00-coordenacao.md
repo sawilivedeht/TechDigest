@@ -74,6 +74,11 @@ antecipar um grupo, o procedimento é o mesmo.
    conferir também se as skills e o `CLAUDE.local.md` citam `RSS_FEEDS`. Depois que o dono ligar o timer, conferir a primeira execução real (`systemctl --user is-active ollama.service
    techdigest-inibir.service` dá `active` duas vezes; `systemd-inhibit --list` mostra o bloqueio) e testar o caso sem
    sessão do polkit.
+   A skill `techdigest-rodada-modelo` só é trocada neste passo: a versão nova (o texto proposto em
+   `docs/melhorias/07-rodada.md`) chama o `scripts/rodada.py`, que a `master` ainda não tem; a antiga fica guardada, com
+   uma linha no `CHANGELOG.md` da skill. O teste conjunto do passo 3 é o primeiro uso do `rodada.py` com o modelo e do
+   vigia sob carga (conferir o `vigia_memoria.log` e o `FIM`), feito com a skill antiga, ainda no lugar, e o comando do
+   `rodada.py` escrito à mão.
 5. `git worktree remove` das frentes integradas e as branches apagadas. O plano e o andamento registram o merge.
 
 ## Texto para `docs/regras-de-sessao.md`
@@ -185,3 +190,18 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
   (o Ollama interrompe a geração quando detecta repetição). Uma ocorrência em cerca de 885 itens, nenhuma em simulação ou
   rodada. O código converte o erro em `RuntimeError` (`ai/llm.py:213`): só aquele item é pulado, a execução segue e o item
   volta na seguinte; não conta como `QAReprovado`. A nova tentativa do JSON incompleto não cobre esse erro.
+- 11/11/2026: frente 7 (rodada) na `testes`. A branch nasceu da `testes` em `3e1045e`; como a `testes` avançou para
+  `a940eb9` com a frente 8, a frente a rebaseou sobre `a940eb9`, sem conflito, e o `git range-diff` mostra os dois
+  commits iguais (`=`): `293fe9f` → `101e842` (script, testes e documentos) e `34c9e64` → `ac0922e` (aceite, leituras e
+  teardown dos testes de interrupção), mais o `ced5d8f` (o estado depois do rebase).
+  `git merge --ff-only melhoria/rodada` levou a `testes` de `a940eb9` a `ced5d8f` (`CLAUDE.md`,
+  `docs/melhorias/07-rodada.md`, `docs/referencia/scripts.md`, `scripts/rodada.py` e `tests/test_rodada.py`; sem
+  `pyproject.toml`, `uv.lock` nem `docs/producao.md`). `Would make no changes`, 802 testes em duas execuções (753 mais 49
+  de `tests/test_rodada.py`), `ruff check .` limpo e, depois da suíte, nenhum `tail --pid` nem `sleep 300` sobrando.
+  Rodada de aceite em 10/11 às 19:33; aprovação do dono em 10/11 (hora não registrada). As pastas do aceite,
+  `rodada_aceite_20261110_a` e `rodada_aceite_20261110_b`, estão em `data/agrupamento` da pasta principal; sugestão: ficam
+  até o merge e depois saem, por decisão do dono. O `docs/producao.md` não mudou: a execução real à mão não usa o
+  `rodada.py` por ora, e a decisão volta depois do merge. Neste commit, no item dos testes do `docs/referencia/scripts.md`,
+  as duas frases desatualizadas: a do linter (desde a frente 4) e a das versões, que estão no `uv.lock` (desde a frente
+  2). Fora do git, o link `data/agrupamento` da `techdigest-rodada`, como nas worktrees da onda 1. `testes` em `ced5d8f`
+  antes deste commit de documentos. A `master` e a `trabalho` seguem em `64bd21b`.
