@@ -53,7 +53,10 @@ inteira e a seção "Estado" de docs/melhorias/09-tipos.md atualizada.
 ## Estado
 
 - 07/11/2026: não começada (opcional; espera a decisão do dono).
-- 11/11/2026: em implementação. Branch `melhoria/tipos`, nascida da `testes` em `9c76afb` (frentes 1 a 7 integradas).
+- 11/11/2026: aceite separado, esperando o ok do dono. Branch `melhoria/tipos`, nascida da `testes` em `9c76afb`
+  (frentes 1 a 7 integradas), com quatro commits: `3b81457` (build), `bda5035` (os 21 lugares do basic), `c11e9f9` (o
+  tipo do episódio) e o de documentos (o hash fica com o chat do navegador). 805 testes passam; `.venv/bin/pyright` com
+  0 erros; `ruff check .` sem avisos.
   - Medição (só leitura, pyright 1.1.414): a `master` de 07/11, sem as bibliotecas, só `src` e `scripts` e sem os
     imports não resolvidos, reproduz os 15 erros do basic e os 18 do standard deste arquivo. Na `testes`, nas mesmas
     condições, 20 e 23 (os 5 a mais são do `scripts/rodada.py`, da frente 7). Com as bibliotecas da `.venv`, 63 e 66: 48
@@ -67,7 +70,7 @@ inteira e a seção "Estado" de docs/melhorias/09-tipos.md atualizada.
     `ignore` com a regra e o motivo nos 4 lugares que não se resolvem na anotação (`gpu.py:168`, `maquina.py:141`,
     `agrupamento.py:633`, `email_smtp.py:16`); o `ItemEntregue`, o `parse_json(text: str | None)` e o docstring do
     `models.py` como propostos.
-  - Commit 1 (build): `aiohttp>=3.8` nas dependências (a pendência da frente 1: o `tts.py` o importa direto; o mínimo
+  - Commit 1, `3b81457` (build): `aiohttp>=3.8` nas dependências (a pendência da frente 1: o `tts.py` o importa direto; o mínimo
     é o que o edge-tts 7.3.1 pede), `pyright[nodejs]==1.1.414` no extra `dev`, `[tool.pyright]` (basic, `src` e
     `scripts`, a `.venv` da pasta) e o comentário do `tts.py` sobre o aiohttp. O `uv lock` levou o lock de 65 a 68
     pacotes: entram `pyright` 1.1.414, `nodeenv` 1.12.0 e `nodejs-wheel-binaries` 24.19.0; nenhuma versão muda, o
@@ -75,7 +78,7 @@ inteira e a seção "Estado" de docs/melhorias/09-tipos.md atualizada.
     no changes`. Os 60 pacotes da `.venv` da produção (o `freeze` dela sem o `pip` e o `techdigest`) estão todos na
     `.venv` da frente, nas mesmas versões. O pyright roda com o `PATH` só com a `.venv/bin` (usa o node do wheel). Pela
     configuração, `.venv/bin/pyright` dá os mesmos 63 erros da medição. 802 testes passam; `ruff check .` sem avisos.
-  - Commit 2 (os 21 lugares do basic): `.venv/bin/pyright` com 0 erros, 0 avisos.
+  - Commit 2, `bda5035` (os 21 lugares do basic): `.venv/bin/pyright` com 0 erros, 0 avisos.
     - Pacote, na anotação: `kwargs: dict[str, Any]` no `llm.py` (o 401 e os 41 do 403), `parse_json(text: str | None)`
       (o corpo já trata `None` como resposta vazia: `ValueError`, como hoje), `cast(list[float], alvos)` no
       `orcamento.py:84` e `Veredito.resposta: dict | None` no `agrupamento.py:760` (só vem do `chat_json` ou é `None`).
@@ -92,7 +95,7 @@ inteira e a seção "Estado" de docs/melhorias/09-tipos.md atualizada.
     - 802 testes passam; `ruff check .` sem avisos.
   - Decisão do dono (11/11, commit 2 aprovado): ficam os 8 comentários dos `cast` de `None`; os 4 `cast` com
     `isinstance` na mesma linha ficam sem comentário.
-  - Commit 3 (o tipo do episódio): `Personagem`, `Turno`, `Episodio` e `ItemEntregue` no `src/techdigest/models.py`,
+  - Commit 3, `c11e9f9` (o tipo do episódio): `Personagem`, `Turno`, `Episodio` e `ItemEntregue` no `src/techdigest/models.py`,
     depois do `Article`, que já estava lá (as 14 linhas dele não mudam; entram a docstring do módulo, com o texto
     aprovado sobre o `cast`, e o import do `typing`). No `ItemEntregue`, `url`, `source` e `vozes` obrigatórias,
     `outras_fontes` e `tambem_noticiaram` `NotRequired`.
@@ -114,9 +117,64 @@ inteira e a seção "Estado" de docs/melhorias/09-tipos.md atualizada.
       `_render_item` dá 1 erro no pyright (`"resumo" is not a defined key in "ItemEntregue"`) e 15 testes quebrados
       (`test_pipeline.py` e `test_simulacao.py`); sem `fontes_citadas` no `Episodio`, os 3 testes do `test_models.py`
       falham e o pyright dá 2 erros no `qa.py:612`.
-    - Na sessão, a primeira versão do `models.py` foi escrita por cima do arquivo, sem lê-lo; o pyright apontou o
-      `Article` sumido no `collectors/rss.py`, e o arquivo foi restaurado do `HEAD` antes de qualquer commit.
     - `.venv/bin/pyright`: 0 erros. 805 testes passam (802 e os 3 novos); `ruff check .` sem avisos.
-  - Pendências: commit 4 (documentos: o comando do pyright e o `models.py` no `CLAUDE.md`, e o
-    `docs/referencia/contrato-de-saida.md`); no merge, a `.venv` da produção ganha os 3 pacotes novos pelo
-    `uv sync --locked --extra dev`.
+  - Decisão do dono (11/11, commit 3 aprovado): ficam o `ignore` do `telegram.py:89` e os dois `cast` do
+    `checar_fidelidade.py`.
+  - Commit 4 (documentos): no `CLAUDE.md`, só o trecho do assunto: o `.venv/bin/pyright` em "Commands", o pyright no
+    comentário do `uv sync` e uma frase depois da do linter, e o `models.py` no parágrafo do contrato de saída (o estado
+    de produção não muda); no `docs/referencia/contrato-de-saida.md`, os tipos do `models.py` e a frase de que são só
+    anotações; e este arquivo.
+  - Os 5 `ignore` do pacote, cada um com a regra e o motivo na mesma linha (nos scripts não há nenhum):
+    - `ai/gpu.py:168`, `reportOptionalMemberAccess`: `` `inicio` é uma linha em que o _CARGA achou ``.
+    - `ai/maquina.py:141`, `reportArgumentType`: `com o modelo local e sem log, a conferência antes da carga já parou a
+      execução`.
+    - `processing/agrupamento.py:633`, `reportReturnType`: `com problemas, as listas podem trazer None, e o resto não é
+      usado`.
+    - `delivery/email_smtp.py:16`, `reportAttributeAccessIssue`: ``código dormente: o Settings não tem `recipients`
+      (CLAUDE.md)``.
+    - `delivery/telegram.py:89`, `reportTypedDictNotRequiredAccess`: `dentro do if it.get("tambem_noticiaram") acima`
+      (o único que veio com o tipo, no commit 3).
+  - O incidente do `models.py` (commit 3): o arquivo já existia, versionado, com o `Article` da coleta (14 linhas), e a
+    sessão não o leu antes: a primeira versão, só com os tipos novos, foi escrita por cima dele com o `Write`, que não
+    recusou. O pyright apontou o `Article` sumido (`collectors/rss.py:13`, `"Article" is unknown import symbol`), e o
+    arquivo foi restaurado com `git restore` antes de qualquer commit; os tipos entraram depois do `Article`, e o diff do
+    arquivo só tem inserções. Por isso a docstring aprovada ganhou a primeira frase sobre o `Article`, e o "São só
+    anotações" virou "Os tipos do episódio são só anotações". Desde então, cada arquivo que já existe é lido antes de
+    qualquer `Write`.
+  - Onde os documentos citam o ruff como verificação (levantamento com grep; só o `CLAUDE.md` mudou aqui):
+    - `CLAUDE.md`, "Commands": o comentário do `uv sync`, a linha `.venv/bin/ruff check .` e a frase do linter; o
+      pyright entrou nos três lugares neste commit.
+    - `docs/producao.md:56`, passo 3 de "Trocar um feed": "A suíte inteira e o `ruff check .`, o commit e, com o seu
+      ok, o avanço rápido da `master`".
+    - `docs/plano-melhorias.md:104`, integração (frente 0): "Depois de cada uma: a suíte inteira e, depois da frente
+      4, o `ruff check .`".
+    - `docs/referencia/scripts.md`, item dos testes: "The linter is ruff (front 4 of the improvements)...", a
+      descrição do linter, não uma verificação por commit.
+    - O `docs/regras-de-sessao.md` não cita o ruff (a regra de cada commit fala da suíte e do "Estado"), nem as skills
+      `techdigest-retomar` e `techdigest-rodada-modelo`, nem o `CLAUDE.local.md`.
+  - Aceite separado: os comandos para o dono rodar na worktree, com a saída esperada no comentário. As duas mutações são
+    desfeitas pelo `git restore`, e o último comando tem de sair vazio.
+
+    ```bash
+    cd /home/sytw/Projetos/techdigest-tipos
+    git --no-pager log --oneline 9c76afb..melhoria/tipos   # os 4 commits da frente
+    uv sync --locked --check --extra dev                   # Would make no changes
+    .venv/bin/pyright                                      # 0 errors, 0 warnings, 0 informations
+    .venv/bin/pytest -q                                    # 805 passed
+    .venv/bin/ruff check .                                 # All checks passed!
+    # Mutação (a): uma chave errada no _render_item; o pyright tem de pegar
+    sed -i "s/escape(it\['resumo_didatico'\])/escape(it['resumo'])/" src/techdigest/delivery/telegram.py
+    .venv/bin/pyright                                      # 1 error: "resumo" is not a defined key in "ItemEntregue"
+    git restore src/techdigest/delivery/telegram.py
+    # Mutação (b): uma chave a menos no Episodio; o teste e o pyright têm de pegar
+    sed -i '/^    fontes_citadas: list\[str\]$/d' src/techdigest/models.py
+    .venv/bin/pytest -q tests/test_models.py               # 3 failed
+    .venv/bin/pyright                                      # 2 errors, os dois em qa.py:612
+    git restore src/techdigest/models.py
+    git status --short                                     # vazio
+    ```
+
+  - Pendências: no merge, a `.venv` da produção ganha os 3 pacotes novos (`pyright`, `nodeenv`,
+    `nodejs-wheel-binaries`) pelo `uv sync --locked --extra dev`; se o pyright entra nas verificações escritas de cada
+    commit (`docs/regras-de-sessao.md`, `docs/producao.md`, `docs/plano-melhorias.md`) é decisão do dono, na integração
+    (frente 0); no modo standard ficam os 3 `possibly unbound` do `main.py:49`, fora do aceite.
