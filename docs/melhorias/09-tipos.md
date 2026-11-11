@@ -53,3 +53,27 @@ inteira e a seção "Estado" de docs/melhorias/09-tipos.md atualizada.
 ## Estado
 
 - 07/11/2026: não começada (opcional; espera a decisão do dono).
+- 11/11/2026: em implementação. Branch `melhoria/tipos`, nascida da `testes` em `9c76afb` (frentes 1 a 7 integradas).
+  - Medição (só leitura, pyright 1.1.414): a `master` de 07/11, sem as bibliotecas, só `src` e `scripts` e sem os
+    imports não resolvidos, reproduz os 15 erros do basic e os 18 do standard deste arquivo. Na `testes`, nas mesmas
+    condições, 20 e 23 (os 5 a mais são do `scripts/rodada.py`, da frente 7). Com as bibliotecas da `.venv`, 63 e 66: 48
+    no pacote, em 8 lugares (41 deles no `create(**kwargs)` da OpenAI, `ai/llm.py:403`, pelo mesmo `kwargs` do
+    `llm.py:401`; mais o `llm.py:280` e o `email_smtp.py:16`, o `settings.recipients` do código dormente), e 15 nos
+    scripts, em 13 lugares. A diferença entre basic e standard são os 3 `possibly unbound` do `main.py:49`. Os testes,
+    fora do escopo, têm 57.
+  - Decisões do dono (11/11): plano aprovado; `pyright[nodejs]` no extra `dev`, em vez do node do sistema; nos scripts,
+    `cast` nos 13 lugares e nenhum `ignore`, com um comentário em cada `cast` que só tira um `None`; no
+    `testar_agrupamento.py`, a anotação `Veredito.resposta: dict | None` no pacote, mais o `cast` do `motivo`; no pacote,
+    `ignore` com a regra e o motivo nos 4 lugares que não se resolvem na anotação (`gpu.py:168`, `maquina.py:141`,
+    `agrupamento.py:633`, `email_smtp.py:16`); o `ItemEntregue`, o `parse_json(text: str | None)` e o docstring do
+    `models.py` como propostos.
+  - Commit 1 (build): `aiohttp>=3.8` nas dependências (a pendência da frente 1: o `tts.py` o importa direto; o mínimo
+    é o que o edge-tts 7.3.1 pede), `pyright[nodejs]==1.1.414` no extra `dev`, `[tool.pyright]` (basic, `src` e
+    `scripts`, a `.venv` da pasta) e o comentário do `tts.py` sobre o aiohttp. O `uv lock` levou o lock de 65 a 68
+    pacotes: entram `pyright` 1.1.414, `nodeenv` 1.12.0 e `nodejs-wheel-binaries` 24.19.0; nenhuma versão muda, o
+    aiohttp segue em 3.14.5, e o diff do lock só tem inserções (47). `uv sync --locked --check --extra dev`: `Would make
+    no changes`. Os 60 pacotes da `.venv` da produção (o `freeze` dela sem o `pip` e o `techdigest`) estão todos na
+    `.venv` da frente, nas mesmas versões. O pyright roda com o `PATH` só com a `.venv/bin` (usa o node do wheel). Pela
+    configuração, `.venv/bin/pyright` dá os mesmos 63 erros da medição. 802 testes passam; `ruff check .` sem avisos.
+  - Pendências: commits 2 (os 21 lugares do basic), 3 (`models.py` e as anotações do episódio) e 4 (documentos); no
+    merge, a `.venv` da produção ganha os 3 pacotes novos pelo `uv sync --locked --extra dev`.

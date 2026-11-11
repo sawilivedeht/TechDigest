@@ -6,8 +6,8 @@ import tempfile
 import wave
 from pathlib import Path
 
-# O aiohttp é o cliente do edge-tts e vem instalado com ele, sem estar no pyproject.toml: entra aqui só para reconhecer
-# as falhas de rede da síntese. Quem fixar as versões (a frente 2 das melhorias de 07/11) precisa lembrar dele.
+# O aiohttp é o cliente do edge-tts: entra aqui só para reconhecer as falhas de rede da síntese. Como este módulo o
+# importa direto, ele está declarado no pyproject.toml (frente 9 das melhorias de 07/11), além de vir com o edge-tts.
 import aiohttp
 import edge_tts
 from edge_tts.exceptions import WebSocketError
