@@ -5,6 +5,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from datetime import timedelta, timezone
+from typing import cast
 
 from techdigest.ai.lados import (
     MAX_SAIDA_LADOS, Analise, analisar_lados, bloco_dos_lados, com_mencoes, reserva_do_bloco, sem_disputa,
@@ -17,6 +18,7 @@ from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PR
 from techdigest.ai.qa import ELENCO, ESTRUTURA, PAPEL, RESUMO, ROTEIRO, TITULO, Problema, problemas_com_campo, veiculos_distintos
 from techdigest.ai.recorte import recortar
 from techdigest.config import Settings
+from techdigest.models import Episodio, Personagem
 
 logger = logging.getLogger("techdigest.ai.summarizer")
 
@@ -87,7 +89,7 @@ def _limpar(texto: str) -> str:
     return texto.strip()
 
 
-def _qa(result: dict, veiculos: list[str], lados: list, ressalvas: list, textos: list[str],
+def _qa(result: Episodio, veiculos: list[str], lados: list, ressalvas: list, textos: list[str],
         orc: Orcamento | None = None) -> list[Problema]:
     """Roda o QA sem deixar um JSON malformado derrubar o fluxo (vira problema, não exceção)."""
     try:
@@ -114,7 +116,7 @@ def tipo_de_correcao(problemas: list[Problema]) -> str:
     return "completa"
 
 
-def _com_os_papeis(personagens: list[dict], devolvidos) -> list[dict]:
+def _com_os_papeis(personagens: list[Personagem], devolvidos) -> list[Personagem]:
     """Os personagens do episódio com o papel que a revisão devolveu para o mesmo nome: os nomes não mudam."""
     papeis = {
         str(p.get("nome")): p["papel"] for p in devolvidos or []
@@ -419,7 +421,7 @@ class Summarizer:
         return montar_entrada(principal, relacionados, limite, analise.lados, analise.questao, analise.ressalvas,
                               reserva=reserva, orc=orc)
 
-    def _corrigir_titulo(self, analise: Analise, result: dict, reprovados: list[dict]) -> dict:
+    def _corrigir_titulo(self, analise: Analise, result: Episodio, reprovados: list[dict]) -> Episodio:
         """Reescreve só o título, a partir do resumo: a chamada leva os atores dos lados e não leva os textos.
 
         `reprovados` são os títulos que o QA já recusou neste episódio, cada um com os seus motivos.
@@ -434,7 +436,7 @@ class Summarizer:
         resposta = self._chamar_inteiro(PROMPT_TITULO, usuario, chaves=(TITULO,), max_saida=MAX_SAIDA_TITULO)
         return {**result, TITULO: resposta[TITULO]}
 
-    def _corrigir_resumo(self, entrada: Entrada, analise: Analise, result: dict, probs: list[str]) -> tuple[dict, Entrada]:
+    def _corrigir_resumo(self, entrada: Entrada, analise: Analise, result: Episodio, probs: list[str]) -> tuple[Episodio, Entrada]:
         """Reescreve só o resumo, com os mesmos recortes que foram para a geração e sem o episódio inteiro."""
         usuario = (
             FONTE_ANTES + entrada.artigos
@@ -445,8 +447,8 @@ class Summarizer:
         resposta = self._chamar_inteiro(PROMPT_RESUMO, usuario, chaves=(RESUMO,), max_saida=MAX_SAIDA_RESUMO)
         return {**result, RESUMO: resposta[RESUMO]}, entrada
 
-    def _revisar_roteiro(self, principal: dict, relacionados: list[dict] | None, analise: Analise, result: dict,
-                         probs: list[str], orc: Orcamento | None = None) -> tuple[dict, Entrada]:
+    def _revisar_roteiro(self, principal: dict, relacionados: list[dict] | None, analise: Analise, result: Episodio,
+                         probs: list[str], orc: Orcamento | None = None) -> tuple[Episodio, Entrada]:
         """Reescreve o roteiro: a chamada leva os textos, os lados, os personagens e o roteiro original.
 
         Os textos vão no recorte por relevância, refeito para o espaço desta chamada. Devolve o
@@ -468,8 +470,8 @@ class Summarizer:
         personagens = _com_os_papeis(result[ELENCO], resposta.get(ELENCO))
         return {**result, ELENCO: personagens, ROTEIRO: resposta[ROTEIRO]}, fonte
 
-    def _revisar(self, principal: dict, relacionados: list[dict] | None, analise: Analise, result: dict,
-                 probs: list[str], orc: Orcamento | None = None) -> tuple[dict, Entrada]:
+    def _revisar(self, principal: dict, relacionados: list[dict] | None, analise: Analise, result: Episodio,
+                 probs: list[str], orc: Orcamento | None = None) -> tuple[Episodio, Entrada]:
         """A revisão completa: leva o artigo-fonte e o episódio original, e devolve o episódio inteiro.
 
         Sem o artigo-fonte, "expandir" o roteiro vira invenção de fatos. Como o episódio original
@@ -479,16 +481,17 @@ class Summarizer:
             "\n\nPROBLEMAS DETECTADOS:\n- " + "\n- ".join(probs)
             + "\n\nEPISÓDIO ORIGINAL:\n" + json.dumps(result, ensure_ascii=False)
         )
-        def montar_e_chamar() -> tuple[dict, Entrada]:
+        def montar_e_chamar() -> tuple[Episodio, Entrada]:
             fonte = montar_entrada(
                 principal, relacionados, self._limite_da_entrada(PROMPT_REVISOR, extra=len(FONTE_ANTES) + len(depois)),
                 analise.lados, analise.questao, analise.ressalvas, orc=orc,
             )
-            return self._chamar_inteiro(PROMPT_REVISOR, FONTE_ANTES + fonte.texto + depois), fonte
+            # O episódio inteiro que a revisão devolve: o cast não confere os tipos (ver models.py), o QA confere.
+            return cast(Episodio, self._chamar_inteiro(PROMPT_REVISOR, FONTE_ANTES + fonte.texto + depois)), fonte
 
         return self._na_janela(montar_e_chamar, "a revisão")
 
-    def process(self, principal: dict, relacionados: list[dict] | None = None) -> dict:
+    def process(self, principal: dict, relacionados: list[dict] | None = None) -> Episodio:
         """Devolve um episódio que passou no QA; do contrário levanta QAReprovado (item é pulado).
 
         O episódio reprovado ganha uma correção só, do tipo que os problemas pedem (ver
@@ -504,17 +507,18 @@ class Summarizer:
         }
         logger.debug("Início da entrada enviada ao LLM: %r", entrada.texto[:600])
 
-        def qa(episodio: dict) -> list[Problema]:
+        def qa(episodio: Episodio) -> list[Problema]:
             return _qa(episodio, entrada.fontes, analise.lados, analise.ressalvas, pauta, entrada.orcamento)
 
+        # O JSON da geração vira episódio pelo cast, que não confere os tipos (ver models.py): quem confere é o QA.
         try:
-            result = self._chamar_inteiro(PROMPT_SISTEMA, entrada.texto)
+            result = cast(Episodio, self._chamar_inteiro(PROMPT_SISTEMA, entrada.texto))
         except JanelaExcedida as e:
             logger.warning("Janela: a geração passou da janela (%s de %s tokens); refeita com a proporção %.2f do item.",
                            e.tokens if e.tokens is not None else "?", e.janela if e.janela is not None else "?", self.proporcao())
             entrada = diagnostico["entrada"] = self._montar_geracao(principal, relacionados, analise)
             diagnostico["orcamento"] = entrada.orcamento
-            result = self._chamar_inteiro(PROMPT_SISTEMA, entrada.texto)
+            result = cast(Episodio, self._chamar_inteiro(PROMPT_SISTEMA, entrada.texto))
         diagnostico["aviso_da_janela"] = aviso_da_janela(entrada, relacionados)
         if diagnostico["aviso_da_janela"]:
             logger.warning("Janela: %s", diagnostico["aviso_da_janela"])

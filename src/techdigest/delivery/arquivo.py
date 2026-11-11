@@ -17,6 +17,7 @@ from pathlib import Path
 
 from techdigest.config import Settings
 from techdigest.delivery.telegram import _render_item   # o texto que o Telegram receberia; importar não envia nada
+from techdigest.models import ItemEntregue
 from techdigest.simulacao import VARIAVEL
 
 settings = Settings()
@@ -34,7 +35,7 @@ def _registrar(pasta: Path, linha: str) -> None:
         arquivo.write(f"{datetime.datetime.now():%d/%m %H:%M:%S} · {linha}\n")
 
 
-def entregar_item(it: dict, audio: str | None) -> None:
+def entregar_item(it: ItemEntregue, audio: str | None) -> None:
     """Grava uma notícia (texto, episódio e áudio) na pasta das entregas."""
     pasta = _pasta()
     numero = len(list(pasta.glob("*.html"))) + 1          # continua a contagem de uma execução anterior na mesma pasta

@@ -8,6 +8,7 @@ import requests
 import urllib3.util.connection as _u3conn
 from html import escape
 from techdigest.config import Settings
+from techdigest.models import ItemEntregue
 from techdigest.simulacao import em_simulacao
 
 settings = Settings()
@@ -69,7 +70,7 @@ def _post(endpoint: str, data: dict, files: dict | None = None) -> dict:
     return body
 
 
-def _render_item(it: dict) -> str:
+def _render_item(it: ItemEntregue) -> str:
     """O texto de um item. Numa pauta de várias fontes vem um link por artigo gerado (`outras_fontes`, depois do
     principal) e, à parte, as duplicatas e os excedentes (`tambem_noticiaram`), que foram marcados como vistos com a
     pauta sem entrar na geração. Com uma fonte só, o texto é o de sempre."""
@@ -85,11 +86,11 @@ def _render_item(it: dict) -> str:
     )
     if it.get("tambem_noticiaram"):
         texto += "\n\n<b>Também noticiaram:</b>\n" + "\n".join(
-            f'  • <a href="{escape(o["url"])}">{escape(o["source"])}</a>: {escape(o["titulo"])}' for o in it["tambem_noticiaram"])
+            f'  • <a href="{escape(o["url"])}">{escape(o["source"])}</a>: {escape(o["titulo"])}' for o in it["tambem_noticiaram"])  # pyright: ignore[reportTypedDictNotRequiredAccess]  # dentro do if it.get("tambem_noticiaram") acima
     return texto
 
 
-def send_item_telegram(it: dict, audio: str | None) -> None:
+def send_item_telegram(it: ItemEntregue, audio: str | None) -> None:
     """Envia UMA notícia (texto + áudio). Levanta exceção em qualquer falha."""
     global _cabecalho_enviado
     if not _cabecalho_enviado:
@@ -109,7 +110,7 @@ def send_item_telegram(it: dict, audio: str | None) -> None:
     logger.info("Entregue: %s", it["titulo_reescrito"])
 
 
-def _enviar_audio(it: dict, audio: str) -> None:
+def _enviar_audio(it: ItemEntregue, audio: str) -> None:
     """Upload do áudio com novas tentativas SÓ em falha de rede (erro da API não se repete)."""
     tamanho_mb = os.path.getsize(audio) / 1e6
     tentativas = max(1, settings.telegram_tentativas_audio)

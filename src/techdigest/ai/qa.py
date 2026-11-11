@@ -12,6 +12,7 @@ from techdigest.ai.numeros import (formatar, mais_proximo, numeros_fora_dos_nome
 from techdigest.ai.orcamento import Orcamento, cinco, minimo_do_qa
 from techdigest.ai.verbos import FORMAS_DE_POSICAO, INFINITIVOS, agentes_da_decisao, verbos_de_posicao
 from techdigest.config import Settings
+from techdigest.models import Episodio, Turno
 
 logger = logging.getLogger("techdigest.ai.qa")
 
@@ -82,7 +83,7 @@ def contar_palavras(t: str) -> int:
     return len(t.split())
 
 
-def palavras_por_personagem(roteiro: list[dict]) -> dict[str, int]:
+def palavras_por_personagem(roteiro: list[Turno]) -> dict[str, int]:
     acc: dict[str, int] = {}
     for turno in roteiro:
         acc[turno["personagem"]] = acc.get(turno["personagem"], 0) + contar_palavras(turno["fala"])
@@ -201,7 +202,7 @@ def atores_exclusivos(lados) -> list[list[str]]:
     ]
 
 
-def frases_que_apresentam(result: dict, lados) -> list[list[tuple[str, str]]]:
+def frases_que_apresentam(result: Episodio, lados) -> list[list[tuple[str, str]]]:
     """Para cada lado (pela posição na lista), as frases dos analistas que o apresentam: (personagem, frase).
 
     Apresentar um lado é ter uma frase que cita um veículo do lado e usa um verbo de posição e
@@ -228,7 +229,7 @@ def frases_que_apresentam(result: dict, lados) -> list[list[tuple[str, str]]]:
     return achadas
 
 
-def lados_de_cada_analista(result: dict, lados) -> dict[str, list[int]]:
+def lados_de_cada_analista(result: Episodio, lados) -> dict[str, list[int]]:
     """Para cada personagem que não é Helena, os lados (pela posição na lista) que ele apresenta (ver `frases_que_apresentam`)."""
     apresenta: dict[str, list[int]] = {
         turno["personagem"]: [] for turno in result["roteiro_podcast"] if _palavras_do_nome(turno["personagem"]) != [HELENA]
@@ -240,7 +241,7 @@ def lados_de_cada_analista(result: dict, lados) -> dict[str, list[int]]:
     return apresenta
 
 
-def lado_de_cada_analista(result: dict, lados) -> dict[str, int]:
+def lado_de_cada_analista(result: Episodio, lados) -> dict[str, int]:
     """A correspondência um a um entre analistas e lados, quando ela existe: analista -> lado. Sem ela, vazio."""
     apresenta = lados_de_cada_analista(result, lados)
     analistas = list(apresenta)
@@ -252,7 +253,7 @@ def lado_de_cada_analista(result: dict, lados) -> dict[str, int]:
     return {}
 
 
-def analistas_de_lado_fino(result: dict, lados) -> set[str]:
+def analistas_de_lado_fino(result: Episodio, lados) -> set[str]:
     """Os analistas que apresentam um lado fino (ver `ai/lados.py`; só em pauta de 2 lados ou mais).
 
     Vem da correspondência um a um entre analistas e lados: sem ela, nenhum.
@@ -261,13 +262,13 @@ def analistas_de_lado_fino(result: dict, lados) -> set[str]:
     return {nome for nome, lado in (lado_de_cada_analista(result, lados) if finos else {}).items() if lado in finos}
 
 
-def _lado_no_orcamento(result: dict, lados) -> dict[str, int]:
+def _lado_no_orcamento(result: Episodio, lados) -> dict[str, int]:
     """O lado de cada analista que se liga a um: com um lado só e um analista, o lado; senão, a correspondência um a um."""
     analistas = [nome for nome in palavras_por_personagem(result["roteiro_podcast"]) if _palavras_do_nome(nome) != [HELENA]]
     return {analistas[0]: 0} if len(lados) <= 1 and len(analistas) == 1 else lado_de_cada_analista(result, lados)
 
 
-def alvo_de_cada_personagem(result: dict, lados, orc: Orcamento) -> dict[str, int]:
+def alvo_de_cada_personagem(result: Episodio, lados, orc: Orcamento) -> dict[str, int]:
     """O alvo de palavras de cada personagem que fala, pelo orçamento da pauta (ver `ai/orcamento.py`).
 
     O da Helena é o dela. O analista leva o alvo do lado que apresenta: com um lado só e um
@@ -287,7 +288,7 @@ def alvo_de_cada_personagem(result: dict, lados, orc: Orcamento) -> dict[str, in
     return {nome: alvo(nome) for nome in por_pers}
 
 
-def limites_de_cada_personagem(result: dict, lados, orc: Orcamento | None = None) -> dict[str, tuple[int, int]]:
+def limites_de_cada_personagem(result: Episodio, lados, orc: Orcamento | None = None) -> dict[str, tuple[int, int]]:
     """O mínimo e o máximo de palavras de cada personagem que fala.
 
     O máximo é sempre MAX_POR_PERSONAGEM. O mínimo de antes é MIN_POR_PERSONAGEM, a não ser para o
@@ -314,7 +315,7 @@ def limites_de_cada_personagem(result: dict, lados, orc: Orcamento | None = None
     return {nome: (minimo(nome), MAX_POR_PERSONAGEM) for nome in por_pers}
 
 
-def o_que_falta(result: dict, lados, orc: Orcamento, nome: str) -> str:
+def o_que_falta(result: Episodio, lados, orc: Orcamento, nome: str) -> str:
     """O que falta nas falas de um personagem abaixo do mínimo, pelo plano das falas do bloco (ver `orcamento.Orcamento.plano`).
 
     Com o número de falas do plano, diz quantas palavras acrescentar a cada fala; com outro número, quantas palavras
@@ -340,7 +341,7 @@ def limites_do_total(orc: Orcamento | None = None) -> tuple[int, int]:
     return (minimo_do_qa(orc.total, MIN_TOTAL) if orc else MIN_TOTAL), MAX_TOTAL
 
 
-def problemas_dos_papeis(result: dict, lados) -> list[str]:
+def problemas_dos_papeis(result: Episodio, lados) -> list[str]:
     """O papel de um analista não traz o nome de um ator dos lados ("analista da Meta"); lista vazia = aprovado."""
     atores = [ator for lado in lados for ator in lado.atores]
     probs = []
@@ -355,7 +356,7 @@ def problemas_dos_papeis(result: dict, lados) -> list[str]:
     return probs
 
 
-def problemas_dos_nomes(result: dict, lados, textos=()) -> list[str]:
+def problemas_dos_nomes(result: Episodio, lados, textos=()) -> list[str]:
     """Os analistas que falam no roteiro têm os nomes que o bloco LADOS DA PAUTA dá (ver `elenco.nomes_dos_analistas`);
     lista vazia = aprovado.
 
@@ -372,7 +373,7 @@ def problemas_dos_nomes(result: dict, lados, textos=()) -> list[str]:
     ]
 
 
-def _dos_analistas(result: dict, lados) -> list[Problema]:
+def _dos_analistas(result: Episodio, lados) -> list[Problema]:
     n = len(lados)
     apresenta = lados_de_cada_analista(result, lados)
     analistas = list(apresenta)
@@ -405,7 +406,7 @@ def _dos_analistas(result: dict, lados) -> list[Problema]:
     return probs
 
 
-def problemas_dos_analistas(result: dict, lados) -> list[str]:
+def problemas_dos_analistas(result: Episodio, lados) -> list[str]:
     """As regras que ligam o elenco aos lados da pauta (ver `ai/lados.py`); lista vazia = aprovado.
 
     O episódio tem exatamente um analista por lado (Helena não conta), e houve_divergencia é true
@@ -454,11 +455,11 @@ def grupo_citado(grupo, texto) -> bool:
     return bool(raiz) and any(_raiz(_dobrar(p)) == raiz for p in palavras if p not in FORMAS_DE_POSICAO)
 
 
-def _de_helena(result: dict) -> list[str]:
+def _de_helena(result: Episodio) -> list[str]:
     return [turno["fala"] for turno in result["roteiro_podcast"] if _palavras_do_nome(turno["personagem"]) == [HELENA]]
 
 
-def perguntas_das_ressalvas(result: dict, ressalvas) -> list[list[tuple[str, bool]]]:
+def perguntas_das_ressalvas(result: Episodio, ressalvas) -> list[list[tuple[str, bool]]]:
     """Para cada ressalva, as frases da Helena que a trazem e se a fala de cada uma tem ponto de interrogação.
 
     Trazer a ressalva é citar um veículo dela, nomear um dos grupos (ver `grupo_citado`) e usar um
@@ -475,7 +476,7 @@ def perguntas_das_ressalvas(result: dict, ressalvas) -> list[list[tuple[str, boo
     return achadas
 
 
-def problemas_das_ressalvas(result: dict, ressalvas) -> list[str]:
+def problemas_das_ressalvas(result: Episodio, ressalvas) -> list[str]:
     """Cada ressalva da pauta (ver `ai/lados.py`) é uma pergunta atribuída da Helena; lista vazia = aprovado.
 
     A regra confere a forma: a frase com veículo, grupo e verbo de posição, numa fala da Helena
@@ -498,7 +499,7 @@ def problemas_das_ressalvas(result: dict, ressalvas) -> list[str]:
     return probs
 
 
-def _textos_do_episodio(result: dict) -> list[tuple[str, str, str]]:
+def _textos_do_episodio(result: Episodio) -> list[tuple[str, str, str]]:
     """Os textos do episódio em que uma atribuição pode estar: (campo, onde, texto)."""
     pontos = result["pontos_chave"] if isinstance(result.get("pontos_chave"), list) else []
     return [
@@ -509,7 +510,7 @@ def _textos_do_episodio(result: dict) -> list[tuple[str, str, str]]:
     ]
 
 
-def problemas_das_atribuicoes(result: dict, textos) -> list[Problema]:
+def problemas_das_atribuicoes(result: Episodio, textos) -> list[Problema]:
     """As atribuições a um grupo sem nome que nenhum texto da pauta cita; lista vazia = aprovado.
 
     `textos` são os textos da pauta (título e texto de cada artigo). Vale a lista fechada de
@@ -528,7 +529,7 @@ def problemas_das_atribuicoes(result: dict, textos) -> list[Problema]:
     return probs
 
 
-def problemas_dos_numeros(result: dict, textos, veiculos=()) -> list[Problema]:
+def problemas_dos_numeros(result: Episodio, textos, veiculos=()) -> list[Problema]:
     """Os percentuais e os números a partir de 10 que nenhum texto da pauta traz; lista vazia = aprovado.
 
     `textos` são os textos da pauta (título e texto completo de cada artigo), e `veiculos`, os seus
@@ -556,7 +557,7 @@ def problemas_dos_numeros(result: dict, textos, veiculos=()) -> list[Problema]:
     return probs
 
 
-def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos, orc: Orcamento | None = None) -> list[Problema]:
+def problemas_com_campo(result: Episodio, veiculos, lados, ressalvas, textos, orc: Orcamento | None = None) -> list[Problema]:
     """As violações do episódio, cada uma com o campo em que está; lista vazia = aprovado.
 
     `veiculos` são os veículos dos textos que entraram no episódio: com dois ou mais distintos,
@@ -625,6 +626,6 @@ def problemas_com_campo(result: dict, veiculos, lados, ressalvas, textos, orc: O
     return probs
 
 
-def problemas(result: dict, veiculos, lados, ressalvas, textos, orc: Orcamento | None = None) -> list[str]:
+def problemas(result: Episodio, veiculos, lados, ressalvas, textos, orc: Orcamento | None = None) -> list[str]:
     """Retorna lista de violações; lista vazia = aprovado (ver `problemas_com_campo`)."""
     return [p.texto for p in problemas_com_campo(result, veiculos, lados, ressalvas, textos, orc)]

@@ -46,6 +46,7 @@ from techdigest.ai.recorte import paragrafos
 from techdigest.ai.verbos import FORMAS_DE_POSICAO
 from techdigest.ai.summarizer import _limpar
 from techdigest.config import Settings
+from techdigest.models import Episodio
 
 settings = Settings()
 
@@ -617,8 +618,8 @@ def apresentacoes_dos_lados(episodio: dict, fontes: list[Fonte], lados: list[Lad
     if len(lados) < 2:
         return []
     try:
-        achadas = qa.frases_que_apresentam(episodio, lados)
-        do_lado = {i: nome for nome, i in qa.lado_de_cada_analista(episodio, lados).items()}
+        achadas = qa.frases_que_apresentam(cast(Episodio, episodio), lados)
+        do_lado = {i: nome for nome, i in qa.lado_de_cada_analista(cast(Episodio, episodio), lados).items()}
     except (KeyError, TypeError, AttributeError):
         return []
     fora = _fora_da_conta(episodio, fontes, [a for lado in lados for a in lado.atores])

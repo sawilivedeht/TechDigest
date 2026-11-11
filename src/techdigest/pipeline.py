@@ -3,6 +3,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 from urllib.parse import parse_qs, urlsplit
 
 from techdigest.ai.elenco import nomes_dos_analistas
@@ -13,6 +14,7 @@ from techdigest.audio.tts import atribuir_vozes, gerar_podcast
 from techdigest.collectors.rss import ColetaRSS, collect_rss
 from techdigest.config import Settings
 from techdigest.delivery import deliver_aviso, deliver_footer, deliver_item
+from techdigest.models import ItemEntregue
 from techdigest.processing import agrupamento as ag
 from techdigest.processing import filtro
 from techdigest.processing.extractor import extrair, extrair_em_lote
@@ -220,6 +222,10 @@ class _Lote:
                 result = self.summarizer.process(item.principal, item.relacionados)
             else:
                 result = self.summarizer.process(item.principal)
+            # O cast vem antes das atribuições, porque o pyright não deixa pôr num Episodio as chaves do ItemEntregue. É
+            # o mesmo dict, como antes: o registro e o diagnóstico continuam vendo url, source e vozes. Até a linha das
+            # vozes, o tipo diz que `vozes` já existe; nesse meio, o código só lê `personagens`, que é do episódio.
+            result = cast(ItemEntregue, result)
             result["url"], result["source"] = item.url, item.source
             if item.outras_fontes:
                 result["outras_fontes"] = item.outras_fontes

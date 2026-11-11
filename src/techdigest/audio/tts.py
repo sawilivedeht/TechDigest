@@ -15,6 +15,7 @@ from edge_tts.exceptions import WebSocketError
 import logging
 
 from techdigest.ai.elenco import vaga
+from techdigest.models import Personagem, Turno
 
 logger = logging.getLogger("techdigest.audio.tts")
 
@@ -58,7 +59,7 @@ LIMIAR_DO_TETO_DB = -50
 _TOLERANCIA_S = 0.001   # um silêncio que começa até aqui toca o começo da fala (e o mesmo no fim)
 
 
-def atribuir_vozes(personagens: list[dict]) -> dict[str, str]:
+def atribuir_vozes(personagens: list[Personagem]) -> dict[str, str]:
     """Helena tem voz fixa; o analista com nome da lista (`elenco.VAGAS`) tem a voz da vaga dele, do gênero do nome; os
     demais recebem, em ordem de declaração, as vozes que sobraram (e, sem sobra, as vozes de novo, a partir da primeira)."""
     mapeamento = {}
@@ -177,7 +178,7 @@ async def _sintetizar_e_ajustar(i: int, texto: str, voz: str, mp3: str, wav: str
     return await asyncio.to_thread(_ajustar_fala, mp3, wav)
 
 
-async def _sintetizar_turnos(turnos: list[dict], vozes: dict[str, str], pasta: Path) -> list[str]:
+async def _sintetizar_turnos(turnos: list[Turno], vozes: dict[str, str], pasta: Path) -> list[str]:
     """Sintetiza os turnos, no máximo CONCORRENCIA_TTS ao mesmo tempo, ajusta cada fala logo depois da síntese dela e
     devolve os arquivos ajustados na ordem dos turnos. Uma falha que persiste cancela os outros turnos e chega a quem
     chamou como a exceção original, não como o ExceptionGroup do TaskGroup: o pipeline registra o tipo dela."""
@@ -213,7 +214,7 @@ def _duracao(arquivo: str) -> float:
     return float(r.stdout.strip())
 
 
-def gerar_podcast(turnos: list[dict], personagens: list[dict], out_path: str) -> tuple[str, float]:
+def gerar_podcast(turnos: list[Turno], personagens: list[Personagem], out_path: str) -> tuple[str, float]:
     """Narra cada turno com a voz do personagem (até CONCORRENCIA_TTS turnos ao mesmo tempo, num só asyncio.run), tira
     o silêncio a mais de cada fala, insere pausas de diálogo, concatena via ffmpeg na ordem dos turnos e retorna
     (caminho, duração em segundos)."""

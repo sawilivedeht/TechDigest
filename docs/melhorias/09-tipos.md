@@ -90,5 +90,33 @@ inteira e a seção "Estado" de docs/melhorias/09-tipos.md atualizada.
       `testar_agrupamento.py:403`) ficam sem comentário: o `isinstance` da mesma linha é o motivo.
     - No standard, sobram os 3 `possibly unbound` do `main.py:49`, fora do aceite.
     - 802 testes passam; `ruff check .` sem avisos.
-  - Pendências: commits 3 (`models.py` e as anotações do episódio) e 4 (documentos); no merge, a `.venv` da produção
-    ganha os 3 pacotes novos pelo `uv sync --locked --extra dev`.
+  - Decisão do dono (11/11, commit 2 aprovado): ficam os 8 comentários dos `cast` de `None`; os 4 `cast` com
+    `isinstance` na mesma linha ficam sem comentário.
+  - Commit 3 (o tipo do episódio): `Personagem`, `Turno`, `Episodio` e `ItemEntregue` no `src/techdigest/models.py`,
+    depois do `Article`, que já estava lá (as 14 linhas dele não mudam; entram a docstring do módulo, com o texto
+    aprovado sobre o `cast`, e o import do `typing`). No `ItemEntregue`, `url`, `source` e `vozes` obrigatórias,
+    `outras_fontes` e `tambem_noticiaram` `NotRequired`.
+    - Anotados: `summarizer._qa`, `_com_os_papeis`, `_corrigir_titulo`, `_corrigir_resumo`, `_revisar_roteiro`,
+      `_revisar` e `process`; as 20 funções do `qa.py` que recebem o episódio e o `palavras_por_personagem`, todas sem
+      mudar o corpo; `tts.atribuir_vozes`, `_sintetizar_turnos` e `gerar_podcast`; `deliver_item`, `_render_item`,
+      `send_item_telegram`, `_enviar_audio` e `arquivo.entregar_item`; e, nos scripts, as três funções do
+      `testar_episodio.py` que recebem o episódio do `process`.
+    - `cast(Episodio, ...)` onde o JSON do modelo vira episódio: a geração em `process` (as duas chamadas) e a revisão
+      completa em `_revisar`; nos scripts, as duas chamadas ao `qa` do `checar_fidelidade.py`, que lê o episódio de um
+      JSON gravado e segue com `dict`. `cast(ItemEntregue, result)` no pipeline, antes das atribuições, no mesmo dict.
+    - Um `ignore` novo, por causa do tipo: `telegram.py:89` (`reportTypedDictNotRequiredAccess`), o
+      `it["tambem_noticiaram"]` dentro do `if it.get("tambem_noticiaram")`, que o pyright não estreita.
+    - Continuam `dict`: o `registro.item`, o `llm.parse_json`/`chat_json`, o `email_smtp` (dormente) e o episódio dos
+      scripts que leem JSON.
+    - `tests/test_models.py` (3 testes): as chaves e os tipos do `Episodio`, do `Personagem` e do `Turno` contra o
+      `SCHEMA` e o `REQUIRED_KEYS`, e as chaves do `ItemEntregue`.
+    - Prova por mutação, desfeita com o `cmp` igual ao original: `it['resumo']` no lugar de `it['resumo_didatico']` no
+      `_render_item` dá 1 erro no pyright (`"resumo" is not a defined key in "ItemEntregue"`) e 15 testes quebrados
+      (`test_pipeline.py` e `test_simulacao.py`); sem `fontes_citadas` no `Episodio`, os 3 testes do `test_models.py`
+      falham e o pyright dá 2 erros no `qa.py:612`.
+    - Na sessão, a primeira versão do `models.py` foi escrita por cima do arquivo, sem lê-lo; o pyright apontou o
+      `Article` sumido no `collectors/rss.py`, e o arquivo foi restaurado do `HEAD` antes de qualquer commit.
+    - `.venv/bin/pyright`: 0 erros. 805 testes passam (802 e os 3 novos); `ruff check .` sem avisos.
+  - Pendências: commit 4 (documentos: o comando do pyright e o `models.py` no `CLAUDE.md`, e o
+    `docs/referencia/contrato-de-saida.md`); no merge, a `.venv` da produção ganha os 3 pacotes novos pelo
+    `uv sync --locked --extra dev`.

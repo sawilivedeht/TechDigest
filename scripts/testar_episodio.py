@@ -50,6 +50,7 @@ from techdigest.ai.elenco import nomes_dos_analistas
 from techdigest.ai.prompt import PROMPT_LADOS, PROMPT_RESUMO, PROMPT_REVISOR, PROMPT_ROTEIRO, PROMPT_SISTEMA, PROMPT_TITULO
 from techdigest.ai.summarizer import CORRECOES, QAReprovado, Summarizer
 from techdigest.config import Settings
+from techdigest.models import Episodio
 from techdigest.processing import agrupamento as ag
 from techdigest.registro import cortes_para_registro, lados_para_registro, orcamento_para_registro
 
@@ -366,7 +367,7 @@ def _lados(analise, chamadas: list[dict]) -> dict:
     return registro
 
 
-def _primeira_pessoa(episodio: dict) -> list[dict]:
+def _primeira_pessoa(episodio: Episodio) -> list[dict]:
     """As frases dos analistas com primeira pessoa do plural ("nós", "precisamos"). Só diagnóstico: pega também
     o "vamos" de quem conduz a conversa."""
     achadas = []
@@ -407,7 +408,7 @@ def _palavras_que_contam(texto) -> set[str]:
     return {palavra for palavra in qa._palavras_do_nome(texto) if len(palavra) >= MIN_LETRAS_DA_PALAVRA}
 
 
-def _trechos_nas_falas(episodio: dict, analise) -> list[dict]:
+def _trechos_nas_falas(episodio: Episodio, analise) -> list[dict]:
     """Para cada trecho de evidência de cada lado, a fala de analista que mais palavras dele repete.
 
     Só diagnóstico: conta as palavras de MIN_LETRAS_DA_PALAVRA letras ou mais do trecho que estão
@@ -440,7 +441,7 @@ def _trechos_nas_falas(episodio: dict, analise) -> list[dict]:
     return achados
 
 
-def _plano_seguido(episodio: dict, analise, orc) -> dict:
+def _plano_seguido(episodio: Episodio, analise, orc) -> dict:
     """Se o roteiro seguiu o plano das falas do bloco, quem fecha o episódio e, de cada analista, as palavras, o alvo e
     as frases do lado dele no recorte (só diagnóstico; o QA não cobra o plano nem quem fecha).
 

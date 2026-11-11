@@ -1,5 +1,6 @@
 # delivery/__init__.py
 from techdigest.config import Settings
+from techdigest.models import ItemEntregue
 from techdigest.simulacao import em_simulacao
 
 settings = Settings()
@@ -26,7 +27,7 @@ def _so_na_simulacao() -> None:
                            "que trabalha numa cópia do banco")
 
 
-def deliver_item(item: dict, audio: str | None) -> str:
+def deliver_item(item: ItemEntregue, audio: str | None) -> str:
     """Entrega UMA notícia (texto + áudio) no canal configurado e devolve o nome do canal.
 
     Levanta exceção se a entrega falhar: quem chama decide o que fazer e só marca o item
