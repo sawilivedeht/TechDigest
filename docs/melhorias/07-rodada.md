@@ -281,3 +281,17 @@ inteira e a seção "Estado" de docs/melhorias/07-rodada.md atualizada.
   - Etapa: aceite separado feito, esperando o ok do dono para ficar pronta para integração.
   - Pendências: o ok do dono; a skill, pela frente 0 na integração. O link `data/agrupamento` desta worktree e a frase do
     linter no `scripts.md` o dono leva ao chat da frente 0.
+- 10/11/2026: aceite aprovado pelo dono (hora não registrada; avisado à frente 0 às 22h03). A frente ficou pronta para
+  integração em `34c9e64`.
+- 11/11/2026: rebase sobre a `testes` em `a940eb9`, sem conflito. Etapa: pronta para integração, rebaseada sobre a
+  `testes`.
+  - Correspondência dos hashes: `293fe9f` → `101e842` e `34c9e64` → `ac0922e`.
+  - Conferências:
+    - o `git range-diff 3e1045e..34c9e64 testes..HEAD` mostra os dois commits com `=`, iguais, só com base nova;
+    - 802 testes passam em duas execuções, o `ruff check .` não dá aviso e o lock dá `Would make no changes`;
+    - o `git diff --stat testes..HEAD` tem só `CLAUDE.md`, `docs/melhorias/07-rodada.md`, `docs/referencia/scripts.md`,
+      `scripts/rodada.py` e `tests/test_rodada.py`, sem `pyproject.toml`, `uv.lock` nem `docs/producao.md`;
+    - depois da suíte, nenhum `tail --pid` nem `sleep 300` ficou sobrando, e `techdigest-teste.target` e
+      `ollama.service` seguem `inactive`.
+  - Este commit, só de documentos, é o último da branch: o avanço rápido da `testes` é da frente 0, e a branch não
+    recebe mais commits.
