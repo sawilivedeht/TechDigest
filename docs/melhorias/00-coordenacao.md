@@ -229,8 +229,8 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
   das versões do roteiro do `02-versoes.md`, rodado hoje só para leitura entre a `.venv` da produção e a da `testes`,
   deu as 4 linhas a mais esperadas e nenhuma versão diferente. `testes` em `93c3a77` antes deste commit de documentos.
   A `master` e a `trabalho` seguem em `64bd21b`.
-  - Em aberto: (b) a troca da `.venv` da produção e o estado de produção do `CLAUDE.md`; (c) o teste conjunto (passo 3
-    da Integração); (d) o merge único na `master` (passo 4).
+  - Em aberto: (b) a troca da `.venv` da produção e o estado de produção do `CLAUDE.md`; (c) a escuta, pelo dono, de
+    alguns episódios do teste conjunto (passo 3 da Integração); (d) o merge único na `master` (passo 4).
 - 11/11/2026: o "Estado" do `docs/melhorias/02-versoes.md` passa a trazer os hashes que entraram na `testes`. Escrito
   antes do rebase, ele trazia a base `64bd21b`, os commits `0e23a55`, `df67c9d` e `558391c` e 667 testes; agora traz a
   base `9aec835`, os commits `19d47e0`, `96c85a9` e `2c4c899` (conferidos com `git log 9aec835..2c4c899`) e 674 testes,
@@ -240,3 +240,30 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
   regra 6 do plano ganha o ruff, para as duas ficarem iguais. O item (a) do "Em aberto" de 11/11, no
   `00-coordenacao.md`, sai da lista. `testes` em `cd84f52` antes deste commit de documentos. A `master` e a `trabalho`
   seguem em `64bd21b`.
+- 12/11/2026: teste conjunto (passo 3 da Integração) na `testes` em `6034c77`: a rodada `teste_conjunto_20261111`, de
+  11/11, das 22:32 às 23:31, com o `scripts/rodada.py` e a skill antiga no lugar, rodada pelo dono no terminal dele (a
+  permissão do Claude Code recusou o comando, que traz o `.venv/bin/techdigest` depois do `--`). Comando:
+  `.venv/bin/techdigest --simular data/simulacoes/testes_20261111 --banco-origem /home/sytw/Projetos/techdigest/data/digest.db`.
+  `FIM` com status 0 (58 min 35 s); o sono bloqueado pelo `systemd-inhibit` e solto no fim; `library=CUDA` no log do
+  Ollama e o modelo com 27 de 31 camadas na GPU; memória disponível mínima de 17.393 MiB (17,0 GiB), longe dos 3 GiB do
+  vigia; no fim, `techdigest-teste.target` e `ollama.service` `inactive`, nenhum processo da rodada sobrando e a trava
+  do modelo livre. A coleta usou o `RSS_FEEDS` do `.env`, com o aviso no log, como previsto no passo 4: os 9 feeds do
+  log são os do `config/feeds.txt`, na mesma ordem, e nenhum ficou fora. `scripts/resumo_lotes.py`: 20 entregues, 1
+  reprovado pelo QA, 1 descartado (texto curto), 1 filtrado (ofertas, `/achados/`), nenhum abandonado, 2 erros e
+  nenhuma falha de entrega; 26,3 tok/s em média (mínimo 20,4), CPU até 87 °C, GPU até 65 °C. No registro, 23 episódios
+  gerados e 22 aprovados pelo QA (12 na primeira versão, 9 depois da revisão do roteiro e 1 depois da correção do
+  resumo); o reprovado ficou, depois da revisão do roteiro, com o analista em 197 palavras, abaixo das 204. Os 2 erros
+  são de áudio: dois episódios aprovados (o PS5, do Canaltech, e a palestra da Ufes) caíram no Edge-TTS com
+  `NoAudioReceived`, que não tem nova tentativa por decisão do dono de 08/11 (`01-audio.md`); nenhum turno teve nova
+  tentativa na rodada. No log da produção (05/10 a 07/11) há um só `NoAudioReceived`, em 07/10, com a síntese de um
+  turno por vez. `scripts/checar_fidelidade.py --relatorio`: nenhum número sem fonte; 7 nomes próprios sem fonte em 5
+  episódios ("Congresso" e os séculos "XX" e "XIX"; "China"; "Partido dos Trabalhadores de Pernambuco"; "Rio Grande do
+  Sul"; "Brasil"), 1 número arredondado (no PS5, não entregue) e 2 nomes com fonte só depois do corte; o relatório está
+  em `data/agrupamento/fidelidade_20261112-060624.txt` da pasta principal. Áudio, do `Vozes:` ao `✅` (a medição da
+  frente 1, adaptada à entrega em arquivo): 20 s por item em média (13 a 28 s), contra 44 s na execução real de 07/11;
+  1,89 s por turno (212 turnos), contra 4,0 s; 5,4 s por minuto de episódio, contra 10,9 s. A hora e a rede não são as
+  de 07/11 (01h); no aceite da frente 1, a `master` já fazia 1,4 s por turno. Episódios de 3,7 min em média (2,2 a
+  4,4 min), contra 4,0 min em 07/11. Para o dono ouvir, em `data/simulacoes/testes_20261111/entregas/` da
+  `techdigest-testes`: o 04 (Nintendo, o mais curto, 2,2 min e 7 turnos), o 05 (QLED, o mais longo, 4,4 min) e o 11
+  (tradução do Linux, 10 trocas de personagem em 3,3 min). O item (c) do "Em aberto" de 11/11, acima, fica só com a
+  escuta do dono. `testes` em `6034c77` antes deste commit de documentos. A `master` e a `trabalho` seguem em `64bd21b`.
