@@ -72,7 +72,8 @@ Valem junto com `docs/regras-de-sessao.md` (a frente 0 as copia para lá):
    (`~/.claude/skills`) e o `CLAUDE.local.md` mudam só na integração, pela frente 0.
 5. Sem commit de `src/techdigest.egg-info`, que muda a cada instalação, até a frente 2 tirá-lo do git. (Feita na frente 2, 08/11:
    o `egg-info` saiu do git e está no `.gitignore`.)
-6. A cada commit: a suíte inteira passa (`.venv/bin/pytest`) e a seção "Estado" do arquivo da frente é atualizada. As
+6. A cada commit: a suíte inteira passa (`.venv/bin/pytest`) e a seção "Estado" do arquivo da frente é atualizada; desde a
+   frente 9, o `.venv/bin/pyright` também fica sem erros. As
    suítes de várias worktrees podem rodar ao mesmo tempo: o `tests/conftest.py` cria uma pasta temporária nova a cada vez.
 7. Modelo: uma rodada por vez na máquina inteira, e nenhuma durante uma execução real do dono. Antes,
    `systemctl --user is-active techdigest-teste.target` deve dar `inactive`. Quem precisa de rodada pede ao dono e anota no
@@ -101,7 +102,8 @@ no fim; se o dono quiser antecipar um grupo de frentes, o procedimento é o mesm
 
 1. A `testes` nasce da `master` no fim da onda 0.
 2. Cada frente pronta entra uma por vez: rebase da branch dela sobre a `testes` (na worktree dela, com a sessão dela) e
-   avanço rápido da `testes`. Depois de cada uma: a suíte inteira e, depois da frente 4, o `ruff check .`.
+   avanço rápido da `testes`. Depois de cada uma: a suíte inteira, depois da frente 4, o `ruff check .` e, depois da
+   frente 9, o `.venv/bin/pyright`.
 3. Teste conjunto, com as frentes da rodada na `testes`: a suíte; uma simulação com áudio
    (`.venv/bin/techdigest --simular data/simulacoes/testes_AAAAMMDD --banco-origem /home/sytw/Projetos/techdigest/data/digest.db`,
    dentro da sessão de teste, como numa rodada); o `scripts/resumo_lotes.py` com o `--log` da simulação; o
@@ -124,16 +126,21 @@ no fim; se o dono quiser antecipar um grupo de frentes, o procedimento é o mesm
    uma linha no `CHANGELOG.md` da skill. O teste conjunto do passo 3 é o primeiro uso do `rodada.py` com o modelo e do
    vigia sob carga (conferir o `vigia_memoria.log` e o `FIM`), feito com a skill antiga, ainda no lugar, e o comando do
    `rodada.py` escrito à mão.
+   Na troca da `.venv` da produção (roteiro na seção "Troca da `.venv` da produção" do `docs/melhorias/02-versoes.md`), a
+   `.venv` nova recebe pelo `uv sync --locked --extra dev` o `nodeenv`, o `nodejs-wheel-binaries` e o `pyright`, da frente
+   9; o `ruff` já veio da frente 4. Por isso o `diff` das versões do roteiro não sai mais vazio: o esperado são exatamente
+   4 linhas a mais (`nodeenv`, `nodejs-wheel-binaries`, `pyright` e `ruff`) e nenhuma versão diferente. O roteiro manda
+   tratar cada linha do `diff` como uma diferença, que fica listada, e só seguir com o ok do dono.
 5. Depois do merge de uma frente: `git worktree remove` e a branch apagada.
 
 ## Mapa de conflitos
 
 | Arquivo | Frentes | Como evitar |
 |---|---|---|
-| `pyproject.toml` | 2, 4, 9 | Cada uma mexe só na sua seção. Se a 2 adotar lockfile, a que entrar depois na `testes` refaz o lock. Resolvido para a 4: ela já refez o `uv.lock` (65 pacotes) sobre o da 2 |
+| `pyproject.toml` | 2, 4, 9 | Cada uma mexe só na sua seção. Se a 2 adotar lockfile, a que entrar depois na `testes` refaz o lock. Resolvido para a 4: ela já refez o `uv.lock` (65 pacotes) sobre o da 2. Feito para a 9: refez o `uv.lock` sobre o da `testes` em `9c76afb`, de 65 para 68 pacotes, só com inserções |
 | `.gitignore` | 2 | — |
 | `src/techdigest/audio/tts.py` | 1, 4 | Resolvido: a frente 1 tirou o `f` no `d8dc640`; a frente 4 não toca o `tts.py` |
-| `src/techdigest/config.py` | 6; 9 na onda 3 | A 6 já entrou (`ler_feeds` e `CAMINHO_DOS_FEEDS`); a 9 só mexe no `config.py` depois dela |
+| `src/techdigest/config.py` | 6; 9 na onda 3 | A 6 já entrou (`ler_feeds` e `CAMINHO_DOS_FEEDS`); a 9 entrou sem tocar no `config.py` (diff `9c76afb..93c3a77`) |
 | `src/techdigest/registro.py` | 3 | — |
 | `src/techdigest/delivery/email_smtp.py`, `scripts/refazer_qa.py` | 4 | — |
 | `deploy/systemd/` | 5 | — |
@@ -175,7 +182,7 @@ frentes, o chat de cada uma consegue ler o código dela; senão, o dono cola o `
 | A lista de feeds (copiada do `.env`) e a precedência entre o arquivo e o `RSS_FEEDS` | 6 | onda 2; lista copiada do `.env` em 08/11; precedência: o `RSS_FEEDS` definido manda, mesmo vazio, com aviso no log; aprovada em 09/11 |
 | O formato dos comandos da rodada e se a execução real à mão também usa o script | 7 | onda 2; decidida em 10/11: comandos pelos dois caminhos (`-- <comando>` para um, `--comandos <arquivo>` para vários); a execução real à mão não usa o script por ora |
 | Rodar o experimento do schema, se a medição justificar | 8 | onda 3; dispensada em 10/11 (medição: zero chamadas refeitas) |
-| Fazer ou não a frente 9 | 9 | onda 3 |
+| Fazer ou não a frente 9 | 9 | onda 3; decidida em 11/11: feita, e o `.venv/bin/pyright` entra nas verificações de cada commit |
 
 ## Instruções do Projeto (texto sugerido)
 
@@ -190,7 +197,7 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
 
 | Frente | Etapa | Branch e último commit | Observação |
 |---|---|---|---|
-| 0 | onda 0 concluída; integrando as frentes na `testes` | `testes`, nascida da `master` em `64bd21b`; frentes 1, 2, 3, 4, 5, 6 e 7 integradas e a 8 fechada; falta só a 9, se o dono quiser; `testes` em `ced5d8f` antes deste commit de documentos | `coordenacao` apagada depois do passo 7; 802 testes e `ruff check .` limpo na `testes` |
+| 0 | onda 0 concluída; frentes integradas na `testes`; faltam o teste conjunto e o merge | `testes`, nascida da `master` em `64bd21b`; frentes 1, 2, 3, 4, 5, 6, 7 e 9 integradas e a 8 fechada; `testes` em `93c3a77` antes deste commit de documentos | `coordenacao` apagada depois do passo 7; 805 testes, `ruff check .` limpo e pyright 1.1.414 no basic com 0 erros na `testes`; `uv.lock` com 68 pacotes |
 | 1 Áudio | na `testes` | `melhoria/audio`, `63ea31f` | turnos sintetizados em paralelo, integrados por avanço rápido; 715 testes passam na `testes` |
 | 2 Versões | na `testes` | `melhoria/versoes`, `2c4c899` | `uv.lock` e `.python-version`; `egg-info` fora do git; `.venv` da `testes` refeita pelo uv, versões idênticas às da produção; 715 testes passam na `testes` |
 | 3 Registro | na `testes` | `melhoria/registro`, `a482b0a` | gravação atômica integrada; aceite estendido: processo morto, três testes que falham com a gravação direta; 715 testes passam na `testes` |
@@ -199,7 +206,7 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
 | 6 Feeds | na `testes` | `melhoria/feeds`, `d05cb23` | `config/feeds.txt` com 9 URLs; o `RSS_FEEDS` definido no ambiente ou no `.env` manda, mesmo vazio, com aviso no log; 715 testes passam na `testes` |
 | 5 systemd | na `testes` | `melhoria/systemd`: `1f64fdc`, `2d95c21`, `6b92a21`, `a50eadf` e `7f73972` | units do pipeline, do timer, do bloqueio do sono e do aviso de falha em `deploy/systemd/`, versionadas e não instaladas; `MemoryMax=20G` na `ollama.service`; rebaseada sobre `fe6b66e` (o merge-base era `121fa7b`); aceite do dono de 09/11, 19:24, como informa o `05-systemd.md`; 753 testes passam na `testes` |
 | 7 Rodada | na `testes` (11/11) | `melhoria/rodada`: `101e842`, `ac0922e` e `ced5d8f` | `scripts/rodada.py` no lugar do vigia e do `rodar.sh`; rebaseada sobre `a940eb9` (antes, `293fe9f` e `34c9e64`); aceite do dono de 10/11 (hora não registrada); 802 testes passam na `testes` (753 mais 49 de `tests/test_rodada.py`) |
-| 9 Tipos | não começada | — | worktree criada quando o dono abrir o chat dela (passos 8 e 9 da onda 0), se ele quiser a frente |
+| 9 Tipos | na `testes` (11/11) | `melhoria/tipos`: `3b81457`, `bda5035`, `c11e9f9`, `dce1bd6` e `93c3a77` | `Episodio`, `Personagem`, `Turno` e `ItemEntregue` no `models.py`; pyright 1.1.414 no basic com 0 erros (`pyright[nodejs]` no extra `dev`); `aiohttp>=3.8` declarado; `uv.lock` com 68 pacotes; aceite do dono de 11/11, 21h50, como informa o `09-tipos.md`; 805 testes passam na `testes` (802 mais 3 de `tests/test_models.py`) |
 
 - 07/11/2026: plano criado.
 - 07/11/2026: onda 0 concluída. O commit `64bd21b` (o plano, os arquivos das frentes, as regras e o `CLAUDE.md`, só
@@ -275,3 +282,21 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
   as duas frases desatualizadas: a do linter (desde a frente 4) e a das versões, que estão no `uv.lock` (desde a frente
   2). Fora do git, o link `data/agrupamento` da `techdigest-rodada`, como nas worktrees da onda 1. `testes` em `ced5d8f`
   antes deste commit de documentos. A `master` e a `trabalho` seguem em `64bd21b`.
+- 11/11/2026: frente 9 (tipos) na `testes`. A branch nasceu da `testes` em `9c76afb` e não precisou de rebase:
+  `git merge --ff-only melhoria/tipos` levou a `testes` de `9c76afb` a `93c3a77`, com os cinco commits da frente
+  (`3b81457` build, `bda5035` os 21 lugares do basic, `c11e9f9` o tipo do episódio, `dce1bd6` documentos e `93c3a77` o
+  "Estado"): 24 arquivos, 388 inserções e 75 remoções, sem o `config.py`. O `uv sync --locked --extra dev` instalou o
+  `pyright` 1.1.414, o `nodeenv` 1.12.0 e o `nodejs-wheel-binaries` 24.19.0, e o `--check` deu `Would make no changes`;
+  o `uv.lock` foi de 65 a 68 pacotes, só com inserções, e o `pyproject.toml` ganhou o `aiohttp>=3.8`, o
+  `pyright[nodejs]==1.1.414` no extra `dev` e o `[tool.pyright]`. 805 testes em duas execuções (802 mais 3 de
+  `tests/test_models.py`), `ruff check .` limpo e `.venv/bin/pyright` com 0 erros, rodado com o `PATH` só com a
+  `.venv/bin` (o node do wheel). Cinco `# pyright: ignore` no pacote, cada um com a regra e o motivo na mesma linha
+  (`ai/gpu.py:168`, `ai/maquina.py:141`, `processing/agrupamento.py:633`, `delivery/email_smtp.py:16` e
+  `delivery/telegram.py:89`), e nenhum nos scripts. Fecha a pendência do `aiohttp` declarado, anotada pela frente 1 no
+  `01-audio.md`. Decisão do dono de 11/11: o `.venv/bin/pyright` entra nas verificações de cada commit. Neste commit: o
+  pyright na regra 6 do plano, no passo 2 da Integração e no passo 3 de "Trocar um feed" do `docs/producao.md`, e a
+  troca da `.venv` da produção no passo 4 (os passos 2 e 4 no plano e no `00-coordenacao.md`). O
+  `docs/regras-de-sessao.md` não muda: a regra de cada commit fala da suíte e do "Estado", sem listar o ruff. O `diff`
+  das versões do roteiro do `02-versoes.md`, rodado hoje só para leitura entre a `.venv` da produção e a da `testes`,
+  deu as 4 linhas a mais esperadas e nenhuma versão diferente. `testes` em `93c3a77` antes deste commit de documentos.
+  A `master` e a `trabalho` seguem em `64bd21b`.

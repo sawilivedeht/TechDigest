@@ -53,7 +53,8 @@ A `master` segue rodando até as frentes terminarem. Por padrão, uma rodada de 
 antecipar um grupo, o procedimento é o mesmo.
 
 1. Frente pronta (aceite separado aprovado pelo dono): na worktree dela, com a sessão dela, `git rebase testes` e a suíte.
-2. Na `techdigest-testes`: `git merge --ff-only melhoria/<nome>`, a suíte e, depois da frente 4, `.venv/bin/ruff check .`.
+2. Na `techdigest-testes`: `git merge --ff-only melhoria/<nome>`, a suíte, depois da frente 4, `.venv/bin/ruff check .` e,
+   depois da frente 9, `.venv/bin/pyright`.
    Se a frente mudou dependências, refazer a `.venv` da `testes` antes (pela decisão da frente 2).
 3. Teste conjunto, dentro da sessão de teste e pela skill da rodada (ou pelo `scripts/rodada.py`, se a frente 7 entrou):
    - a simulação com áudio: `.venv/bin/techdigest --simular data/simulacoes/testes_AAAAMMDD --banco-origem
@@ -79,6 +80,11 @@ antecipar um grupo, o procedimento é o mesmo.
    uma linha no `CHANGELOG.md` da skill. O teste conjunto do passo 3 é o primeiro uso do `rodada.py` com o modelo e do
    vigia sob carga (conferir o `vigia_memoria.log` e o `FIM`), feito com a skill antiga, ainda no lugar, e o comando do
    `rodada.py` escrito à mão.
+   Na troca da `.venv` da produção (roteiro na seção "Troca da `.venv` da produção" do `docs/melhorias/02-versoes.md`), a
+   `.venv` nova recebe pelo `uv sync --locked --extra dev` o `nodeenv`, o `nodejs-wheel-binaries` e o `pyright`, da frente
+   9; o `ruff` já veio da frente 4. Por isso o `diff` das versões do roteiro não sai mais vazio: o esperado são exatamente
+   4 linhas a mais (`nodeenv`, `nodejs-wheel-binaries`, `pyright` e `ruff`) e nenhuma versão diferente. O roteiro manda
+   tratar cada linha do `diff` como uma diferença, que fica listada, e só seguir com o ok do dono.
 5. `git worktree remove` das frentes integradas e as branches apagadas. O plano e o andamento registram o merge.
 
 ## Texto para `docs/regras-de-sessao.md`
@@ -205,3 +211,24 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
   as duas frases desatualizadas: a do linter (desde a frente 4) e a das versões, que estão no `uv.lock` (desde a frente
   2). Fora do git, o link `data/agrupamento` da `techdigest-rodada`, como nas worktrees da onda 1. `testes` em `ced5d8f`
   antes deste commit de documentos. A `master` e a `trabalho` seguem em `64bd21b`.
+- 11/11/2026: frente 9 (tipos) na `testes`. A branch nasceu da `testes` em `9c76afb` e não precisou de rebase:
+  `git merge --ff-only melhoria/tipos` levou a `testes` de `9c76afb` a `93c3a77`, com os cinco commits da frente
+  (`3b81457` build, `bda5035` os 21 lugares do basic, `c11e9f9` o tipo do episódio, `dce1bd6` documentos e `93c3a77` o
+  "Estado"): 24 arquivos, 388 inserções e 75 remoções, sem o `config.py`. O `uv sync --locked --extra dev` instalou o
+  `pyright` 1.1.414, o `nodeenv` 1.12.0 e o `nodejs-wheel-binaries` 24.19.0, e o `--check` deu `Would make no changes`;
+  o `uv.lock` foi de 65 a 68 pacotes, só com inserções, e o `pyproject.toml` ganhou o `aiohttp>=3.8`, o
+  `pyright[nodejs]==1.1.414` no extra `dev` e o `[tool.pyright]`. 805 testes em duas execuções (802 mais 3 de
+  `tests/test_models.py`), `ruff check .` limpo e `.venv/bin/pyright` com 0 erros, rodado com o `PATH` só com a
+  `.venv/bin` (o node do wheel). Cinco `# pyright: ignore` no pacote, cada um com a regra e o motivo na mesma linha
+  (`ai/gpu.py:168`, `ai/maquina.py:141`, `processing/agrupamento.py:633`, `delivery/email_smtp.py:16` e
+  `delivery/telegram.py:89`), e nenhum nos scripts. Fecha a pendência do `aiohttp` declarado, anotada pela frente 1 no
+  `01-audio.md`. Decisão do dono de 11/11: o `.venv/bin/pyright` entra nas verificações de cada commit. Neste commit: o
+  pyright na regra 6 do plano, no passo 2 da Integração e no passo 3 de "Trocar um feed" do `docs/producao.md`, e a
+  troca da `.venv` da produção no passo 4 (os passos 2 e 4 no plano e no `00-coordenacao.md`). O
+  `docs/regras-de-sessao.md` não muda: a regra de cada commit fala da suíte e do "Estado", sem listar o ruff. O `diff`
+  das versões do roteiro do `02-versoes.md`, rodado hoje só para leitura entre a `.venv` da produção e a da `testes`,
+  deu as 4 linhas a mais esperadas e nenhuma versão diferente. `testes` em `93c3a77` antes deste commit de documentos.
+  A `master` e a `trabalho` seguem em `64bd21b`.
+  - Em aberto: (a) um commit de documentos separado que corrige o "Estado" do `docs/melhorias/02-versoes.md` (base
+    `9aec835`, commits `19d47e0`, `96c85a9` e `2c4c899`, 674 testes); (b) a troca da `.venv` da produção e o estado de
+    produção do `CLAUDE.md`; (c) o teste conjunto (passo 3 da Integração); (d) o merge único na `master` (passo 4).

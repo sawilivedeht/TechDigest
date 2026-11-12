@@ -53,7 +53,7 @@ ou corrigir um feed:
 1. Edite o `config/feeds.txt` numa branch de trabalho, nunca direto na `master`.
 2. No mesmo commit, atualize a lista literal `FEEDS_DO_REPOSITORIO` de `tests/test_feeds.py`: o teste do arquivo do
    repositório confere as URLs uma a uma, na ordem, e falha com qualquer troca até a lista dele acompanhar.
-3. A suíte inteira e o `ruff check .`, o commit e, com o seu ok, o avanço rápido da `master`.
+3. A suíte inteira, o `ruff check .` e o `.venv/bin/pyright`, o commit e, com o seu ok, o avanço rápido da `master`.
 
 Enquanto o `RSS_FEEDS` estiver no `.env`, vale ele, e não o arquivo: a cada execução o log traz
 `RSS_FEEDS definido no ambiente ou no .env: a coleta usa ele, não o .../config/feeds.txt`. Depois do merge da frente 6
