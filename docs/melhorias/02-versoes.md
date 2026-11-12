@@ -78,9 +78,9 @@ docs/melhorias/02-versoes.md atualizada.
 ## Estado
 
 - **08/11/2026: pronta para integração.** Aceite separado aprovado pelo dono em 08/11/2026. Branch `melhoria/versoes`,
-  a partir da `64bd21b`. Commit 1: `0e23a55` ("chore: tira o src/techdigest.egg-info do git"). Commit 2: `df67c9d`
-  ("build: versões travadas pelo uv.lock e Python pelo .python-version"). Depois deles, só o commit deste Estado, sem
-  código. Suíte: 667 passam na `.venv` nova, feita pelo uv a partir do lock (e 667 na `.venv` do pip, no commit 1).
+  a partir da `9aec835`. Commit 1: `19d47e0` ("chore: tira o src/techdigest.egg-info do git"). Commit 2: `96c85a9`
+  ("build: versões travadas pelo uv.lock e Python pelo .python-version"). Depois deles, só o commit deste Estado,
+  `2c4c899`, sem código. Suíte: 674 passam na `.venv` nova, feita pelo uv a partir do lock.
 - **Decisão do dono (08/11/2026):** uv, com lock universal (sem `environments` no `[tool.uv]`), porque quem baixar o
   projeto do GitHub pode usar Windows ou macOS. Aceite do lock: os 60 pacotes do `pip freeze` da produção com a mesma
   versão; os extras, só os de outras plataformas (`colorama`, `tzdata`, `httpx2-jsfetch`), listados; qualquer outro

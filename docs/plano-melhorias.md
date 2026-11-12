@@ -73,7 +73,7 @@ Valem junto com `docs/regras-de-sessao.md` (a frente 0 as copia para lá):
 5. Sem commit de `src/techdigest.egg-info`, que muda a cada instalação, até a frente 2 tirá-lo do git. (Feita na frente 2, 08/11:
    o `egg-info` saiu do git e está no `.gitignore`.)
 6. A cada commit: a suíte inteira passa (`.venv/bin/pytest`) e a seção "Estado" do arquivo da frente é atualizada; desde a
-   frente 9, o `.venv/bin/pyright` também fica sem erros. As
+   frente 4, o `.venv/bin/ruff check .` fica sem avisos; desde a frente 9, o `.venv/bin/pyright` fica sem erros. As
    suítes de várias worktrees podem rodar ao mesmo tempo: o `tests/conftest.py` cria uma pasta temporária nova a cada vez.
 7. Modelo: uma rodada por vez na máquina inteira, e nenhuma durante uma execução real do dono. Antes,
    `systemctl --user is-active techdigest-teste.target` deve dar `inactive`. Quem precisa de rodada pede ao dono e anota no
@@ -300,3 +300,12 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
   das versões do roteiro do `02-versoes.md`, rodado hoje só para leitura entre a `.venv` da produção e a da `testes`,
   deu as 4 linhas a mais esperadas e nenhuma versão diferente. `testes` em `93c3a77` antes deste commit de documentos.
   A `master` e a `trabalho` seguem em `64bd21b`.
+- 11/11/2026: o "Estado" do `docs/melhorias/02-versoes.md` passa a trazer os hashes que entraram na `testes`. Escrito
+  antes do rebase, ele trazia a base `64bd21b`, os commits `0e23a55`, `df67c9d` e `558391c` e 667 testes; agora traz a
+  base `9aec835`, os commits `19d47e0`, `96c85a9` e `2c4c899` (conferidos com `git log 9aec835..2c4c899`) e 674 testes,
+  os da `testes` depois do avanço. O `git range-diff 64bd21b..558391c 9aec835..2c4c899` mostra os três iguais (`=`):
+  `0e23a55` → `19d47e0`, `df67c9d` → `96c85a9` e `558391c` → `2c4c899`. A regra de cada commit do
+  `docs/regras-de-sessao.md` passa a citar o `.venv/bin/ruff check .` sem avisos e o `.venv/bin/pyright` sem erros, e a
+  regra 6 do plano ganha o ruff, para as duas ficarem iguais. O item (a) do "Em aberto" de 11/11, no
+  `00-coordenacao.md`, sai da lista. `testes` em `cd84f52` antes deste commit de documentos. A `master` e a `trabalho`
+  seguem em `64bd21b`.

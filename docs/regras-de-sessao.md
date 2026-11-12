@@ -45,7 +45,8 @@ continua valendo.
   frente aberta.
 - Nos documentos compartilhados (`CLAUDE.md`, `docs/producao.md`, este arquivo, `docs/referencia/`), só o trecho do
   assunto da frente. O estado de produção do `CLAUDE.md`, as skills e o `CLAUDE.local.md` mudam só na integração.
-- A cada commit, a suíte inteira passa e a seção "Estado" do arquivo da frente é atualizada.
+- A cada commit, a suíte inteira passa, o `.venv/bin/ruff check .` fica sem avisos, o `.venv/bin/pyright` fica sem erros
+  e a seção "Estado" do arquivo da frente é atualizada.
 - Uma rodada com o modelo por vez na máquina inteira, e nenhuma durante a execução real do dono:
   `systemctl --user is-active techdigest-teste.target` deve dar `inactive` antes.
 - A produção só é lida: logs e registros da pasta principal, por caminho absoluto. As pastas de medição e de rodada

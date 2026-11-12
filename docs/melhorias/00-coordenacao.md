@@ -229,6 +229,14 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
   das versões do roteiro do `02-versoes.md`, rodado hoje só para leitura entre a `.venv` da produção e a da `testes`,
   deu as 4 linhas a mais esperadas e nenhuma versão diferente. `testes` em `93c3a77` antes deste commit de documentos.
   A `master` e a `trabalho` seguem em `64bd21b`.
-  - Em aberto: (a) um commit de documentos separado que corrige o "Estado" do `docs/melhorias/02-versoes.md` (base
-    `9aec835`, commits `19d47e0`, `96c85a9` e `2c4c899`, 674 testes); (b) a troca da `.venv` da produção e o estado de
-    produção do `CLAUDE.md`; (c) o teste conjunto (passo 3 da Integração); (d) o merge único na `master` (passo 4).
+  - Em aberto: (b) a troca da `.venv` da produção e o estado de produção do `CLAUDE.md`; (c) o teste conjunto (passo 3
+    da Integração); (d) o merge único na `master` (passo 4).
+- 11/11/2026: o "Estado" do `docs/melhorias/02-versoes.md` passa a trazer os hashes que entraram na `testes`. Escrito
+  antes do rebase, ele trazia a base `64bd21b`, os commits `0e23a55`, `df67c9d` e `558391c` e 667 testes; agora traz a
+  base `9aec835`, os commits `19d47e0`, `96c85a9` e `2c4c899` (conferidos com `git log 9aec835..2c4c899`) e 674 testes,
+  os da `testes` depois do avanço. O `git range-diff 64bd21b..558391c 9aec835..2c4c899` mostra os três iguais (`=`):
+  `0e23a55` → `19d47e0`, `df67c9d` → `96c85a9` e `558391c` → `2c4c899`. A regra de cada commit do
+  `docs/regras-de-sessao.md` passa a citar o `.venv/bin/ruff check .` sem avisos e o `.venv/bin/pyright` sem erros, e a
+  regra 6 do plano ganha o ruff, para as duas ficarem iguais. O item (a) do "Em aberto" de 11/11, no
+  `00-coordenacao.md`, sai da lista. `testes` em `cd84f52` antes deste commit de documentos. A `master` e a `trabalho`
+  seguem em `64bd21b`.
