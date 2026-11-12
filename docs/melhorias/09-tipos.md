@@ -55,7 +55,7 @@ inteira e a seção "Estado" de docs/melhorias/09-tipos.md atualizada.
 - 07/11/2026: não começada (opcional; espera a decisão do dono).
 - 11/11/2026: aceite separado, esperando o ok do dono. Branch `melhoria/tipos`, nascida da `testes` em `9c76afb`
   (frentes 1 a 7 integradas), com quatro commits: `3b81457` (build), `bda5035` (os 21 lugares do basic), `c11e9f9` (o
-  tipo do episódio) e o de documentos (o hash fica com o chat do navegador). 805 testes passam; `.venv/bin/pyright` com
+  tipo do episódio) e `dce1bd6` (documentos). 805 testes passam; `.venv/bin/pyright` com
   0 erros; `ruff check .` sem avisos.
   - Medição (só leitura, pyright 1.1.414): a `master` de 07/11, sem as bibliotecas, só `src` e `scripts` e sem os
     imports não resolvidos, reproduz os 15 erros do basic e os 18 do standard deste arquivo. Na `testes`, nas mesmas
@@ -178,3 +178,20 @@ inteira e a seção "Estado" de docs/melhorias/09-tipos.md atualizada.
     `nodejs-wheel-binaries`) pelo `uv sync --locked --extra dev`; se o pyright entra nas verificações escritas de cada
     commit (`docs/regras-de-sessao.md`, `docs/producao.md`, `docs/plano-melhorias.md`) é decisão do dono, na integração
     (frente 0); no modo standard ficam os 3 `possibly unbound` do `main.py:49`, fora do aceite.
+- 11/11/2026: pronta para integração. Aceite separado aprovado pelo dono em 11/11.
+  - Branch `melhoria/tipos`: os quatro commits da frente, `3b81457` (build), `bda5035` (os 21 lugares do basic),
+    `c11e9f9` (o tipo do episódio) e `dce1bd6` (documentos), e depois deles o commit só deste "Estado". A `testes`
+    continua em `9c76afb`, a base da frente: o avanço rápido não pede rebase.
+  - O dono rodou no terminal, às 21h50, as verificações do bloco do aceite (o `uv sync --locked --check --extra dev`,
+    o pyright, a suíte e o `ruff check .`) e aprovou o aceite.
+  - A sessão rodou as duas mutações, uma de cada vez, cada uma desfeita com `git restore`:
+    - (a) `it['resumo']` no lugar de `it['resumo_didatico']` no `_render_item`: o diff, uma linha trocada só no
+      `telegram.py`; o pyright, 1 erro (`telegram.py:82:19`, `"resumo" is not a defined key in "ItemEntregue"`); a
+      suíte, 15 falhas (12 no `test_pipeline.py`, 3 no `test_simulacao.py`) e 790 passando.
+    - (b) sem `fontes_citadas` no `Episodio`: o diff, uma linha removida só no `models.py`; o `tests/test_models.py`,
+      os 3 testes falham (dois `AssertionError` e um `KeyError: 'fontes_citadas'`); o pyright, 2 erros, os dois em
+      `qa.py:612` (colunas 19 e 58).
+    - Com as duas desfeitas: o pyright com 0 erros, 805 testes passando, o `ruff check .` sem avisos, o
+      `git status --short` vazio e o HEAD em `dce1bd6`.
+  - Daqui em diante, nenhum commit nesta branch sem avisar o dono (obrigaria rebase). As pendências são as do item
+    anterior: a `.venv` da produção no merge e o pyright nas verificações escritas, na integração (frente 0).
