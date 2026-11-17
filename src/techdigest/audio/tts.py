@@ -240,10 +240,14 @@ def gerar_podcast(turnos: list[Turno], personagens: list[Personagem], out_path: 
 
         lista = Path(tmp) / "concat.txt"
         lista.write_text("\n".join(f"file '{p}'" for p in partes), encoding="utf-8")
+        # Sem o quadro Xing/Info e sem a marca ID3, que o ffmpeg grava por padrão: com eles, o player do celular tocava
+        # um ruído no começo do episódio, e os turnos crus do Edge-TTS, que não têm nenhum dos dois, tocavam limpos
+        # (teste do dono em 17/11/2026). Sem a marca LAME, os players tocam também as 1105 amostras de silêncio do
+        # começo do codificador (46 ms), e a duração sai do bitrate, que é constante.
         subprocess.run(
             ["ffmpeg", "-y", "-loglevel", "error",
              "-f", "concat", "-safe", "0", "-i", str(lista),
-             "-c:a", "libmp3lame", "-b:a", "64k", str(out)],
+             "-c:a", "libmp3lame", "-b:a", "64k", "-write_xing", "0", "-id3v2_version", "0", str(out)],
             check=True,
         )
 
