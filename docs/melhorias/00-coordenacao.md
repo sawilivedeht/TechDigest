@@ -267,3 +267,13 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
   `techdigest-testes`: o 04 (Nintendo, o mais curto, 2,2 min e 7 turnos), o 05 (QLED, o mais longo, 4,4 min) e o 11
   (tradução do Linux, 10 trocas de personagem em 3,3 min). O item (c) do "Em aberto" de 11/11, acima, fica só com a
   escuta do dono. `testes` em `6034c77` antes deste commit de documentos. A `master` e a `trabalho` seguem em `64bd21b`.
+- 18/11/2026: etapa 3 feita (a preparação do merge); etapa: merge preparado. Do "Em aberto" de 11/11: (c) a escuta do
+  dono achou em 17/11 o ruído no começo dos episódios no player do celular, corrigido no `1b7a308`, direto na `testes`
+  (o mp3 sem a marca ID3 e sem o quadro Xing/Info, ver o `01-audio.md`); (b) o estado de produção do `CLAUDE.md` vai
+  neste commit, e a troca da `.venv` da produção, com (d) o merge, fica com o script do dono,
+  `data/agrupamento/fechamento_20261118/fechamento.sh` da pasta principal. Verificação na `testes` em `1b7a308`, com
+  estes documentos fora do commit: 806 testes, `ruff check .` limpo, `.venv/bin/pyright` com 0 erros, `Would make no
+  changes`; o `diff` das versões entre a `.venv` da produção e a da `testes` dá só as 4 linhas a mais esperadas; o
+  `diff -u` da `ollama.service` instalada contra a `deploy/systemd/` dá só o `MemoryMax=20G` e o comentário dele.
+  O que mudou neste commit e nas skills está no registro de 18/11 do `docs/plano-melhorias.md`. A `master` e a
+  `trabalho` seguem em `64bd21b` até o script rodar.

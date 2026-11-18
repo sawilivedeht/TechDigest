@@ -126,6 +126,19 @@ a suíte inteira e a seção "Estado" de docs/melhorias/01-audio.md atualizada.
   são os de depois do rebase. A `.venv` da worktree passou para o uv (`uv sync --locked --extra dev`; a do pip ficou em
   `.venv.pip-20261108`), e `uv sync --locked --check --extra dev` dá `Would make no changes`. 695 testes passam: 674
   da `testes` e 21 do `tests/test_tts.py`.
+- 17/11/2026: na escuta do dono (passo 3 da Integração), o player do celular tocava um ruído no começo do episódio,
+  e os turnos crus do Edge-TTS, que não têm a marca ID3 nem o quadro Xing/Info, tocavam limpos. Correção `1b7a308`,
+  feita direto na `testes` (a `melhoria/audio` não recebe mais commits): a concatenação do ffmpeg grava o mp3 com
+  `-write_xing 0 -id3v2_version 0`. Sem a marca LAME, os players tocam também as 1105 amostras de silêncio do começo do
+  codificador (46 ms), e a duração sai do bitrate, que é constante. Teste novo, `tests/test_tts_mp3.py`, com o ffmpeg
+  de verdade e o `edge_tts.Communicate` falso (um tom de 0,5 s em mp3 de 24 kHz): o arquivo não começa com `ID3`,
+  começa num quadro de áudio e não tem `Xing` nem `Info` nos primeiros 2048 bytes; sem o ffmpeg ou o ffprobe no PATH, o
+  teste é pulado. 806 testes passam na `testes`.
+  - Hashes atuais, na `testes` (os da `melhoria/audio` depois do rebase sobre `4bce887`): `336dbde` (medição),
+    `d8dc640` (turnos em paralelo), `f03ef9b` (aceite), `deb7e24` (pronta para integração), `8492af8` (variante E),
+    `a1fe305` (pausas), `e129203` (estado) e `63ea31f` (hashes depois do rebase); e o `1b7a308`, que não está na
+    branch da frente. Na `testes`, o `tts.py` mudou também nos commits `3b81457` e `c11e9f9` da frente 9 (tipos).
+    `testes` em `1b7a308`.
 
 ### Pausas (08/11/2026, depois do aceite)
 

@@ -197,8 +197,8 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
 
 | Frente | Etapa | Branch e último commit | Observação |
 |---|---|---|---|
-| 0 | onda 0 concluída; frentes integradas na `testes`; teste conjunto feito em 11/11; faltam a escuta do dono e o merge | `testes`, nascida da `master` em `64bd21b`; frentes 1, 2, 3, 4, 5, 6, 7 e 9 integradas e a 8 fechada; `testes` em `6034c77` antes deste commit de documentos | `coordenacao` apagada depois do passo 7; 805 testes, `ruff check .` limpo e pyright 1.1.414 no basic com 0 erros na `testes`; `uv.lock` com 68 pacotes |
-| 1 Áudio | na `testes` | `melhoria/audio`, `63ea31f` | turnos sintetizados em paralelo, integrados por avanço rápido; 715 testes passam na `testes` |
+| 0 | merge preparado (18/11): frentes integradas na `testes`; teste conjunto em 11/11; a escuta do dono levou ao `1b7a308` (17/11); o merge na `master` fica com o script do dono, `fechamento.sh` | `testes`, nascida da `master` em `64bd21b`; frentes 1, 2, 3, 4, 5, 6, 7 e 9 integradas e a 8 fechada; `testes` em `1b7a308` antes deste commit de documentos | `coordenacao` apagada depois do passo 7; 806 testes, `ruff check .` limpo e pyright 1.1.414 no basic com 0 erros na `testes`; `uv.lock` com 68 pacotes |
+| 1 Áudio | na `testes` | `melhoria/audio`, `63ea31f`; depois, `1b7a308` direto na `testes` (17/11) | turnos sintetizados em paralelo, integrados por avanço rápido; 715 testes passam na `testes`; o `1b7a308` grava o mp3 sem a marca ID3 e sem o quadro Xing/Info |
 | 2 Versões | na `testes` | `melhoria/versoes`, `2c4c899` | `uv.lock` e `.python-version`; `egg-info` fora do git; `.venv` da `testes` refeita pelo uv, versões idênticas às da produção; 715 testes passam na `testes` |
 | 3 Registro | na `testes` | `melhoria/registro`, `a482b0a` | gravação atômica integrada; aceite estendido: processo morto, três testes que falham com a gravação direta; 715 testes passam na `testes` |
 | 4 ruff | na `testes` | `melhoria/ruff`, `a0db7a8` | ruff 0.17.4 só com as regras F e ISC, 3 avisos corrigidos (duas linhas do `email_smtp.py` e uma do `refazer_qa.py`); `uv.lock` com 65 pacotes; 715 testes passam na `testes` |
@@ -337,3 +337,20 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
   (tradução do Linux, 10 trocas de personagem em 3,3 min). Do item (c) do "Em aberto" de 11/11, no
   `00-coordenacao.md`, fica só a escuta do dono. `testes` em `6034c77` antes deste commit de documentos. A `master` e a
   `trabalho` seguem em `64bd21b`.
+- 18/11/2026: etapa 3 da frente 0 feita (a preparação do merge), na `testes` em `1b7a308`. Antes dela, em 17/11, a
+  escuta do dono achou um ruído no começo dos episódios no player do celular: o `1b7a308`, feito direto na `testes`,
+  grava o mp3 sem a marca ID3 e sem o quadro Xing/Info, com um teste novo (`tests/test_tts_mp3.py`; 806 testes; ver o
+  `01-audio.md`). Neste commit de documentos: o estado de produção do `CLAUDE.md` (a `.venv` da produção do uv, só a
+  `ollama.service` com `MemoryMax=20G` e o `techdigest-teste.target` instalados, o timer desligado por decisão do dono,
+  os feeds do `config/feeds.txt` quando a linha `RSS_FEEDS` sair do `.env`) e o mp3 no passo 5 da Architecture (a
+  gravação atômica do passo 7 já estava lá); no `docs/regras-de-sessao.md`, o bloqueio do comando `techdigest` em
+  qualquer forma e o `rodada.py` rodado pelo dono no terminal dele; a entrada de 17/11 no `01-audio.md`. Fora do git:
+  o grep de `pip`, `egg-info`, `freeze`, `requirements` e `RSS_FEEDS` nas skills e no `CLAUDE.local.md` não achou nada
+  desatualizado (só "pipeline", como trecho de palavra), e o `CLAUDE.local.md` não muda; na `techdigest-retomar`, o
+  passo 4 passa a reconhecer a pasta de uma rodada do `rodada.py`; a `techdigest-rodada-modelo` nova fica em
+  `SKILL.md.novo`, com o texto do `07-rodada.md` e a rodada preparada pela sessão e rodada pelo dono, até a troca. O
+  merge é feito pelo script do dono, `data/agrupamento/fechamento_20261118/fechamento.sh` da pasta principal: o commit
+  deste texto na `testes`, o avanço rápido da `master`, a troca da `.venv` da produção (o `diff` das versões tem de dar
+  só as 4 linhas a mais), a `ollama.service` copiada, a troca da skill, o push da `master` e a linha `RSS_FEEDS` do
+  `.env` (os dois com pergunta) e o avanço rápido da `trabalho`. A `master` e a `trabalho` seguem em `64bd21b` até o
+  script rodar; o resultado dele entra no próximo registro.

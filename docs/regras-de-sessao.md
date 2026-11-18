@@ -31,9 +31,14 @@ trabalho do roteiro; as melhorias seguem a seção abaixo.
 
 ## Bloqueado nas permissões
 
-O `.claude/settings.json` recusa `git push`, o pipeline rodado sem `--simular` e qualquer edição
-do `.env`. O bloqueio pega a forma comum do comando, não todas as variações: a regra escrita
-continua valendo.
+O `.claude/settings.json` recusa `git push`, o comando `techdigest` e qualquer edição do `.env`.
+
+- A permissão barra o comando `techdigest` em qualquer forma, inclusive com `--simular` e depois do
+  `--` do `scripts/rodada.py` (assim foi recusada a rodada do teste conjunto de 11/11).
+- A sessão não roda o `rodada.py`: prepara o comando num bloco, confere item a item com o dono, e o
+  dono o roda no terminal dele (tmux).
+
+O bloqueio pega a forma comum do comando, não todas as variações: a regra escrita continua valendo.
 
 ## Melhorias em frentes paralelas (desde 07/11/2026)
 
