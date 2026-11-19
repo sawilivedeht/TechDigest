@@ -277,3 +277,30 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
   `diff -u` da `ollama.service` instalada contra a `deploy/systemd/` dá só o `MemoryMax=20G` e o comentário dele.
   O que mudou neste commit e nas skills está no registro de 18/11 do `docs/plano-melhorias.md`. A `master` e a
   `trabalho` seguem em `64bd21b` até o script rodar.
+- 19/11/2026: etapa: encerrada. O "Em aberto" de 11/11 está vazio: (b) e (d) foram feitos pelo `fechamento.sh` em
+  18/11 (fim às 20:46), e (c) foi feito em 17/11.
+  - O que o script fez:
+    - a `master` e a `trabalho` foram para `17b4390` por avanço rápido;
+    - a `.venv` da produção passou a ser a do uv (edge-tts 7.3.1), e o `diff` das versões deu só as 4 linhas esperadas;
+    - 806 testes passaram na `testes` e na pasta principal;
+    - `MemoryMax=21474836480` na `ollama.service`;
+    - a skill `techdigest-rodada-modelo` foi trocada.
+  - Depois do script, o dono:
+    - fez o push (`origin/master` em `17b4390`) e tirou a linha `RSS_FEEDS` do `.env`;
+    - refez pelo lock a `.venv` da `techdigest-fase4` (a do pip ficou lá) e a da pasta principal, e apagou a
+      `.venv.pip-20261118` da pasta principal.
+  - O estado de produção do `CLAUDE.md` muda com isso: a `.venv` do pip apagada, os feeds pelo `config/feeds.txt` e
+    a execução de 18/11.
+  - A primeira execução real depois do merge foi em 18/11, das 21:11 às 22:05 (54 min):
+    - 20 de 20 entregues e aprovados, 6 deles depois de uma correção;
+    - 3 descartados, 1 filtrado, nenhum erro;
+    - a coleta pelo `config/feeds.txt`, sem o aviso do `RSS_FEEDS`, com os 9 feeds na ordem do arquivo.
+  - O áudio:
+    - 20 s por item, 1,9 s por turno e 5,5 s por minuto de episódio, contra 44 s, 4,0 s e 10,9 s em 07/11;
+    - trocas de personagem de 0,77 e 0,78 s em média nos episódios 01 e 20;
+    - os 20 mp3 sem `ID3` e sem `Xing`/`Info`.
+  - Os números completos estão no registro de 19/11 do `docs/plano-melhorias.md`, e as saídas em
+    `data/agrupamento/fechamento_20261118/medicao/` da pasta principal.
+  - O "Estado" do `01-audio.md`, do `03-registro.md`, do `07-rodada.md` e do `09-tipos.md` diz "na `master`", e a
+    tabela "Estado do plano" também.
+  - A limpeza das worktrees e das branches `melhoria/*` vem depois deste commit. `testes` em `17b4390` antes dele.

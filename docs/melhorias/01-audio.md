@@ -139,6 +139,22 @@ a suíte inteira e a seção "Estado" de docs/melhorias/01-audio.md atualizada.
     `a1fe305` (pausas), `e129203` (estado) e `63ea31f` (hashes depois do rebase); e o `1b7a308`, que não está na
     branch da frente. Na `testes`, o `tts.py` mudou também nos commits `3b81457` e `c11e9f9` da frente 9 (tipos).
     `testes` em `1b7a308`.
+- 19/11/2026: **na `master`.** A `testes` entrou na `master` em 18/11, por avanço rápido para `17b4390` (o
+  `fechamento.sh` do dono), e a `melhoria/audio` sai com a limpeza da frente 0. A medição da primeira execução real,
+  pedida em "Pendências", foi feita na execução de 18/11, das 21:11 às 22:05, com 20 de 20 entregues.
+  - O áudio, do `Vozes:` ao `✅`, medido com uma cópia do `medir_audio.py`:
+    - 20 s por item em média (15 a 28 s), 1,9 s por turno (216 turnos) e 5,5 s por minuto de episódio;
+    - na execução real de 07/11, foram 44 s, 4,0 s e 10,9 s;
+    - a síntese caiu de 24,7% para 12,7% do tempo da execução;
+    - episódios de 3,7 min em média (2,7 a 4,7 min).
+  - As emendas, medidas no 01 e no 20 com o silencedetect a -50 dB:
+    - as trocas de personagem ficaram em 0,78 s em média no 01 (0,76 a 0,88 s) e em 0,77 s no 20 (0,76 a 0,80 s); no
+      E_final de 08/11, ficaram entre 0,75 e 0,80 s;
+    - o maior silêncio de dentro das falas foi de 0,45 s e de 0,47 s, contra o teto de 0,45 s; no E_final, foi de
+      0,46 s.
+  - Os 20 mp3 começam num quadro de áudio (`ff f3`), sem `ID3` e sem `Xing`/`Info`.
+  - As saídas e os scripts estão em `data/agrupamento/fechamento_20261118/medicao/` da pasta principal: o
+    `medir_audio.py` com `resumo.txt` e `medicao.csv`, e o `medir_trocas.py` com `trocas.txt`.
 
 ### Pausas (08/11/2026, depois do aceite)
 
@@ -286,6 +302,9 @@ aprovados. Está toda no `techdigest.log`, linhas 16012 a 16237: os rotacionados
   concatenação. O dono ouviu as cinco e escolheu a **E**, com o `atrim` no lugar do `silenceremove` nas pontas.
 
 ### Pendências
+
+Nenhuma desde 19/11/2026: as duas abaixo foram feitas. A integração foi pela `testes`, que está na `master` desde
+18/11, e a medição da primeira execução real está no "Estado", em 19/11.
 
 - Avisar a frente 0 de que a frente está pronta, agora com o corte das pausas (`8492af8`). Na integração, a sessão
   desta frente faz o rebase da `melhoria/audio` sobre a `testes`. A linha do `_silencio` no `tts.py` já está sem o

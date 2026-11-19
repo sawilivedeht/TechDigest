@@ -295,3 +295,11 @@ inteira e a seção "Estado" de docs/melhorias/07-rodada.md atualizada.
       `ollama.service` seguem `inactive`.
   - Este commit, só de documentos, é o último da branch: o avanço rápido da `testes` é da frente 0, e a branch não
     recebe mais commits.
+- 19/11/2026: **na `master`.**
+  - A `testes` entrou na `master` em 18/11, por avanço rápido para `17b4390` (o `fechamento.sh` do dono).
+  - O mesmo script trocou a skill `techdigest-rodada-modelo` pelo texto da "Proposta para a skill":
+    - o texto foi adaptado na etapa 3: a sessão prepara o comando do `rodada.py`, e o dono o roda no terminal dele;
+    - a versão anterior ficou em `SKILL.md.antes-20261118`.
+  - A `melhoria/rodada` sai com a limpeza da frente 0.
+  - A execução real à mão continua sem o script, pela decisão do dono de 10/11. A primeira depois do merge, em 18/11,
+    seguiu o `docs/producao.md`.

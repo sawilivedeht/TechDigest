@@ -197,16 +197,16 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
 
 | Frente | Etapa | Branch e último commit | Observação |
 |---|---|---|---|
-| 0 | merge preparado (18/11): frentes integradas na `testes`; teste conjunto em 11/11; a escuta do dono levou ao `1b7a308` (17/11); o merge na `master` fica com o script do dono, `fechamento.sh` | `testes`, nascida da `master` em `64bd21b`; frentes 1, 2, 3, 4, 5, 6, 7 e 9 integradas e a 8 fechada; `testes` em `1b7a308` antes deste commit de documentos | `coordenacao` apagada depois do passo 7; 806 testes, `ruff check .` limpo e pyright 1.1.414 no basic com 0 erros na `testes`; `uv.lock` com 68 pacotes |
-| 1 Áudio | na `testes` | `melhoria/audio`, `63ea31f`; depois, `1b7a308` direto na `testes` (17/11) | turnos sintetizados em paralelo, integrados por avanço rápido; 715 testes passam na `testes`; o `1b7a308` grava o mp3 sem a marca ID3 e sem o quadro Xing/Info |
-| 2 Versões | na `testes` | `melhoria/versoes`, `2c4c899` | `uv.lock` e `.python-version`; `egg-info` fora do git; `.venv` da `testes` refeita pelo uv, versões idênticas às da produção; 715 testes passam na `testes` |
-| 3 Registro | na `testes` | `melhoria/registro`, `a482b0a` | gravação atômica integrada; aceite estendido: processo morto, três testes que falham com a gravação direta; 715 testes passam na `testes` |
-| 4 ruff | na `testes` | `melhoria/ruff`, `a0db7a8` | ruff 0.17.4 só com as regras F e ISC, 3 avisos corrigidos (duas linhas do `email_smtp.py` e uma do `refazer_qa.py`); `uv.lock` com 65 pacotes; 715 testes passam na `testes` |
-| 8 Schema | fechada (10/11, sem código; a etapa 2 não acontece) | `melhoria/schema`, `653c51f` | medição: nenhuma chamada refeita por JSON incompleto, 1 caso em 885 itens (o C3.48, da regressão de 29/10, antes da nova tentativa); decisão do dono de 10/11; o commit de documentos da frente entrou na `testes` por avanço rápido; 753 testes passam na `testes` |
-| 6 Feeds | na `testes` | `melhoria/feeds`, `d05cb23` | `config/feeds.txt` com 9 URLs; o `RSS_FEEDS` definido no ambiente ou no `.env` manda, mesmo vazio, com aviso no log; 715 testes passam na `testes` |
-| 5 systemd | na `testes` | `melhoria/systemd`: `1f64fdc`, `2d95c21`, `6b92a21`, `a50eadf` e `7f73972` | units do pipeline, do timer, do bloqueio do sono e do aviso de falha em `deploy/systemd/`, versionadas e não instaladas; `MemoryMax=20G` na `ollama.service`; rebaseada sobre `fe6b66e` (o merge-base era `121fa7b`); aceite do dono de 09/11, 19:24, como informa o `05-systemd.md`; 753 testes passam na `testes` |
-| 7 Rodada | na `testes` (11/11) | `melhoria/rodada`: `101e842`, `ac0922e` e `ced5d8f` | `scripts/rodada.py` no lugar do vigia e do `rodar.sh`; rebaseada sobre `a940eb9` (antes, `293fe9f` e `34c9e64`); aceite do dono de 10/11 (hora não registrada); 802 testes passam na `testes` (753 mais 49 de `tests/test_rodada.py`) |
-| 9 Tipos | na `testes` (11/11) | `melhoria/tipos`: `3b81457`, `bda5035`, `c11e9f9`, `dce1bd6` e `93c3a77` | `Episodio`, `Personagem`, `Turno` e `ItemEntregue` no `models.py`; pyright 1.1.414 no basic com 0 erros (`pyright[nodejs]` no extra `dev`); `aiohttp>=3.8` declarado; `uv.lock` com 68 pacotes; aceite do dono de 11/11, 21h50, como informa o `09-tipos.md`; 805 testes passam na `testes` (802 mais 3 de `tests/test_models.py`) |
+| 0 | encerrada (19/11): todas as frentes na `master` desde 18/11, pelo `fechamento.sh` do dono (avanço rápido da `testes`); primeira execução real em 18/11, 21:11, com 20 de 20 entregues | `testes`, nascida da `master` em `64bd21b`; frentes 1, 2, 3, 4, 5, 6, 7 e 9 integradas e a 8 fechada; `master`, `testes` e `trabalho` em `17b4390` antes deste commit de documentos | `coordenacao` apagada depois do passo 7; worktrees e branches `melhoria/*` apagadas depois deste commit; 806 testes, `ruff check .` limpo e pyright 1.1.414 no basic com 0 erros na `testes`; `uv.lock` com 68 pacotes |
+| 1 Áudio | na `master` (18/11) | `melhoria/audio`, `63ea31f`; depois, `1b7a308` direto na `testes` (17/11) | turnos sintetizados em paralelo, integrados por avanço rápido; 715 testes passam na `testes`; o `1b7a308` grava o mp3 sem a marca ID3 e sem o quadro Xing/Info |
+| 2 Versões | na `master` (18/11) | `melhoria/versoes`, `2c4c899` | `uv.lock` e `.python-version`; `egg-info` fora do git; `.venv` da `testes` refeita pelo uv, versões idênticas às da produção; 715 testes passam na `testes` |
+| 3 Registro | na `master` (18/11) | `melhoria/registro`, `a482b0a` | gravação atômica integrada; aceite estendido: processo morto, três testes que falham com a gravação direta; 715 testes passam na `testes` |
+| 4 ruff | na `master` (18/11) | `melhoria/ruff`, `a0db7a8` | ruff 0.17.4 só com as regras F e ISC, 3 avisos corrigidos (duas linhas do `email_smtp.py` e uma do `refazer_qa.py`); `uv.lock` com 65 pacotes; 715 testes passam na `testes` |
+| 8 Schema | fechada (10/11, sem código; a etapa 2 não acontece); o commit de documentos na `master` (18/11) | `melhoria/schema`, `653c51f` | medição: nenhuma chamada refeita por JSON incompleto, 1 caso em 885 itens (o C3.48, da regressão de 29/10, antes da nova tentativa); decisão do dono de 10/11; o commit de documentos da frente entrou na `testes` por avanço rápido; 753 testes passam na `testes` |
+| 6 Feeds | na `master` (18/11) | `melhoria/feeds`, `d05cb23` | `config/feeds.txt` com 9 URLs; o `RSS_FEEDS` definido no ambiente ou no `.env` manda, mesmo vazio, com aviso no log; 715 testes passam na `testes` |
+| 5 systemd | na `master` (18/11) | `melhoria/systemd`: `1f64fdc`, `2d95c21`, `6b92a21`, `a50eadf` e `7f73972` | units do pipeline, do timer, do bloqueio do sono e do aviso de falha em `deploy/systemd/`, versionadas e não instaladas; `MemoryMax=20G` na `ollama.service`; rebaseada sobre `fe6b66e` (o merge-base era `121fa7b`); aceite do dono de 09/11, 19:24, como informa o `05-systemd.md`; 753 testes passam na `testes` |
+| 7 Rodada | na `master` (18/11; na `testes` em 11/11) | `melhoria/rodada`: `101e842`, `ac0922e` e `ced5d8f` | `scripts/rodada.py` no lugar do vigia e do `rodar.sh`; rebaseada sobre `a940eb9` (antes, `293fe9f` e `34c9e64`); aceite do dono de 10/11 (hora não registrada); 802 testes passam na `testes` (753 mais 49 de `tests/test_rodada.py`) |
+| 9 Tipos | na `master` (18/11; na `testes` em 11/11) | `melhoria/tipos`: `3b81457`, `bda5035`, `c11e9f9`, `dce1bd6` e `93c3a77` | `Episodio`, `Personagem`, `Turno` e `ItemEntregue` no `models.py`; pyright 1.1.414 no basic com 0 erros (`pyright[nodejs]` no extra `dev`); `aiohttp>=3.8` declarado; `uv.lock` com 68 pacotes; aceite do dono de 11/11, 21h50, como informa o `09-tipos.md`; 805 testes passam na `testes` (802 mais 3 de `tests/test_models.py`) |
 
 - 07/11/2026: plano criado.
 - 07/11/2026: onda 0 concluída. O commit `64bd21b` (o plano, os arquivos das frentes, as regras e o `CLAUDE.md`, só
@@ -354,3 +354,43 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
   só as 4 linhas a mais), a `ollama.service` copiada, a troca da skill, o push da `master` e a linha `RSS_FEEDS` do
   `.env` (os dois com pergunta) e o avanço rápido da `trabalho`. A `master` e a `trabalho` seguem em `64bd21b` até o
   script rodar; o resultado dele entra no próximo registro.
+- 19/11/2026: merge na `master` e primeira execução real; frente 0 encerrada, todas as frentes na `master`.
+  - O merge: o `fechamento.sh` rodou em 18/11 e terminou às 20:46. A `master` e a `trabalho` foram para `17b4390`, o
+    commit da etapa 3 na `testes`, por avanço rápido. A `.venv` da produção é a do uv (edge-tts 7.3.1),
+    e o `diff` das versões deu só as 4 linhas esperadas. Passaram 806 testes
+    na `testes` e na pasta principal. A `ollama.service` instalada tem `MemoryMax=20G`, e a skill
+    `techdigest-rodada-modelo` é a nova.
+  - Fora do script: o script não deu push e manteve a linha `RSS_FEEDS`. Depois dele, o dono:
+    - fez o push (`origin/master` em `17b4390`) e tirou a linha do `.env`;
+    - refez pelo lock a `.venv` da `techdigest-fase4`, às 20:49 (a do pip ficou lá, em `.venv.pip-20261118`);
+    - refez pelo lock a `.venv` da pasta principal, às 20:53, e apagou a `.venv.pip-20261118` de lá. A `.venv` nova
+      dá `Would make no changes` e tem o edge-tts 7.3.1; a execução real rodou nela.
+  - A primeira execução real depois do merge foi em 18/11, das 21:11 às 22:05 (54 min), na pasta principal. Números de
+    `scripts/resumo_lotes.py` e do registro `data/execucoes/20261118-211140/`:
+    - 20 de 20 entregues, todos aprovados pelo QA: 14 na primeira versão, 3 depois da revisão do roteiro, 2 depois da
+      correção do resumo e 1 depois da revisão completa;
+    - 3 descartados (texto curto), 1 filtrado (ofertas, `/achados/`), nenhum abandonado, nenhum erro, nenhuma falha de
+      entrega;
+    - 26,0 tok/s em média (mínimo 20,9), CPU até 88 °C, GPU até 66 °C, memória disponível mínima de 17,8 GB.
+  - A coleta: pelo `config/feeds.txt`, sem o aviso do `RSS_FEEDS`. Os 9 feeds vieram na ordem do arquivo, e nenhum
+    ficou fora.
+  - O áudio (do `Vozes:` ao `✅`, com o `medir_audio.py` da frente 1):
+    - 20 s por item em média (15 a 28 s), 1,9 s por turno (216 turnos) e 5,5 s por minuto de episódio;
+    - na execução real de 07/11, 44 s, 4,0 s e 10,9 s; no teste conjunto de 11/11, 20 s, 1,89 s e 5,4 s;
+    - a síntese caiu de 24,7% para 12,7% do tempo da execução;
+    - episódios de 3,7 min em média (2,7 a 4,7 min), contra 4,0 min em 07/11 e 3,7 min em 11/11.
+  - As trocas de personagem, medidas com o silencedetect a -50 dB em 2 episódios, o 01 e o 20:
+    - no 01, média de 0,78 s (0,76 a 0,88 s); no 20, 0,77 s (0,76 a 0,80 s); no aceite de 08/11 (E_final), 0,75 a
+      0,80 s;
+    - o maior silêncio de dentro das falas foi de 0,45 s e de 0,47 s, contra o teto de 0,45 s.
+  - Os mp3: os 20 começam num quadro de áudio (`ff f3`), sem `ID3` e sem `Xing`/`Info` nos primeiros 2 KB.
+  - O Telegram: em 4 itens levou de 25 a 62 s do `✅` ao `Entregue:`, sem nova tentativa no log; nos outros, de 3 a
+    9 s.
+  - Os scripts e as saídas estão em `data/agrupamento/fechamento_20261118/medicao/` da pasta principal.
+  - Comparado com o teste conjunto de 11/11: lá foram 20 entregues, 1 reprovado pelo QA, 1 descartado, 1 filtrado e 2
+    erros de `NoAudioReceived`, a 26,3 tok/s; aqui não houve reprovação nem erro.
+  - Depois deste commit vem a limpeza, pedida pelo dono:
+    - as worktrees e as branches das frentes saem (`melhoria/*`, só com `-d`);
+    - saem também as rodadas `rodada_aceite_20261110_a` e `_b`, as `falas/` das pastas de
+      `data/agrupamento/pausas_20261108/` e a `.venv.pip-20261108` da `techdigest-testes`;
+    - fica a branch `trabalho` (a `.venv.pip-20261118` da pasta principal, que também ficaria, o dono já apagou).

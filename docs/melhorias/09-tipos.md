@@ -195,3 +195,10 @@ inteira e a seção "Estado" de docs/melhorias/09-tipos.md atualizada.
       `git status --short` vazio e o HEAD em `dce1bd6`.
   - Daqui em diante, nenhum commit nesta branch sem avisar o dono (obrigaria rebase). As pendências são as do item
     anterior: a `.venv` da produção no merge e o pyright nas verificações escritas, na integração (frente 0).
+- 19/11/2026: **na `master`.**
+  - A `testes` entrou na `master` em 18/11, por avanço rápido para `17b4390` (o `fechamento.sh` do dono).
+  - As duas pendências foram feitas.
+    - A `.venv` da produção foi refeita pelo lock no merge, com o `pyright[nodejs]` do extra `dev`.
+    - O `.venv/bin/pyright` está nas verificações escritas: nos comandos do `CLAUDE.md` e na regra de cada commit do
+      `docs/regras-de-sessao.md`.
+  - A `melhoria/tipos` sai com a limpeza da frente 0.

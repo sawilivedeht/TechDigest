@@ -116,3 +116,10 @@ inteira e a seção "Estado" de docs/melhorias/03-registro.md atualizada.
     os três falham na comparação byte a byte. Em A e C o relatório fica cortado no meio; em B, a amostra. O arquivo
     voltou com `git checkout -- src/techdigest/registro.py`.
   - 674 testes passam (671 + 3), em duas rodadas seguidas da suíte.
+- 19/11/2026: **na `master`.**
+  - A `testes` entrou na `master` em 18/11, por avanço rápido para `17b4390` (o `fechamento.sh` do dono).
+  - A `melhoria/registro` sai com a limpeza da frente 0.
+  - Primeira execução real com a gravação atômica: 18/11, das 21:11 às 22:05.
+    - O registro `data/execucoes/20261118-211140/` tem a amostra, o relatório e os 20 episódios, todos lidos como JSON
+      inteiro.
+    - Nenhum `.tmp` ficou na pasta.
