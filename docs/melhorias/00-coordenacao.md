@@ -304,3 +304,19 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
   - O "Estado" do `01-audio.md`, do `03-registro.md`, do `07-rodada.md` e do `09-tipos.md` diz "na `master`", e a
     tabela "Estado do plano" também.
   - A limpeza das worktrees e das branches `melhoria/*` vem depois deste commit. `testes` em `17b4390` antes dele.
+- 19/11/2026, depois do `e1e4194`: limpeza feita e as branches no commit do encerramento.
+  - O dono levou a `master` a `e1e4194` por avanço rápido e fez o push (`origin/master` em `e1e4194`). Na pasta
+    principal, o `uv sync --locked --check --extra dev` deu `Would make no changes`. Depois ele levou a `trabalho` ao
+    mesmo commit, e a `techdigest-fase4` também dá `Would make no changes`.
+  - A limpeza:
+    - as 9 worktrees das frentes (`techdigest-audio`, `-versoes`, `-registro`, `-ruff`, `-systemd`, `-feeds`,
+      `-rodada`, `-schema` e `-tipos`) saíram com `git worktree remove`, cada uma com `git status` limpo antes. Juntas
+      tinham 2.339 MiB, só de `.venv`, caches e o link `data/agrupamento`, desfeito com `unlink` antes da remoção;
+    - as 9 branches `melhoria/*` saíram com `git branch -d`, sem nenhuma recusa;
+    - saíram também as rodadas `rodada_aceite_20261110_a` e `_b`, as `falas/` de `pausas_20261108/C`, `D`, `E` e `F`
+      (uns 9 KiB) e a `.venv.pip-20261108` da `techdigest-testes` (167 MiB).
+  - Continuam: as worktrees `techdigest-testes` (branch `testes`) e `techdigest-fase4` (branch `trabalho`), a
+    `.venv.pip-20261118` da `techdigest-fase4` e as branches `agrupamento-fase1` a `agrupamento-fase4`.
+  - Depois da limpeza, 806 testes passam na `testes`.
+  - A frente 0 não tem pendências. O que resta é uma decisão do dono, fora da frente: ligar o timer
+    (`docs/producao.md`, "Com o timer").
