@@ -38,9 +38,15 @@ senão APROVADO. Saída em `data/agrupamento/feeds_<AAAAMMDD>/` (ou `--pasta`): 
 números de cada critério, `etapa1.md`, a tabela por categoria e subcategoria, e `etapa1_textos.json`, o começo de cada
 texto extraído, com a origem (o trafilatura ou o resumo do feed) e o que o teste fez dele, para conferir à mão.
 
+Etapa 2, com o modelo e só com o ok do dono: `--lotes` monta os lotes dos APROVADO, AJUSTE e ETAPA 2 do `etapa1.csv` e
+mostra o comando do `scripts/rodada.py` de cada um (a simulação sem áudio, que o dono roda); `--simulacao <pastas>` lê
+as simulações, só para leitura, e escreve o `etapa2.md`, com o veredito pela regra (b) do dono (`DoFeed.veredito`).
+
 Uso:
     .venv/bin/python scripts/testar_feeds.py [--candidatos <arquivo>] [--pasta <pasta>] [--registros <EXECUCOES_DIR>]
                                              [--pausa <segundos>]
+    .venv/bin/python scripts/testar_feeds.py --lotes [--etapa1 <etapa1.csv>] [--por-lote <n>]
+    .venv/bin/python scripts/testar_feeds.py --simulacao <pasta>... [--etapa1 <etapa1.csv>] [--producao <EXECUCOES_DIR>]
 """
 import argparse
 import collections

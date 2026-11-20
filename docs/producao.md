@@ -50,10 +50,17 @@ A lista de feeds fica em `config/feeds.txt`, versionada: uma URL por linha, na o
 URL, uma URL repetida ou um arquivo sem URL param a execução (aviso de parada, status 1). Para incluir, tirar, reordenar
 ou corrigir um feed:
 
-1. Edite o `config/feeds.txt` numa branch de trabalho, nunca direto na `master`.
-2. No mesmo commit, atualize a lista literal `FEEDS_DO_REPOSITORIO` de `tests/test_feeds.py`: o teste do arquivo do
+1. Para incluir um feed, teste-o antes (frente 10): ponha-o em `config/feeds_candidatos.txt` (`categoria |
+   subcategoria | nome | idioma | url`) e rode `.venv/bin/python scripts/testar_feeds.py`, sem o modelo. O veredito de
+   cada feed, com o motivo, sai em `data/agrupamento/feeds_<AAAAMMDD>/etapa1.md`. Um REPROVADO não entra. Os outros
+   (APROVADO, AJUSTE e ETAPA 2) passam pela simulação sem áudio, com o seu ok: `--lotes` mostra o comando do
+   `scripts/rodada.py` de cada lote, você o roda, e `--simulacao <pastas>` escreve o `etapa2.md` com o veredito da
+   etapa 2. Nos itens gerados, confira à mão o esporte e as ofertas que o filtro não pega e o nome do veículo citado no
+   episódio. O manual está em `docs/referencia/scripts.md`, e o teste de 20/11/2026 em `docs/melhorias/10-teste-feeds.md`.
+2. Edite o `config/feeds.txt` numa branch de trabalho, nunca direto na `master`.
+3. No mesmo commit, atualize a lista literal `FEEDS_DO_REPOSITORIO` de `tests/test_feeds.py`: o teste do arquivo do
    repositório confere as URLs uma a uma, na ordem, e falha com qualquer troca até a lista dele acompanhar.
-3. A suíte inteira, o `ruff check .` e o `.venv/bin/pyright`, o commit e, com o seu ok, o avanço rápido da `master`.
+4. A suíte inteira, o `ruff check .` e o `.venv/bin/pyright`, o commit e, com o seu ok, o avanço rápido da `master`.
 
 Enquanto o `RSS_FEEDS` estiver no `.env`, vale ele, e não o arquivo: a cada execução o log traz
 `RSS_FEEDS definido no ambiente ou no .env: a coleta usa ele, não o .../config/feeds.txt`. Depois do merge da frente 6

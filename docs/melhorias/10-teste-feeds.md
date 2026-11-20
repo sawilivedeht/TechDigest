@@ -133,3 +133,23 @@ português de Portugal, a sobreposição com o Google Notícias numa amostra fal
   já era "Senado Federal" (AJUSTE). Os problemas de número dos dois lotes estão todos na primeira versão, corrigidos pela
   revisão, nenhum do formato da fonte; os nomes citados confirmam os AJUSTE ("República", "Paraná", "Câmara notícias -
   Câmara dos Deputados").
+- 20/11/2026: lotes 3, 4 e 5 numa rodada só (`--comandos`), rodada pelo dono depois que a permissão recusou a minha
+  tentativa (não tentei outra forma): `FIM` com status 0 nos três, 3 h 19 min no total (1 h 10, 58 min e 1 h 11), memória
+  disponível mínima de 15,6 GiB, a sessão parada. Nenhuma falha de item, nem `JanelaExcedida` no lote chinês. Lidos os
+  cinco lotes pela regra (b) (`etapa2.md`, 20:22): APROVADO 31, REPROVADO 14 (de 45). Dos 14, 13 caem por número que a
+  fonte escreve num formato que `ai/numeros.py` não lê ("4bn", "$5.5m", "5,000", "250 000", "2.2 percent", "410 亿",
+  "9948万"): conferi à mão, no texto da fonte, que cada um tem um episódio reprovado na versão final por um número
+  assim; a pista também pega erros do modelo, que o QA tem razão em reprovar ("1080 bilhões" para "1080 亿", que são
+  108 bilhões). O outro é a Agência Senado (1 gerado). Lidos à mão os itens gerados: o filtro deixou passar as ofertas
+  da Xataka (os 3 gerados, em `/seleccion/`), o esporte do Hoje Macau (os 3, categoria "Desporto"), da ANSA (em
+  `/english/news/sports/`, e a mesma matéria por uma segunda URL virou outro episódio), do Yle (categoria "Sport") e do
+  ERR (Fórmula 1 em "News"), e uma oferta de Black Friday da 4gnews; os três chineses aprovados dizem o nome em
+  ideogramas nas falas e no resumo. Veredito final, meu, pela liberdade que o dono deu: APROVADO 17 (no bloco para o
+  `config/feeds.txt`), AJUSTE 14 (aprovados no teste, fora do bloco até a pendência: 11 pelo nome fixo, 3 pelo filtro),
+  REPROVADO 30 (16 na etapa 1, 14 na etapa 2). O relatório com os dois vereditos por feed, o bloco na ordem proposta e
+  as pendências está em `data/agrupamento/feeds_20261120/relatorio_final.md`. Neste commit: o manual em
+  `docs/referencia/scripts.md`, o passo do teste em "Trocar um feed" de `docs/producao.md`, a linha e a menção no
+  `CLAUDE.md`, o uso da etapa 2 no cabeçalho do script e a linha da frente no "Estado do plano". Suíte: 921 passando;
+  `ruff check .` sem avisos; pyright com 0 erros. Pronta para integração: a `master` continua em `8a250b6`, então o
+  rebase não muda nada. A troca do `config/feeds.txt`, com o `FEEDS_DO_REPOSITORIO`, fica para um commit à parte,
+  depois do ok do dono.
