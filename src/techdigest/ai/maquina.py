@@ -16,7 +16,6 @@ pauta, e chega a quem roda a execução, que registra o motivo e sai com status 
 """
 import logging
 import time
-import traceback
 
 from techdigest.ai import gpu
 from techdigest.ai.llm import OllamaProvider, _amostra_sistema, _temperatura_cpu
@@ -49,17 +48,6 @@ def memoria_disponivel() -> float | None:
 def estado_da_maquina() -> tuple[float | None, str]:
     """A memória disponível em GiB e um resumo com swap e temperaturas, lidos agora."""
     return memoria_disponivel(), _amostra_sistema()
-
-
-def _qual_conferencia(erro: BaseException) -> str:
-    """Qual chamada da conferência depois da carga (`gpu.modelo_na_gpu`) falhou, pelo caminho do erro: o `descarregar`
-    do modelo ou o `ps` do cliente (o /api/ps). A conversão fica aqui, e não no gpu.py (decisão do dono de 20/11/2026)."""
-    funcoes = [quadro.name for quadro in traceback.extract_tb(erro.__traceback__)]
-    if gpu.descarregar.__name__ in funcoes:
-        return "o descarregar do modelo"
-    if "ps" in funcoes:
-        return "o /api/ps"
-    return "a conferência"
 
 
 class ProviderVigiado:
@@ -159,8 +147,8 @@ class ProviderVigiado:
             # A conferência que não conclui também para (revisão de código de 20/11/2026). Sem isto, o erro comum era
             # tratado como a falha de um item: com o descarregar falhando, o modelo ficava na CPU, o /api/ps continuava
             # respondendo e cada item seguinte gerava inteiro na CPU e falhava de novo.
-            raise ExecucaoInterrompida(f"depois da primeira chamada: a conferência da GPU não concluiu: "
-                                       f"{_qual_conferencia(e)} falhou ({type(e).__name__}: {str(e)[:120]})") from None
+            raise ExecucaoInterrompida(f"depois da primeira chamada: a conferência da GPU falhou "
+                                       f"({type(e).__name__}: {str(e)[:120]})") from None
         logger.info("GPU depois da carga: %s", self.gpu_depois_da_carga)
 
     def antes_da_chamada(self, disponivel: float | None = None) -> float:

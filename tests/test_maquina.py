@@ -213,8 +213,7 @@ def _vigia_com_a_conferencia_de_verdade(monkeypatch, tmp_path, cliente):
 def test_o_api_ps_que_falha_depois_da_carga_para_a_execucao(monkeypatch, tmp_path):
     cliente = ClienteQueFalha(ps_falha_depois=True)
     provider, vigia = _vigia_com_a_conferencia_de_verdade(monkeypatch, tmp_path, cliente)
-    with pytest.raises(ExecucaoInterrompida, match=r"depois da primeira chamada: a conferência da GPU não concluiu: "
-                                                   r"o /api/ps falhou \(ConnectionError: o servidor caiu depois da carga\)"):
+    with pytest.raises(ExecucaoInterrompida, match=r"^depois da primeira chamada: a conferência da GPU falhou \(ConnectionError: "):
         vigia.chat_json("sistema", "entrada")
     assert provider.chamadas == 1 and cliente.pedidos_ps == 2
 
@@ -222,8 +221,7 @@ def test_o_api_ps_que_falha_depois_da_carga_para_a_execucao(monkeypatch, tmp_pat
 def test_o_descarregar_que_falha_depois_da_carga_na_cpu_para_a_execucao(monkeypatch, tmp_path):
     cliente = ClienteQueFalha(descarregar_falha=True)
     provider, vigia = _vigia_com_a_conferencia_de_verdade(monkeypatch, tmp_path, cliente)
-    with pytest.raises(ExecucaoInterrompida, match=r"depois da primeira chamada: a conferência da GPU não concluiu: "
-                                                   r"o descarregar do modelo falhou \(ConnectionError: a conexão caiu ao descarregar\)"):
+    with pytest.raises(ExecucaoInterrompida, match=r"^depois da primeira chamada: a conferência da GPU falhou \(ConnectionError: "):
         vigia.chat_json("sistema", "entrada")
     assert provider.chamadas == 1 and cliente.descargas == 1
 
@@ -240,4 +238,4 @@ def test_com_o_descarregar_falhando_a_execucao_para_no_primeiro_item_e_nao_gera_
     except ExecucaoInterrompida as e:
         parada = e
     assert (resultados, provider.chamadas, parada is not None) == ([], 1, True)
-    assert "o descarregar do modelo falhou" in str(parada)
+    assert str(parada).startswith("depois da primeira chamada: a conferência da GPU falhou (ConnectionError: ")
