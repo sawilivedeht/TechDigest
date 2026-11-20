@@ -111,6 +111,13 @@ def _antes_de_decimal(lidos: list[Token], j: int, texto: str) -> bool:
     return proximo.texto.isdigit() or proximo.norm in _PARCELAS
 
 
+def _antes_de_por_cento(lidos: list[Token], j: int, texto: str) -> bool:
+    """Se os tokens a partir de `j` são "por cento", sem pontuação no meio: o "um" de "um por cento" é número (revisão de
+    código de 20/11/2026), e o de "um por dia", artigo."""
+    return (j + 1 < len(lidos) and lidos[j].norm == "por" and lidos[j + 1].norm == "cento"
+            and junto(texto, lidos[j], lidos[j + 1]))
+
+
 def _ler_por_extenso(lidos: list[Token], i: int, texto: str) -> tuple[int, float | None, int]:
     """Lê um número por extenso a partir do token `i`: o índice depois dele, o valor (None se ali não há número) e a
     escala em que ele termina ("um milhão e duzentos mil" termina em mil; "mil e quinhentos", em unidades)."""
@@ -141,7 +148,8 @@ def _ler_por_extenso(lidos: list[Token], i: int, texto: str) -> tuple[int, float
         elif t.norm in _PARCELAS and (j == i or (atual == 0 and total)):   # sem "e", só depois de mil ou milhão
             if j == i and t.norm in ("um", "uma") and not (
                     j + 1 < len(lidos) and junto(texto, t, lidos[j + 1])
-                    and (lidos[j + 1].norm in _DEPOIS_DE_UM or _antes_de_decimal(lidos, j + 1, texto))):
+                    and (lidos[j + 1].norm in _DEPOIS_DE_UM or _antes_de_decimal(lidos, j + 1, texto)
+                         or _antes_de_por_cento(lidos, j + 1, texto))):
                 break                                                      # artigo, não número
             if j == i and t.norm == "cento" and i > 0 and lidos[i - 1].norm == "por":
                 break                                                      # "por cento" sem número antes

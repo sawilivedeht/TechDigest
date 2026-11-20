@@ -922,6 +922,31 @@ def test_numeros_le_zero_um_e_ponto_como_decimais(texto, esperado):
     assert [(n.valor, n.percentual) for n in numeros(texto)] == esperado
 
 
+# "Um por cento" (revisão de código de 20/11/2026): o "um" antes de "por cento" é número, não artigo. Antes, um "um por
+# cento" sem fonte passava na regra, e a fonte que escreve "um por cento" não cobria o "1%" do episódio. Medido antes de
+# entrar (data/agrupamento/um_por_cento_20261120/): nenhum dos 411 episódios dos 47 relatórios gravados muda.
+@pytest.mark.parametrize("texto, esperado", [
+    ("a inflação subiu um por cento", [(1, True)]),
+    ("de um por cento a dez por cento", [(1, True), (10, True)]),
+    ("vinte e um por cento", [(21, True)]),                 # já era lido
+    ("oito vírgula um por cento", [(8.1, True)]),           # o decimal falado, já lido
+    ("um por dia", []),                                     # "um" continua artigo antes de "por" sem "cento"
+    ("um porcento", []),                                    # só "por cento", em duas palavras
+])
+def test_um_antes_de_por_cento_e_numero(texto, esperado):
+    assert [(n.valor, n.percentual) for n in numeros.numeros(texto)] == esperado
+
+
+def test_um_por_cento_sem_fonte_reprova_e_com_fonte_passa_pelo_qa_do_summarizer():
+    from techdigest.ai.summarizer import _qa
+    sem_fonte = _qa(_com_fala("A taxa subiu um por cento no ano."), ["G1"], UM_LADO, SEM_RESSALVAS, TEXTOS_DA_VIOLENCIA)
+    assert [p.texto for p in sem_fonte] == ['número que os textos da pauta não trazem, na fala de Otávio ("um por cento"): '
+                                            "use o número da fonte ou retire-o"]
+    com_fonte = ["A taxa subiu um por cento no ano, segundo o instituto."]
+    assert _qa(_com_fala("A taxa subiu 1% no ano."), ["G1"], UM_LADO, SEM_RESSALVAS, com_fonte) == []
+    assert _qa(_com_fala("A taxa subiu um por cento no ano."), ["G1"], UM_LADO, SEM_RESSALVAS, com_fonte) == []
+
+
 # Intervalos (07/11): a escala, ou o "por cento", dita no último número vale para os dois.
 TEXTOS_DOS_INTERVALOS = ["A rival estima entre US$ 15 bilhões e US$ 16 bilhões no período, a fábrica entrega de 30 a 50 milhões "
                          "de peças e a inflação fica entre 15% e 20% no ano."]
