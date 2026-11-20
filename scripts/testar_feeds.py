@@ -894,7 +894,9 @@ _FEED_OK = re.compile(r"│ Feed OK: (?P<n>\d+) entrada\(s\) — (?P<titulo>.*?)
                       r"(?: \(fora do prazo de \d+ dia\(s\): \d+ antiga\(s\), \d+ sem data\))?$")
 _DESCARTADO = re.compile(r"│ Item descartado \(texto insuficiente: \d+ caracteres, mínimo \d+\): ")
 PROBLEMA_DE_NUMERO = "número que os textos da pauta não trazem"     # o começo do texto em qa.problemas_dos_numeros
-_PROBLEMA_DE_NUMERO = re.compile(r'\("(?P<dito>.*?)"(?:; a pauta traz (?P<traz>[^)]*))?\): use o número da fonte')
+_PROBLEMA_DE_NUMERO = re.compile(r'^número que os textos da pauta não trazem, (?P<onde>.*?) \("(?P<dito>.*?)"'
+                                 r'(?:; a pauta traz (?P<traz>[^)]*))?\): use o número da fonte')
+_FALHA = re.compile(r"^falhou \((?P<tipo>\w+)")
 
 
 @dataclass
@@ -916,6 +918,7 @@ class DoFeed:
     reprovados_por_numero: int = 0
     reprovados_por_veiculo: int = 0
     reprovados_por_outro: int = 0
+    falhas_por_tipo: collections.Counter[str] = field(default_factory=collections.Counter)   # pelo tipo do erro
     do_formato: list[str] = field(default_factory=list)       # as reprovações por número do formato da fonte
     numeros: list[str] = field(default_factory=list)          # todo problema de número, para o relatório
     fontes_citadas: collections.Counter[str] = field(default_factory=collections.Counter)
@@ -987,10 +990,11 @@ def _do_feed(feeds: dict[str, DoFeed], url: str) -> DoFeed:
     return feeds.setdefault(url, DoFeed(url))
 
 
-def _dito(problema: str) -> tuple[str, str]:
-    """O número dito e o que a pauta traz, do texto de um problema de número do QA."""
-    achado = _PROBLEMA_DE_NUMERO.search(problema)
-    return (achado["dito"], achado["traz"] or "") if achado else (problema, "")
+def _dito(problema: str) -> tuple[str, str, str]:
+    """O número dito, o que a pauta traz e onde ("no resumo", "na fala de Helena"), do texto de um problema de número do
+    QA."""
+    achado = _PROBLEMA_DE_NUMERO.match(problema)
+    return (achado["dito"], achado["traz"] or "", achado["onde"]) if achado else (problema, "", "")
 
 
 def contar_episodios(feeds: dict[str, DoFeed], execucoes: list[tuple[Path, dict, dict]]) -> None:
@@ -1012,6 +1016,7 @@ def contar_episodios(feeds: dict[str, DoFeed], execucoes: list[tuple[Path, dict,
                 f.reprovados += 1
             else:
                 f.falhas += 1
+                f.falhas_por_tipo[achado["tipo"] if (achado := _FALHA.match(situacao)) else situacao[:40]] += 1
             textos = [f"{a.get('titulo', '')}\n{a.get('texto', '')}" for a in artigos]
             titulo = episodio.get("titulo") or artigos[0].get("titulo", "")
             primeira = [str(p) for p in episodio.get("problemas_antes_da_revisao") or []]
@@ -1023,9 +1028,9 @@ def contar_episodios(feeds: dict[str, DoFeed], execucoes: list[tuple[Path, dict,
             for versao, problemas in versoes:
                 for problema in problemas:
                     if problema.startswith(PROBLEMA_DE_NUMERO):
-                        dito, traz = _dito(problema)
+                        dito, traz, onde = _dito(problema)
                         pista = formato_da_fonte(dito, textos)
-                        f.numeros.append(f"{titulo} ({situacao.split(' (')[0]}, {versao}): \"{dito}\""
+                        f.numeros.append(f"{titulo} ({situacao.split(' (')[0]}, {versao}, {onde}): \"{dito}\""
                                          + (f"; a pauta traz {traz}" if traz else "")
                                          + (f"; na fonte: {pista!r}" if pista else ""))
             if situacao.startswith("reprovado"):
@@ -1035,7 +1040,7 @@ def contar_episodios(feeds: dict[str, DoFeed], execucoes: list[tuple[Path, dict,
                 f.reprovados_por_veiculo += bool(de_veiculo)
                 f.reprovados_por_outro += len(final) > len(de_numero) + len(de_veiculo)
                 for problema in de_numero:
-                    dito, _ = _dito(problema)
+                    dito, _, _ = _dito(problema)
                     if pista := formato_da_fonte(dito, textos):
                         f.do_formato.append(f"\"{dito}\" ({pista!r} na fonte)")
             try:
@@ -1128,13 +1133,18 @@ def _rotulo(url: str) -> str:
 def _linha_de_feed(f: DoFeed, com_veredito: bool) -> list:
     reprovados = f"{f.reprovados}" + (f" ({f.reprovados_por_numero} / {f.reprovados_por_veiculo} / "
                                       f"{f.reprovados_por_outro})" if f.reprovados else "")
-    taxa = f" ({f.aprovados / f.gerados:.0%})" if f.gerados else ""
+    partes = [f"{f.aprovados / f.gerados:.0%}"] if f.gerados else []
+    if f.falhas and f.aprovados + f.reprovados:   # a falha não é do QA (na produção de 05/11, o 403 do Edge-TTS)
+        partes.append(f"{f.aprovados / (f.aprovados + f.reprovados):.0%} dos julgados pelo QA")
+    taxa = f" ({'; '.join(partes)})" if partes else ""
+    falhas = f"{f.falhas}" + (f" ({', '.join(f'{tipo} {n}' for tipo, n in f.falhas_por_tipo.most_common())})"
+                              if f.falhas else "")
     citadas = "; ".join(f"{nome} ({n})" for nome, n in f.fontes_citadas.most_common(3))
     linha: list = [f.nome or _rotulo(f.url)]
     if com_veredito:
         veredito, motivo = f.veredito()
         linha += [veredito, motivo, f.coletados, f.filtrados]
-    linha += [f.gerados, f"{f.aprovados}{taxa}", reprovados, f.falhas, f.numero_na_primeira, citadas]
+    linha += [f.gerados, f"{f.aprovados}{taxa}", reprovados, falhas, f.numero_na_primeira, citadas]
     if com_veredito:
         linha.append("; ".join(f.fora))
     return linha

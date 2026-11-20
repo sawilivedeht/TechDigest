@@ -98,3 +98,21 @@ português de Portugal, a sobreposição com o Google Notícias numa amostra fal
   passando (914 mais 6); `ruff check .` sem avisos; pyright com 0 erros. Prova por mutação: sem casar pelo título, o
   filtrado só pelo host do feed, o log rotativo ignorado, sem a pista do formato, 80% trocado por 50%, os lotes de 10 sem
   equilibrar e os AJUSTE fora fazem falhar de 1 a 2 testes cada; o script restaurado é igual ao original (`cmp`).
+- 20/11/2026: segunda rodada da etapa 1 (`0c8948a`, 14:39 a 14:57): APROVADO 12, AJUSTE 6, ETAPA 2 27, REPROVADO 16. Só
+  dois vereditos mudaram, os dois pela página de consentimento, com os 5 textos nela: o Golem.de e a CGTN (esta em
+  inglês, num site em inglês: o idioma não a pegava), de ETAPA 2 para REPROVADO. O começo do primeiro texto de cada um
+  dos 45 que seguem foi lido à mão: nenhum outro é página de consentimento; alguns começam com o lixo da página antes da
+  matéria ("Siga Startups no Google...", o aviso de anúncios do Notes from Poland, o menu do Hoje Macau). Pendência: o
+  filtro de esporte só olha o primeiro segmento do caminho e só em português, e a ANSA traz `/english/news/sports/...`.
+  `--lotes`: 45 feeds (12 APROVADO, 6 AJUSTE e 27 ETAPA 2) em 5 lotes (9, 9, 9, 8 e 10), em
+  `data/agrupamento/feeds_20261120/lotes.md`.
+- 20/11/2026: lote 1 (Brasil, tecnologia, 9 feeds), rodado pelo dono com o `rodada.py` (`1be9dff`, 15:04 a 15:45):
+  `FIM` com status 0, 41 min, memória disponível mínima de 16,5 GiB, a sessão parada. 91 coletados, nenhum filtrado e
+  nenhum texto curto; 21 gerados, 20 aprovados e entregues. Pela proposta, 8 APROVADO e o Olhar Digital REPROVADO (2 de
+  3, 67%): a reprovação é da contagem de palavras do roteiro (Otávio com 203, para um mínimo de 204), uma regra do QA que
+  não depende do feed. Os problemas de número estão todos na primeira versão, corrigidos pela revisão, e nenhum vem do
+  formato da fonte. Os nomes citados confirmam o AJUSTE: "ConvergenciaDigital", "Startups", "RSS Feed do Site Inovação
+  Tecnológica". O relatório ganhou, neste commit, o tipo de cada falha, a taxa entre os julgados pelo QA e o lugar de
+  cada problema de número: na comparação com a produção, as falhas dos feeds de hoje são as do Edge-TTS de 05/11
+  (`WSServerHandshakeError`), e entre os julgados pelo QA eles aprovam de 75% a 100%. Suíte: 920 passando; `ruff check .`
+  sem avisos; pyright com 0 erros.

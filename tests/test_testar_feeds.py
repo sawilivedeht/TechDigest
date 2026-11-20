@@ -547,10 +547,14 @@ def test_a_simulacao_casa_os_feeds_pelo_titulo_e_os_filtrados_pelos_hosts_da_eta
     assert valley.do_formato == ["\"um vírgula cinco bilhão\" ('1.5 billion' na fonte)"]
     assert valley.veredito() == (tf.REPROVADO, "1 de 2 aprovados (50%), menos de 80%; reprovação por número do formato "
                                                "da fonte: \"um vírgula cinco bilhão\" ('1.5 billion' na fonte)")
-    assert (sexta.coletados, sexta.filtrados, sexta.falhas) == (5, 1, 1)
+    assert (sexta.coletados, sexta.filtrados, sexta.falhas, sexta.falhas_por_tipo) == (5, 1, 1, {"JanelaExcedida": 1})
     assert sexta.veredito() == (tf.REPROVADO, "1 item(ns) gerado(s), menos de 2")
     assert caiu.fora == ["HTTPError: 503"] and caiu.veredito()[0] == tf.REPROVADO
-    assert "N2 (aprovado, primeira versão): \"dezesseis mil\"; a pauta traz 16.500" in vale.numeros
+    assert vale.numeros == ["N2 (aprovado, primeira versão, no resumo): \"dezesseis mil\"; a pauta traz 16.500"]
+    assert valley.numeros == ["V1 (reprovado pelo QA, primeira versão, na fala de Helena): \"um vírgula cinco bilhão\"; "
+                              "na fonte: '1.5 billion'",
+                              "V1 (reprovado pelo QA, versão final, na fala de Helena): \"um vírgula cinco bilhão\"; "
+                              "na fonte: '1.5 billion'"]
 
 
 def test_a_pista_do_formato_da_fonte_pede_os_mesmos_algarismos_significativos():
@@ -570,14 +574,19 @@ def test_main_da_etapa_2_escreve_o_etapa2_md_com_a_producao(tmp_path):
     producao = tmp_path / "producao" / "20261118-211140"
     producao.mkdir(parents=True)
     google = "https://news.google.com/rss/search?q=brasil+when:2d&hl=pt-BR"
-    (producao / "amostra.json").write_text(json.dumps({"candidatos": [{"id": 1, "feed": google, "texto": "x"}]}),
+    (producao / "amostra.json").write_text(json.dumps({"candidatos": [{"id": 1, "feed": google, "texto": "x"},
+                                                                      {"id": 2, "feed": google, "texto": "y"}]}),
                                            encoding="utf-8")
     (producao / "relatorio_20261118-211140.json").write_text(json.dumps({"episodios": [
-        {"artigos": [{"id": 1}], "situacao": "aprovado", "entregue": True}]}), encoding="utf-8")
+        {"artigos": [{"id": 1}], "situacao": "aprovado", "entregue": True},
+        {"artigos": [{"id": 2}], "situacao": "falhou (WSServerHandshakeError: 403, message='Invalid response status')",
+         "entregue": False}]}), encoding="utf-8")
     assert tf.main(["--simulacao", str(tmp_path / "sim"), "--etapa1", str(csv_da_etapa1),
                     "--producao", str(tmp_path / "producao")]) == 0
     md = (tmp_path / "feeds" / "etapa2.md").read_text(encoding="utf-8")
     assert "Vereditos: APROVADO 1, REPROVADO 3 (de 4)." in md
     assert "## Problemas de número" in md and "### Valley Times" in md
-    assert "| news.google.com (brasil+when:2d) | 1 | 1 (100%) | 0 | 0 | 0 | — |" in md
+    assert "| Sexta Onda | REPROVADO | 1 item(ns) gerado(s), menos de 2 | 5 | 1 | 1 | 0 (0%) | 0 | 1 (JanelaExcedida 1) |" in md
+    assert ("| news.google.com (brasil+when:2d) | 2 | 1 (50%; 100% dos julgados pelo QA) | 0 | "
+            "1 (WSServerHandshakeError 1) | 0 | — |") in md
     assert "(1 execução(ões), de 18/11/2026 a 18/11/2026)" in md
