@@ -557,6 +557,8 @@ class Summarizer:
             logger.warning("Título corrigido ainda reprovado (%s): nova tentativa, com os títulos já recusados", reprovados[-1]["motivos"])
             try:
                 corrigido = diagnostico["episodio"] = self._corrigir_titulo(analise, result, reprovados)
+            except JanelaExcedida:   # como na 1ª correção: erro do item, não reprovação
+                raise
             except Exception as e:
                 raise QAReprovado(
                     f"{CORRECOES[tipo]} falhou ({type(e).__name__}: {str(e)[:200]}); 1ª versão reprovada: {probs}"

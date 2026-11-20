@@ -837,6 +837,26 @@ def test_titulo_corrigido_que_ainda_reprova_ganha_uma_segunda_tentativa_com_os_d
     assert len(teimoso.chamadas) == 3
 
 
+def test_a_segunda_correcao_do_titulo_que_passa_da_janela_sobe_como_erro_do_item_e_nao_como_reprovacao(ollama_8192):
+    # revisão de código de 20/11/2026: a 1ª correção já deixava a JanelaExcedida subir (não conta para o limite de
+    # tentativas do item); a 2ª a transformava em QAReprovado
+    primeiro, segundo = "Mulheres concentram maioria dos casos de violência", "Mulheres são alvo de 60 dos 102 episódios de violência"
+    com_proporcao = {**_episodio(["G1"]), "titulo_reescrito": primeiro,
+                     "resumo_didatico": "Foram 102 episódios, e 60 tiveram mulheres como vítimas. " + "Uma frase. " * 7}
+    lados = {"lados": [{"posicao": "Fato central.", "atores": ["Terra de Direitos"], "veiculos": ["G1"]}]}
+    artigo = _artigo("G1", 3000)
+    artigo["text"] += "\n\nForam 102 episódios, e 60 tiveram mulheres como vítimas."
+    janela = JanelaExcedida(9000, 8192, "a entrada passa da janela")
+    provider = ProviderFalso(com_proporcao, {"titulo_reescrito": segundo}, janela, lados=lados)
+    s = Summarizer(provider=provider)
+
+    with pytest.raises(JanelaExcedida) as erro:
+        s.process(artigo)
+    assert erro.value is janela and not isinstance(erro.value, QAReprovado)
+    assert [r["titulo"] for r in s.ultimo_diagnostico["titulos_reprovados"]] == [primeiro, segundo]
+    assert [args[0] for args, _ in provider.chamadas] == [PROMPT_SISTEMA, PROMPT_TITULO, PROMPT_TITULO]
+
+
 def test_papel_com_nome_de_ator_vai_para_a_revisao_do_roteiro_que_so_troca_o_papel(ollama_8192):
     dois_lados = {"questao": "A Meta favoreceu um candidato?", "respostas_por_ator": [   # trechos de _artigos_da_meta
         {"ator": "campanha de Lula", "resposta": "Sim", "trecho": "A campanha de Lula acusa a empresa", "veiculo": "CartaCapital"},
