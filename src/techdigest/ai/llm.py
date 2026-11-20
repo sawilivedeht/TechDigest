@@ -55,6 +55,8 @@ def parse_json(text: str | None, chaves=None) -> dict:
         data = json.loads(text)
     except json.JSONDecodeError as e:
         raise ValueError(f"JSON inválido ({e}). Início da resposta: {text[:300]!r}") from e
+    if not isinstance(data, dict):     # "[]", "null", "123": JSON válido, mas sem chaves (ValueError, não AttributeError)
+        raise ValueError(f"JSON válido, mas não é um objeto ({type(data).__name__}). Início da resposta: {text[:300]!r}")
 
     faltando = (REQUIRED_KEYS if chaves is None else set(chaves)) - data.keys()
     if faltando:

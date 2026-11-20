@@ -39,6 +39,14 @@ def test_parse_json_tira_cercas_e_recusa_resposta_vazia_ou_quebrada():
         llm.parse_json('{"grupos": [', CHAVES_AGRUPADOR)
 
 
+@pytest.mark.parametrize("texto, tipo", [("[]", "list"), ("null", "NoneType"), ("123", "int"), ('"texto"', "str")])
+def test_parse_json_recusa_com_valueerror_o_json_valido_que_nao_e_objeto(texto, tipo):
+    # revisão de código de 20/11/2026: antes, `data.keys()` dava AttributeError, que não é ValueError
+    with pytest.raises(ValueError, match=rf"JSON válido, mas não é um objeto \({tipo}\)") as erro:
+        llm.parse_json(texto)
+    assert not isinstance(erro.value, llm.JSONIncompleto)              # um ValueError simples: o Summarizer não refaz
+
+
 class ClienteFalso:
     """Faz o papel do ollama.Client: guarda o que recebeu e devolve uma resposta pronta."""
 
@@ -125,6 +133,33 @@ def test_openai_registra_erro_quando_corta_a_entrada(caplog):
     assert "Entrada de 500 caracteres cortada em LLM_MAX_PROMPT_CHARS (100)" in caplog.text
     assert pedidos[-1]["messages"][1]["content"].startswith("x" * 100 + "\n\n[TEXTO TRUNCADO")
     assert "temperature" not in pedidos[-1] and provider.ultimo_uso == {"prompt": 900, "saida": 50}
+
+
+def test_openai_com_json_que_nao_e_objeto_faz_a_segunda_tentativa():
+    # revisão de código de 20/11/2026: o "[]" dava AttributeError, que escapava do laço (ele só pega ValueError) e
+    # pulava a tentativa sem o response_format
+    def resposta(conteudo):
+        return SimpleNamespace(usage=SimpleNamespace(prompt_tokens=900, completion_tokens=50),
+                               choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=conteudo))])
+    respostas = [resposta("[]"), resposta('{"grupos": [], "isolados": [1]}')]
+    pedidos = []
+    provider = llm.OpenAIProvider.__new__(llm.OpenAIProvider)        # sem o construtor: não cria o cliente de rede
+    provider.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+        create=lambda **kwargs: pedidos.append(kwargs) or respostas.pop(0))))
+    provider.model, provider.max_tokens, provider.reasoning_effort, provider.max_prompt_chars = "modelo", 1000, None, 10_000
+
+    assert provider.chat_json("sistema", "pauta", chaves=CHAVES_AGRUPADOR) == {"grupos": [], "isolados": [1]}
+    assert len(pedidos) == 2
+    assert pedidos[0]["response_format"] == {"type": "json_object"} and "response_format" not in pedidos[1]
+    assert pedidos[1]["messages"][1]["content"].startswith("pauta\n\nATENÇÃO: comece sua resposta IMEDIATAMENTE")
+
+
+def test_ollama_com_json_que_nao_e_objeto_levanta_valueerror(ollama):
+    provider = ollama("[]")
+    with pytest.raises(ValueError, match=r"JSON válido, mas não é um objeto \(list\)") as erro:
+        provider.chat_json("sistema", "artigo")
+    assert not isinstance(erro.value, llm.JSONIncompleto)
+    assert len(provider.client.chamadas) == 1
 
 
 def test_todo_pedido_vai_com_truncate_e_shift_desligados(ollama):
