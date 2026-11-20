@@ -971,6 +971,24 @@ def test_process_levanta_qareprovado_se_a_revisao_tambem_falha(ollama_8192):
         s.process(_artigo("G1", 2000), [_artigo("Folha", 2000)])
 
 
+@pytest.mark.parametrize("campo", ["resumo_didatico", "roteiro_podcast"])
+def test_campo_nulo_pede_a_revisao_completa_e_sai_qareprovado_e_nao_typeerror(campo, ollama_8192):
+    # a revisão de código de 20/11/2026 leu o qa.py sozinho: ali o campo nulo é um TypeError; pelo caminho do pipeline,
+    # o summarizer._qa o transforma em problema de estrutura, que pede a revisão completa, e o item sai como QAReprovado
+    malformado = {**_episodio(["G1"]), campo: None}
+    provider = ProviderFalso(malformado, dict(malformado))   # a revisão também volta malformada
+    s = Summarizer(provider=provider)
+    with pytest.raises(QAReprovado, match="revisão ainda reprovada pelo QA: .*estrutura inválida para o QA") as erro:
+        s.process(_artigo("G1", 3000))
+    assert type(erro.value) is QAReprovado
+    diagnostico = s.ultimo_diagnostico
+    assert diagnostico["correcao"] == "completa"
+    assert diagnostico["problemas"] == [diagnostico["problemas"][0]]
+    assert diagnostico["problemas"][0].startswith("estrutura inválida para o QA (TypeError: ")
+    # as chamadas do episódio (a análise de lados fica fora desta lista, em provider.analises): a geração e a revisão
+    assert [args[0] for args, _ in provider.chamadas] == [PROMPT_SISTEMA, PROMPT_REVISOR]
+
+
 def test_a_resposta_sem_contagem_nao_muda_a_proporcao_nem_traz_a_de_outro_item(ollama_8192):
     provider = ProviderQueConta({})
     s = Summarizer(provider=provider)
