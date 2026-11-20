@@ -40,6 +40,7 @@ são de ferramentas, operação e uso do Python.
 | 7 Rodada | `melhoria/rodada` | `techdigest-rodada` | 2 | `scripts/rodada.py` no lugar do vigia e do `rodar.sh` copiados |
 | 8 Schema | `melhoria/schema` | `techdigest-schema` | 1 (medição) e 3 | quantas chamadas são refeitas por JSON incompleto; schema no `format`, se valer |
 | 9 Tipos | `melhoria/tipos` | `techdigest-tipos` | 3 | `TypedDict` do episódio e pyright, se o dono quiser |
+| 10 Teste de feeds | `melhoria/teste-feeds` | `techdigest-teste-feeds` | fora das ondas (20/11) | `scripts/testar_feeds.py`: o veredito de cada feed candidato ao `config/feeds.txt`, pela coleta e pela extração (etapa 1) e pela simulação (etapa 2) |
 
 Arquivos das frentes: `00-coordenacao.md`, `01-audio.md`, `02-versoes.md`, `03-registro.md`, `04-ruff.md`,
 `05-systemd.md`, `06-feeds.md`, `07-rodada.md`, `08-schema.md`, `09-tipos.md`.
@@ -207,6 +208,7 @@ Para colar nas instruções do Projeto techdigest no claude.ai, e todo chat novo
 | 5 systemd | na `master` (18/11) | `melhoria/systemd`: `1f64fdc`, `2d95c21`, `6b92a21`, `a50eadf` e `7f73972` | units do pipeline, do timer, do bloqueio do sono e do aviso de falha em `deploy/systemd/`, versionadas e não instaladas; `MemoryMax=20G` na `ollama.service`; rebaseada sobre `fe6b66e` (o merge-base era `121fa7b`); aceite do dono de 09/11, 19:24, como informa o `05-systemd.md`; 753 testes passam na `testes` |
 | 7 Rodada | na `master` (18/11; na `testes` em 11/11) | `melhoria/rodada`: `101e842`, `ac0922e` e `ced5d8f` | `scripts/rodada.py` no lugar do vigia e do `rodar.sh`; rebaseada sobre `a940eb9` (antes, `293fe9f` e `34c9e64`); aceite do dono de 10/11 (hora não registrada); 802 testes passam na `testes` (753 mais 49 de `tests/test_rodada.py`) |
 | 9 Tipos | na `master` (18/11; na `testes` em 11/11) | `melhoria/tipos`: `3b81457`, `bda5035`, `c11e9f9`, `dce1bd6` e `93c3a77` | `Episodio`, `Personagem`, `Turno` e `ItemEntregue` no `models.py`; pyright 1.1.414 no basic com 0 erros (`pyright[nodejs]` no extra `dev`); `aiohttp>=3.8` declarado; `uv.lock` com 68 pacotes; aceite do dono de 11/11, 21h50, como informa o `09-tipos.md`; 805 testes passam na `testes` (802 mais 3 de `tests/test_models.py`) |
+| 10 Teste de feeds | em andamento (20/11): etapa 1 escrita, à espera do `.env` copiado pelo dono para rodar | `melhoria/teste-feeds`, nascida da `master` em `8a250b6` | integração direta, sem a `testes` (decisão do dono de 20/11); o estado da frente está no `10-teste-feeds.md`; 911 testes passam na branch |
 
 - 07/11/2026: plano criado.
 - 07/11/2026: onda 0 concluída. O commit `64bd21b` (o plano, os arquivos das frentes, as regras e o `CLAUDE.md`, só

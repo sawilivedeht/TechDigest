@@ -1,0 +1,65 @@
+# Feeds candidatos ao config/feeds.txt, testados por scripts/testar_feeds.py (frente 10 das melhorias, 20/11/2026).
+# Colunas separadas por " | ". A coluna "nome" é o nome com que o episódio deveria citar o veículo, em letras latinas
+# (o QA só enxerga letras latinas e algarismos: ver qa._formas_faladas). A coluna "idioma" é o idioma esperado do texto.
+# categoria | subcategoria | nome | idioma | url
+Brasil | Tecnologia | Olhar Digital | pt-BR | https://olhardigital.com.br/feed/
+Brasil | Tecnologia | Convergência Digital | pt-BR | https://convergenciadigital.com.br/feed/
+Brasil | Tecnologia | TELETIME | pt-BR | https://teletime.com.br/feed/
+Brasil | Tecnologia | TeleSíntese | pt-BR | https://www.telesintese.com.br/feed/
+Brasil | Tecnologia | MacMagazine | pt-BR | https://macmagazine.com.br/feed/
+Brasil | Tecnologia | Meio Bit | pt-BR | https://meiobit.com/feed/
+Brasil | Tecnologia | Revista Pesquisa FAPESP | pt-BR | https://revistapesquisa.fapesp.br/feed/
+Brasil | Tecnologia | Inovação Tecnológica | pt-BR | https://www.inovacaotecnologica.com.br/boletim/rss.xml
+Brasil | Tecnologia | Startups.com.br | pt-BR | https://startups.com.br/feed/
+Brasil | Política | Agência Senado | pt-BR | https://www12.senado.leg.br/noticias/feed/todasnoticias/RSS
+Brasil | Política | Agência Câmara | pt-BR | https://www.camara.leg.br/noticias/rss/ultimas-noticias
+Brasil | Política | JOTA | pt-BR | https://www.jota.info/feed
+Brasil | Política | Nexo Jornal | pt-BR | https://www.nexojornal.com.br/rss.xml
+Brasil | Política | Agência Pública | pt-BR | https://apublica.org/feed/
+Brasil | Política | Aos Fatos | pt-BR | https://www.aosfatos.org/noticias/feed/
+Brasil | Política | Gazeta do Povo | pt-BR | https://www.gazetadopovo.com.br/feed/rss/republica.xml
+Brasil | Política (Paraná e Litoral) | Folha do Litoral News | pt-BR | https://folhadolitoral.com.br/feed/
+Brasil | Política (Paraná e Litoral) | JB Litoral | pt-BR | https://jblitoral.com.br/feed/
+Brasil | Política (Paraná e Litoral) | Gazeta do Povo | pt-BR | https://www.gazetadopovo.com.br/feed/rss/parana.xml
+Europa | Tecnologia | Euronews | pt-PT | https://pt.euronews.com/rss?level=vertical&name=next
+Europa | Tecnologia | SAPO Tek | pt-PT | https://tek.sapo.pt/rss
+Europa | Tecnologia | Pplware | pt-PT | https://pplware.sapo.pt/feed/
+Europa | Tecnologia | 4gnews | pt-PT | https://4gnews.pt/feed/
+Europa | Tecnologia | Sifted | en | https://sifted.eu/feed
+Europa | Tecnologia | The Next Web | en | https://thenextweb.com/feed
+Europa | Tecnologia | Silicon Republic | en | https://www.siliconrepublic.com/feed
+Europa | Tecnologia | Computer Weekly | en | https://www.computerweekly.com/rss/All-Computer-Weekly-content.xml
+Europa | Tecnologia | Xataka | es | https://www.xataka.com/index.xml
+Europa | Tecnologia | Golem.de | de | https://rss.golem.de/rss.php?feed=RSS2.0
+Europa | Tecnologia | Next | fr | https://next.ink/feed/
+Europa | Política | RTP Notícias | pt-PT | https://www.rtp.pt/noticias/rss/politica
+Europa | Política | CNN Portugal | pt-PT | https://cnnportugal.iol.pt/rss
+Europa | Política | Jornal de Negócios | pt-PT | https://www.jornaldenegocios.pt/rss
+Europa | Política | ECO | pt-PT | https://eco.sapo.pt/feed/
+Europa | Política | Euronews | en | https://www.euronews.com/rss?format=mrss&level=theme&name=news
+Europa | Política | ANSA | en | https://www.ansa.it/english/news/english_nr_rss.xml
+Europa | Política | RTÉ News | en | https://www.rte.ie/feeds/rss/?index=/news/
+Europa | Política | Yle News | en | https://yle.fi/rss/news
+Europa | Política | ERR News | en | https://news.err.ee/rss
+Europa | Política | Radio Prague International | en | https://english.radio.cz/rcz-rss/en
+Europa | Política | Notes from Poland | en | https://notesfrompoland.com/feed/
+Europa | Política | Conselho da União Europeia | en | https://www.consilium.europa.eu/en/rss/pressreleases.ashx
+China | Tecnologia | TechNode | en | https://technode.com/feed/
+China | Tecnologia | Pandaily | en | https://pandaily.com/feed/
+China | Tecnologia | South China Morning Post | en | https://www.scmp.com/rss/36/feed
+China | Tecnologia | ifanr | zh | https://www.ifanr.com/feed
+China | Tecnologia | GeekPark | zh | https://www.geekpark.net/rss
+China | Tecnologia | QbitAI | zh | https://www.qbitai.com/feed
+China | Tecnologia | TMTPost | zh | https://www.tmtpost.com/rss.xml
+China | Tecnologia | IThome | zh | https://www.ithome.com/rss/
+China | Tecnologia | InfoQ | zh | https://www.infoq.cn/feed
+China | Tecnologia | sspai | zh | https://sspai.com/feed
+China | Política | CGTN | en | https://www.cgtn.com/subscribe/rss/section/china.xml
+China | Política | ECNS | en | http://www.ecns.cn/rss/rss.xml
+China | Política | China News Service | zh | https://www.chinanews.com.cn/rss/china.xml
+China | Política | South China Morning Post | en | https://www.scmp.com/rss/4/feed
+China | Política | Sixth Tone | en | https://api.sixthtone.com/cont/output/rssApi
+China | Política | RTHK | en | https://rthk9.rthk.hk/rthk/news/rss/e_expressnews_elocal.xml
+China | Política | Macau Daily Times | en | https://macaudailytimes.com.mo/feed
+China | Política | Hoje Macau | pt-PT | https://hojemacau.com.mo/feed/
+China | Política | Ponto Final | pt-PT | https://pontofinal-macau.com/feed/
