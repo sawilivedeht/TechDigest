@@ -66,7 +66,7 @@ from trafilatura.downloads import USER_AGENT as UA_DA_EXTRACAO
 
 from techdigest import config
 from techdigest.ai import qa
-from techdigest.ai.numeros import dobrar, formatar, numeros
+from techdigest.ai.numeros import dobrar, formatar, numeros, pede_fonte
 from techdigest.collectors import rss
 from techdigest.models import Article
 from techdigest.processing import extractor, filtro
@@ -816,16 +816,446 @@ def cabecalho(agora: datetime.datetime, candidatos: str, atuais: tuple[str, ...]
     ]
 
 
+# ── Etapa 2: os lotes da simulação ────────────────────────────────────────────────────────
+
+POR_LOTE = 10
+BANCO_DA_PRODUCAO = "/home/sytw/Projetos/techdigest/data/digest.db"
+VEREDITOS_DA_ETAPA2 = (APROVADO, AJUSTE, ETAPA_2)   # os AJUSTE também (decisão do dono de 20/11/2026)
+MIN_GERADOS = 2              # a proposta aprovada da etapa 2: 2 ou mais itens gerados,
+FRACAO_APROVADOS = 0.8       # 80% ou mais deles aprovados e nenhuma reprovação por número do formato da fonte
+
+
+def ler_etapa1(caminho: str | Path) -> list[dict]:
+    with open(caminho, encoding="utf-8", newline="") as arquivo:
+        return list(csv.DictReader(arquivo))
+
+
+def etapa1_mais_recente(base: Path) -> Path | None:
+    achados = sorted(base.glob("feeds_*/etapa1.csv"))
+    return achados[-1] if achados else None
+
+
+def montar_lotes(linhas: list[dict], por_lote: int = POR_LOTE) -> list[list[dict]]:
+    """Os feeds que vão para a simulação (APROVADO, AJUSTE e ETAPA 2 da etapa 1), em lotes de até `por_lote`, na ordem
+    do arquivo: cada categoria em lotes do mesmo tamanho, ou quase (18 feeds viram 9 e 9, não 10 e 8), para cada feed ter
+    a mesma chance de chegar à geração antes de MAX_NEWS."""
+    por_categoria: dict[str, list[dict]] = {}
+    for linha in linhas:
+        if linha["veredito"] in VEREDITOS_DA_ETAPA2:
+            if "," in linha["url"] or "'" in linha["url"]:
+                raise ValueError(f"{linha['url']!r}: o RSS_FEEDS separa por vírgula e vai entre aspas simples")
+            por_categoria.setdefault(linha["categoria"], []).append(linha)
+    lotes = []
+    for feeds in por_categoria.values():
+        partes = math.ceil(len(feeds) / por_lote)
+        tamanho, sobra = divmod(len(feeds), partes)
+        inicio = 0
+        for k in range(partes):
+            fim = inicio + tamanho + (k < sobra)
+            lotes.append(feeds[inicio:fim])
+            inicio = fim
+    return lotes
+
+
+def comando_do_lote(numero: int, lote: list[dict], agora: datetime.datetime) -> str:
+    """O comando do `scripts/rodada.py` do lote, da raiz da worktree: a simulação sem áudio, com o RSS_FEEDS do lote no
+    ambiente (vale mais que o .env e que o config/feeds.txt), entre aspas simples por causa do & e do ? das URLs."""
+    data = f"{agora:%Y%m%d}"
+    urls = ",".join(linha["url"] for linha in lote)
+    return (f".venv/bin/python scripts/rodada.py --pasta data/agrupamento/feeds_lote{numero}_{data} "
+            f"--pedido \"frente 10, etapa 2: simulação do lote {numero} de feeds candidatos, {agora:%d/%m/%Y}\" -- "
+            f"env 'RSS_FEEDS={urls}' .venv/bin/techdigest --simular data/simulacoes/feeds_lote{numero}_{data} "
+            f"--banco-origem {BANCO_DA_PRODUCAO} --sem-audio")
+
+
+def escrever_lotes(lotes: list[list[dict]], pasta: Path, agora: datetime.datetime) -> Path:
+    """`loteN.txt` (as URLs, no formato do config/feeds.txt, com o nome de cada feed em comentário) e `lotes.md` (os
+    feeds e o comando de cada lote)."""
+    linhas = [f"# Etapa 2: os lotes ({agora:%d/%m/%Y %H:%M})", "",
+              f"Os APROVADO, AJUSTE e ETAPA 2 da etapa 1, em {len(lotes)} lotes de até {POR_LOTE} feeds, na ordem do "
+              "arquivo, cada categoria em lotes de tamanho igual ou quase. Os comandos rodam da raiz da worktree.", ""]
+    for numero, lote in enumerate(lotes, 1):
+        (pasta / f"lote{numero}.txt").write_text(
+            "".join(f"# {l['nome']} ({l['categoria']}: {l['subcategoria']}; {l['veredito']})\n{l['url']}\n" for l in lote),
+            encoding="utf-8")
+        linhas += [f"## Lote {numero}: {len(lote)} feeds", ""]
+        linhas += [f"- {l['nome']} ({l['categoria']}: {l['subcategoria']}; {l['veredito']}): {l['url']}" for l in lote]
+        linhas += ["", "```bash", "cd /home/sytw/Projetos/techdigest-teste-feeds", comando_do_lote(numero, lote, agora),
+                   "```", ""]
+    caminho = pasta / "lotes.md"
+    caminho.write_text("\n".join(linhas).rstrip() + "\n", encoding="utf-8")
+    return caminho
+
+
+# ── Etapa 2: a leitura das simulações ─────────────────────────────────────────────────────
+
+# As mensagens do log que a leitura usa (collectors/rss.py e pipeline.py), depois do "│ " do formato do logging_setup.
+_FEED_OK = re.compile(r"│ Feed OK: (?P<n>\d+) entrada\(s\) — (?P<titulo>.*?)"
+                      r"(?: \(fora do prazo de \d+ dia\(s\): \d+ antiga\(s\), \d+ sem data\))?$")
+_DESCARTADO = re.compile(r"│ Item descartado \(texto insuficiente: \d+ caracteres, mínimo \d+\): ")
+PROBLEMA_DE_NUMERO = "número que os textos da pauta não trazem"     # o começo do texto em qa.problemas_dos_numeros
+_PROBLEMA_DE_NUMERO = re.compile(r'\("(?P<dito>.*?)"(?:; a pauta traz (?P<traz>[^)]*))?\): use o número da fonte')
+
+
+@dataclass
+class DoFeed:
+    """O que as execuções dizem de um feed."""
+    url: str
+    nome: str = ""
+    categoria: str = ""
+    subcategoria: str = ""
+    coletados: int = 0
+    fora: list[str] = field(default_factory=list)
+    filtrados: int = 0
+    gerados: int = 0
+    aprovados: int = 0
+    reprovados: int = 0
+    falhas: int = 0
+    entregues: int = 0
+    numero_na_primeira: int = 0        # episódios cuja primeira versão teve problema de número
+    reprovados_por_numero: int = 0
+    reprovados_por_veiculo: int = 0
+    reprovados_por_outro: int = 0
+    do_formato: list[str] = field(default_factory=list)       # as reprovações por número do formato da fonte
+    numeros: list[str] = field(default_factory=list)          # todo problema de número, para o relatório
+    fontes_citadas: collections.Counter[str] = field(default_factory=collections.Counter)
+
+    def veredito(self) -> tuple[str, str]:
+        """A proposta aprovada: 2 ou mais gerados, 80% ou mais aprovados e nenhuma reprovação por número do formato da
+        fonte. O nome do veículo não conta (vai para a pendência do nome fixo, decisão do dono de 20/11/2026)."""
+        if self.gerados < MIN_GERADOS:
+            return REPROVADO, f"{self.gerados} item(ns) gerado(s), menos de {MIN_GERADOS}"
+        motivos = []
+        if self.aprovados < FRACAO_APROVADOS * self.gerados:
+            motivos.append(f"{self.aprovados} de {self.gerados} aprovados ({self.aprovados / self.gerados:.0%}), "
+                           f"menos de {FRACAO_APROVADOS:.0%}")
+        if self.do_formato:
+            motivos.append("reprovação por número do formato da fonte: " + "; ".join(self.do_formato))
+        return (REPROVADO, "; ".join(motivos)) if motivos else (APROVADO, "")
+
+
+def _algarismos(texto: str) -> str:
+    """Os algarismos significativos ("1.5 billion" e 1500000000 dão "15")."""
+    return re.sub(r"\D", "", texto).strip("0")
+
+
+def trechos_estrangeiros(texto: str) -> list[str]:
+    """As expressões com escala que ai/numeros.py não lê e os formatos de algarismo de outros idiomas."""
+    trechos = [trecho for trecho, _ in casos_de_escala(texto)]
+    for padrao in FORMATOS_DE_ALGARISMO.values():
+        trechos += [m.group() for m in padrao.finditer(texto)]
+    return trechos
+
+
+def formato_da_fonte(dito: str, textos: Iterable[str]) -> str:
+    """O trecho da fonte, num formato que ai/numeros.py não lê, com os algarismos significativos de um número que o
+    episódio disse ("1,5 bilhão" e "1.5 billion"); vazio se nenhum. É uma pista, para conferir à mão."""
+    ditos = {_algarismos(f"{n.valor:f}") for n in numeros(unicodedata.normalize("NFC", dito)) if pede_fonte(n)} - {""}
+    for texto in textos:
+        for trecho in trechos_estrangeiros(texto):
+            if _algarismos(trecho) in ditos:
+                return trecho
+    return ""
+
+
+def ler_execucoes(pasta: Path) -> list[tuple[Path, dict, dict]]:
+    """A pasta, a amostra e o relatório de cada execução registrada: `pasta` é a de uma simulação (com `execucoes/`) ou
+    a EXECUCOES_DIR da produção. Só leitura."""
+    base = pasta / "execucoes" if (pasta / "execucoes").is_dir() else pasta
+    execucoes = []
+    for relatorio in sorted(base.glob("*/relatorio_*.json")):
+        try:
+            dados = json.loads(relatorio.read_text(encoding="utf-8"))
+            amostra = json.loads((relatorio.parent / "amostra.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        execucoes.append((relatorio.parent, amostra, dados))
+    return execucoes
+
+
+def linhas_do_log(pasta_de_logs: Path) -> list[str]:
+    """As linhas do log rotativo, do arquivo mais antigo (techdigest.log.7) ao atual."""
+    antigos = [a for a in pasta_de_logs.glob("techdigest.log.*") if a.suffix[1:].isdigit()]
+    linhas: list[str] = []
+    for arquivo in [*sorted(antigos, key=lambda a: -int(a.suffix[1:])), pasta_de_logs / "techdigest.log"]:
+        if arquivo.is_file():
+            linhas += arquivo.read_text(encoding="utf-8", errors="replace").splitlines()
+    return linhas
+
+
+def _do_feed(feeds: dict[str, DoFeed], url: str) -> DoFeed:
+    return feeds.setdefault(url, DoFeed(url))
+
+
+def _dito(problema: str) -> tuple[str, str]:
+    """O número dito e o que a pauta traz, do texto de um problema de número do QA."""
+    achado = _PROBLEMA_DE_NUMERO.search(problema)
+    return (achado["dito"], achado["traz"] or "") if achado else (problema, "")
+
+
+def contar_episodios(feeds: dict[str, DoFeed], execucoes: list[tuple[Path, dict, dict]]) -> None:
+    """Gerados, aprovados, reprovados (os de número e de veículo à parte), falhas e entregues de cada feed, pelo `feed` de
+    cada artigo na amostra; e cada problema de número, com a pista do formato da fonte."""
+    for _, amostra, relatorio in execucoes:
+        por_id = {c.get("id"): c for c in amostra.get("candidatos") or []}
+        for episodio in relatorio.get("episodios") or []:
+            artigos = [por_id[a["id"]] for a in episodio.get("artigos") or [] if a.get("id") in por_id]
+            if not artigos:
+                continue
+            f = _do_feed(feeds, str(artigos[0].get("feed") or ""))
+            situacao = str(episodio.get("situacao") or "")
+            f.gerados += 1
+            f.entregues += bool(episodio.get("entregue"))
+            if situacao == "aprovado":
+                f.aprovados += 1
+            elif situacao.startswith("reprovado"):
+                f.reprovados += 1
+            else:
+                f.falhas += 1
+            textos = [f"{a.get('titulo', '')}\n{a.get('texto', '')}" for a in artigos]
+            titulo = episodio.get("titulo") or artigos[0].get("titulo", "")
+            primeira = [str(p) for p in episodio.get("problemas_antes_da_revisao") or []]
+            depois = episodio.get("problemas_depois_da_revisao")
+            final = primeira if depois is None else [str(p) for p in depois]
+            if any(p.startswith(PROBLEMA_DE_NUMERO) for p in primeira):
+                f.numero_na_primeira += 1
+            versoes = [("primeira versão", primeira)] + ([("versão final", final)] if depois is not None else [])
+            for versao, problemas in versoes:
+                for problema in problemas:
+                    if problema.startswith(PROBLEMA_DE_NUMERO):
+                        dito, traz = _dito(problema)
+                        pista = formato_da_fonte(dito, textos)
+                        f.numeros.append(f"{titulo} ({situacao.split(' (')[0]}, {versao}): \"{dito}\""
+                                         + (f"; a pauta traz {traz}" if traz else "")
+                                         + (f"; na fonte: {pista!r}" if pista else ""))
+            if situacao.startswith("reprovado"):
+                de_numero = [p for p in final if p.startswith(PROBLEMA_DE_NUMERO)]
+                de_veiculo = [p for p in final if "fontes_citadas" in p or "veículo" in p]
+                f.reprovados_por_numero += bool(de_numero)
+                f.reprovados_por_veiculo += bool(de_veiculo)
+                f.reprovados_por_outro += len(final) > len(de_numero) + len(de_veiculo)
+                for problema in de_numero:
+                    dito, _ = _dito(problema)
+                    if pista := formato_da_fonte(dito, textos):
+                        f.do_formato.append(f"\"{dito}\" ({pista!r} na fonte)")
+            try:
+                gravado = json.loads(Path(str(episodio.get("arquivo"))).read_text(encoding="utf-8"))
+                citadas = gravado.get("fontes_citadas") or []
+                f.fontes_citadas.update(str(c) for c in (citadas if isinstance(citadas, list) else [citadas]))
+            except (OSError, ValueError, AttributeError):
+                pass
+
+
+@dataclass
+class DaSimulacao:
+    pasta: str
+    execucoes: int = 0
+    coletados: int = 0
+    filtrados: int = 0
+    texto_curto: int = 0
+    gerados: int = 0
+    aprovados: int = 0
+    entregues: int = 0
+    feeds: list[str] = field(default_factory=list)     # os do lote, casados pela etapa 1
+    sem_casar: list[str] = field(default_factory=list)
+
+
+def ler_simulacao(pasta: Path, etapa1: list[dict], feeds: dict[str, DoFeed]) -> DaSimulacao:
+    """Soma em `feeds` o que uma simulação diz de cada feed do lote: os coletados pelas linhas "Feed OK" do log, casadas
+    pelo título que a etapa 1 anotou (um feed que cai muda a ordem do log, decisão do dono de 20/11/2026); os que ficaram
+    fora, pelo relatório; os filtrados, pelos hosts dos links que a etapa 1 viu em cada feed (o feed da Sixth Tone está
+    em api.sixthtone.com, as matérias não); e os episódios (`contar_episodios`). Só leitura."""
+    sim = DaSimulacao(str(pasta))
+    execucoes = ler_execucoes(pasta)
+    sim.execucoes = len(execucoes)
+    da_amostra = {str(c.get("feed")) for _, amostra, _ in execucoes for c in amostra.get("candidatos") or []}
+    linhas_por_url = {linha["url"]: linha for linha in etapa1}
+    por_titulo: dict[str, list[dict]] = {}
+    for linha in etapa1:
+        por_titulo.setdefault(linha["titulo_do_feed"] or linha["url"], []).append(linha)
+    do_lote: dict[str, dict] = {}
+    for texto in linhas_do_log(pasta / "logs"):
+        if achado := _FEED_OK.search(texto):
+            candidatos = por_titulo.get(achado["titulo"], [])
+            if len(candidatos) > 1:
+                candidatos = [c for c in candidatos if c["url"] in da_amostra] or candidatos
+            if len(candidatos) != 1:
+                sim.sem_casar.append(f"\"Feed OK\" de {achado['titulo']!r}: " + (
+                    "o título de mais de um feed da etapa 1" if candidatos else "um título que a etapa 1 não anotou"))
+                continue
+            do_lote[candidatos[0]["url"]] = candidatos[0]
+            _do_feed(feeds, candidatos[0]["url"]).coletados += int(achado["n"])
+            sim.coletados += int(achado["n"])
+        elif _DESCARTADO.search(texto):
+            sim.texto_curto += 1
+    for _, _, relatorio in execucoes:
+        for fora in (relatorio.get("feeds") or {}).get("fora") or []:
+            url = str(fora.get("url"))
+            _do_feed(feeds, url).fora.append(str(fora.get("erro")))
+            if url in linhas_por_url:
+                do_lote[url] = linhas_por_url[url]
+    for url in da_amostra:
+        if url in linhas_por_url:
+            do_lote[url] = linhas_por_url[url]
+    for _, _, relatorio in execucoes:
+        for filtrado in relatorio.get("filtrados") or []:
+            host = _host(str(filtrado.get("url") or ""))
+            donos = [url for url, linha in do_lote.items() if host in linha["hosts"].split()]
+            sim.filtrados += 1
+            if len(donos) == 1:
+                _do_feed(feeds, donos[0]).filtrados += 1
+            else:
+                sim.sem_casar.append(f"filtrado {filtrado.get('url')}: o host {host} é de "
+                                     + (f"{len(donos)} feeds do lote" if donos else "nenhum feed do lote"))
+    antes = {url: (f.gerados, f.aprovados, f.entregues) for url, f in feeds.items()}
+    contar_episodios(feeds, execucoes)
+    for url, f in feeds.items():
+        gerados, aprovados, entregues = antes.get(url, (0, 0, 0))
+        sim.gerados += f.gerados - gerados
+        sim.aprovados += f.aprovados - aprovados
+        sim.entregues += f.entregues - entregues
+    sim.feeds = list(do_lote)
+    return sim
+
+
+def _rotulo(url: str) -> str:
+    """O feed numa linha curta: o host e, numa busca do Google Notícias, o que ela busca."""
+    partes = urlsplit(url)
+    busca = re.search(r"(?:^|&)q=([^&]*)", partes.query)
+    return f"{partes.netloc} ({busca.group(1)})" if busca else (partes.netloc or url)
+
+
+def _linha_de_feed(f: DoFeed, com_veredito: bool) -> list:
+    reprovados = f"{f.reprovados}" + (f" ({f.reprovados_por_numero} / {f.reprovados_por_veiculo} / "
+                                      f"{f.reprovados_por_outro})" if f.reprovados else "")
+    taxa = f" ({f.aprovados / f.gerados:.0%})" if f.gerados else ""
+    citadas = "; ".join(f"{nome} ({n})" for nome, n in f.fontes_citadas.most_common(3))
+    linha: list = [f.nome or _rotulo(f.url)]
+    if com_veredito:
+        veredito, motivo = f.veredito()
+        linha += [veredito, motivo, f.coletados, f.filtrados]
+    linha += [f.gerados, f"{f.aprovados}{taxa}", reprovados, f.falhas, f.numero_na_primeira, citadas]
+    if com_veredito:
+        linha.append("; ".join(f.fora))
+    return linha
+
+
+def escrever_etapa2(simulacoes: list[DaSimulacao], feeds: dict[str, DoFeed], etapa1: list[dict], caminho: Path,
+                    agora: datetime.datetime, csv_da_etapa1: Path,
+                    producao: tuple[str, dict[str, DoFeed], str] | None) -> None:
+    do_lote = [url for sim in simulacoes for url in sim.feeds]
+    linhas_por_url = {linha["url"]: linha for linha in etapa1}
+    for url in do_lote:
+        linha, f = linhas_por_url[url], feeds[url]
+        f.nome, f.categoria, f.subcategoria = linha["nome"], linha["categoria"], linha["subcategoria"]
+    contagem = collections.Counter(feeds[url].veredito()[0] for url in do_lote)
+    linhas = [
+        f"# Feeds candidatos: etapa 2 ({agora:%d/%m/%Y %H:%M})", "",
+        f"A leitura das simulações (`scripts/testar_feeds.py --simulacao`), com a etapa 1 de `{csv_da_etapa1}`. "
+        f"Veredito: APROVADO com {MIN_GERADOS} ou mais itens gerados, {FRACAO_APROVADOS:.0%} ou mais aprovados e nenhuma "
+        "reprovação por número do formato da fonte; o nome do veículo não conta (vai para a pendência do nome fixo). A "
+        "pista do formato da fonte é um trecho da fonte, num formato que ai/numeros.py não lê, com os mesmos algarismos "
+        "significativos do número dito: confira à mão.", "",
+        "## Simulações", "",
+        "| Pasta | Execuções | Feeds do lote | Coletados | Filtrados | Texto curto | Gerados | Aprovados | Entregues |",
+        "|---|---|---|---|---|---|---|---|---|",
+        *("| " + " | ".join(_celula(x) for x in (sim.pasta, sim.execucoes, len(sim.feeds), sim.coletados, sim.filtrados,
+                                                  sim.texto_curto, sim.gerados, sim.aprovados, sim.entregues)) + " |"
+          for sim in simulacoes), "",
+    ]
+    for sim in simulacoes:
+        if sim.sem_casar:
+            linhas += [f"Sem casar em `{sim.pasta}`:", *(f"- {s}" for s in sim.sem_casar), ""]
+    linhas += ["Vereditos: " + ", ".join(f"{v} {contagem[v]}" for v in (APROVADO, REPROVADO)) + f" (de {len(do_lote)}).",
+               ""]
+    grupos: dict[tuple[str, str], list[DoFeed]] = {}
+    for url in do_lote:
+        grupos.setdefault((feeds[url].categoria, feeds[url].subcategoria), []).append(feeds[url])
+    for (categoria, subcategoria), do_grupo in grupos.items():
+        linhas += [f"## {categoria}: {subcategoria}", "",
+                   "| Nome | Veredito | Motivo | Coletados | Filtrados | Gerados | Aprovados | Reprovados (número / "
+                   "veículo / outro) | Falhas | Número na 1ª versão | Fontes citadas | Fora da coleta |",
+                   "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        linhas += ["| " + " | ".join(_celula(x) for x in _linha_de_feed(f, True)) + " |" for f in do_grupo]
+        linhas.append("")
+    com_numeros = [feeds[url] for url in do_lote if feeds[url].numeros]
+    if com_numeros:
+        linhas += ["## Problemas de número", ""]
+        for f in com_numeros:
+            linhas += [f"### {f.nome}", *(f"- {n}" for n in f.numeros), ""]
+    if producao is not None:
+        pasta, da_producao, periodo_da_producao = producao
+        linhas += ["## Feeds de hoje nas execuções reais", "",
+                   f"Os mesmos números, das execuções em `{pasta}` ({periodo_da_producao}), pelo feed de cada artigo.", "",
+                   "| Feed | Gerados | Aprovados | Reprovados (número / veículo / outro) | Falhas | Número na 1ª versão | "
+                   "Fontes citadas |", "|---|---|---|---|---|---|---|"]
+        linhas += ["| " + " | ".join(_celula(x) for x in _linha_de_feed(f, False)) + " |"
+                   for f in sorted(da_producao.values(), key=lambda f: -f.gerados)]
+        linhas.append("")
+    caminho.write_text("\n".join(linhas).rstrip() + "\n", encoding="utf-8")
+
+
+def periodo_das_execucoes(execucoes: list[tuple[Path, dict, dict]]) -> str:
+    datas = []
+    for pasta, _, _ in execucoes:
+        try:
+            datas.append(datetime.datetime.strptime(pasta.name[:15], FORMATO_DA_PASTA))
+        except ValueError:
+            pass
+    if not datas:
+        return f"{len(execucoes)} execução(ões)"
+    return f"{len(execucoes)} execução(ões), de {min(datas):%d/%m/%Y} a {max(datas):%d/%m/%Y}"
+
+
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description="Testa os feeds candidatos ao config/feeds.txt (etapa 1, sem o modelo).")
-    p.add_argument("--candidatos", default=str(CAMINHO_DOS_CANDIDATOS), help="o arquivo dos candidatos")
-    p.add_argument("--pasta", help="a pasta da saída (padrão: data/agrupamento/feeds_<AAAAMMDD>)")
-    p.add_argument("--registros", help="a pasta das execuções da produção, para o critério 9 (padrão: EXECUCOES_DIR)")
-    p.add_argument("--pausa", type=float, default=PAUSA_S, help=f"segundos entre requisições (padrão: {PAUSA_S:g})")
+    p = argparse.ArgumentParser(description="Testa os feeds candidatos ao config/feeds.txt: a etapa 1, sem o modelo; com "
+                                            "--lotes, os lotes da etapa 2; com --simulacao, a leitura da etapa 2.")
+    modo = p.add_mutually_exclusive_group()
+    modo.add_argument("--lotes", action="store_true",
+                      help="etapa 2: monta os lotes dos APROVADO, AJUSTE e ETAPA 2 da etapa 1 e mostra o comando de cada um")
+    modo.add_argument("--simulacao", nargs="+", metavar="PASTA",
+                      help="etapa 2: lê as pastas de simulação dos lotes (só leitura) e escreve o etapa2.md")
+    p.add_argument("--candidatos", default=str(CAMINHO_DOS_CANDIDATOS), help="etapa 1: o arquivo dos candidatos")
+    p.add_argument("--pasta", help="a pasta da saída (padrão: data/agrupamento/feeds_<AAAAMMDD>; na etapa 2, a do "
+                                   "etapa1.csv)")
+    p.add_argument("--registros", help="etapa 1: a pasta das execuções da produção, para o critério 9 "
+                                       "(padrão: EXECUCOES_DIR)")
+    p.add_argument("--pausa", type=float, default=PAUSA_S, help=f"etapa 1: segundos entre requisições (padrão: {PAUSA_S:g})")
+    p.add_argument("--etapa1", metavar="CSV", help="etapa 2: o etapa1.csv (padrão: o mais recente de "
+                                                   "data/agrupamento/feeds_*)")
+    p.add_argument("--producao", metavar="EXECUCOES_DIR",
+                   help="com --simulacao: as execuções reais, para comparar com os feeds de hoje (só leitura)")
+    p.add_argument("--por-lote", type=int, default=POR_LOTE, help=f"com --lotes: feeds por lote (padrão: {POR_LOTE})")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     agora = datetime.datetime.now()
+    if args.lotes or args.simulacao:
+        csv_da_etapa1 = Path(args.etapa1) if args.etapa1 else etapa1_mais_recente(config.BASE_DIR / "data" / "agrupamento")
+        if csv_da_etapa1 is None or not csv_da_etapa1.is_file():
+            p.error("não achei o etapa1.csv: passe --etapa1 <arquivo>")
+        etapa1 = ler_etapa1(csv_da_etapa1)
+        pasta = Path(args.pasta or csv_da_etapa1.parent)
+        if args.lotes:
+            lotes = montar_lotes(etapa1, args.por_lote)
+            caminho = escrever_lotes(lotes, pasta, agora)
+            for numero, lote in enumerate(lotes, 1):
+                print(f"Lote {numero} ({len(lote)} feeds): {', '.join(l['nome'] for l in lote)}\n"
+                      f"{comando_do_lote(numero, lote, agora)}\n")
+            print(caminho)
+            return 0
+        feeds: dict[str, DoFeed] = {}
+        simulacoes = [ler_simulacao(Path(s), etapa1, feeds) for s in args.simulacao]
+        producao = None
+        if args.producao:
+            da_producao: dict[str, DoFeed] = {}
+            execucoes = ler_execucoes(Path(args.producao))
+            contar_episodios(da_producao, execucoes)
+            producao = (args.producao, da_producao, periodo_das_execucoes(execucoes))
+        escrever_etapa2(simulacoes, feeds, etapa1, pasta / "etapa2.md", agora, csv_da_etapa1, producao)
+        print(pasta / "etapa2.md")
+        return 0
+
     candidatos = ler_candidatos(args.candidatos)
     atuais = config.ler_feeds()
     pasta_dos_registros = Path(args.registros or rss.settings.execucoes_dir)

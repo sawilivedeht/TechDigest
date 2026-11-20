@@ -3,6 +3,7 @@
 O feed é um RSS escrito aqui e lido pelo feedparser de verdade; a extração e o robots.txt são falsos. Os veículos são
 inventados (`.example`), menos o pt.org.br, que está na lista de sites de partido do repositório.
 """
+import csv
 import datetime
 import json
 from email.utils import format_datetime
@@ -12,6 +13,7 @@ import pytest
 import requests
 
 import testar_feeds as tf
+from techdigest import config
 from techdigest.collectors import rss
 from techdigest.processing.extractor import Extracao
 
@@ -414,3 +416,168 @@ def test_main_grava_o_csv_e_o_md_por_categoria(tmp_path, monkeypatch, capsys):
     textos = json.loads((tmp_path / "saida" / "etapa1_textos.json").read_text(encoding="utf-8"))
     assert [t["nome"] for t in textos] == ["Jornal do Vale", "Valley Times"]
     assert [a["situacao"] for a in textos[0]["textos"]] == ["texto"] * 5
+
+
+# ── Etapa 2: os lotes ──
+
+def _linha_da_etapa1(categoria: str, nome: str, url: str, veredito: str = tf.APROVADO, titulo: str = "",
+                     hosts: str = "") -> dict:
+    linha = dict.fromkeys(tf.CAMPOS_DO_CSV, "")
+    linha.update(categoria=categoria, subcategoria="Tecnologia", nome=nome, url=url, veredito=veredito,
+                 titulo_do_feed=titulo or nome, hosts=hosts or tf._host(url))
+    return linha
+
+
+def test_os_lotes_tem_ate_10_feeds_por_categoria_em_tamanhos_iguais_e_levam_os_ajuste():
+    linhas = [_linha_da_etapa1("Brasil", f"B{k}", f"https://b{k}.example/feed",
+                               (tf.APROVADO, tf.AJUSTE, tf.ETAPA_2)[k % 3]) for k in range(18)]
+    linhas += [_linha_da_etapa1("Brasil", "Fora", "https://fora.example/feed", tf.REPROVADO)]
+    linhas += [_linha_da_etapa1("Europa", f"E{k}", f"https://e{k}.example/rss", tf.ETAPA_2) for k in range(3)]
+    lotes = tf.montar_lotes(linhas)
+    assert [len(lote) for lote in lotes] == [9, 9, 3]
+    assert [l["nome"] for l in lotes[0]] == [f"B{k}" for k in range(9)]
+    assert all(l["nome"] != "Fora" for lote in lotes for l in lote)
+
+
+def test_o_comando_do_lote_poe_o_rss_feeds_entre_aspas_simples_e_sem_audio():
+    lote = [_linha_da_etapa1("Europa", "Valley", "https://valley.example/rss?level=x&name=y"),
+            _linha_da_etapa1("Europa", "Vale", "https://vale.example/feed/")]
+    comando = tf.comando_do_lote(2, lote, datetime.datetime(2026, 11, 20, 15, 0))
+    assert comando == (
+        ".venv/bin/python scripts/rodada.py --pasta data/agrupamento/feeds_lote2_20261120 "
+        "--pedido \"frente 10, etapa 2: simulação do lote 2 de feeds candidatos, 20/11/2026\" -- "
+        "env 'RSS_FEEDS=https://valley.example/rss?level=x&name=y,https://vale.example/feed/' "
+        ".venv/bin/techdigest --simular data/simulacoes/feeds_lote2_20261120 "
+        "--banco-origem /home/sytw/Projetos/techdigest/data/digest.db --sem-audio")
+    with pytest.raises(ValueError, match="separa por vírgula"):
+        tf.montar_lotes([_linha_da_etapa1("Europa", "Vírgula", "https://v.example/rss?a=1,2")])
+
+
+def test_lotes_grava_cada_lote_no_formato_do_feeds_txt(tmp_path, capsys):
+    csv_da_etapa1 = tmp_path / "etapa1.csv"
+    with open(csv_da_etapa1, "w", encoding="utf-8", newline="") as arquivo:
+        escritor = csv.DictWriter(arquivo, fieldnames=tf.CAMPOS_DO_CSV)
+        escritor.writeheader()
+        escritor.writerows([_linha_da_etapa1("Brasil", "Jornal do Vale", FEED),
+                            _linha_da_etapa1("Brasil", "Fora", "https://fora.example/feed", tf.REPROVADO)])
+    assert tf.main(["--lotes", "--etapa1", str(csv_da_etapa1)]) == 0
+    assert config.ler_feeds(tmp_path / "lote1.txt") == (FEED,)
+    assert "## Lote 1: 1 feeds" in (tmp_path / "lotes.md").read_text(encoding="utf-8")
+    assert "Lote 1 (1 feeds): Jornal do Vale" in capsys.readouterr().out
+
+
+# ── Etapa 2: a leitura das simulações ──
+
+VALE_TIMES = "https://valleytimes.example/rss"
+SEXTA = "https://api.sextaonda.example/rss"
+CAIU = "https://caiu.example/feed"
+PROBLEMA_1_5 = ('número que os textos da pauta não trazem, na fala de Helena ("um vírgula cinco bilhão"): use o número '
+                'da fonte ou retire-o')
+PROBLEMA_16 = ('número que os textos da pauta não trazem, no resumo ("dezesseis mil"; a pauta traz 16.500): use o número '
+               'da fonte ou retire-o')
+
+
+def _log(mensagem: str) -> str:
+    return f"20/11 15:00:00 │ INFO     │ techdigest.collectors.rss │ {mensagem}"
+
+
+def _simulacao(pasta) -> list[dict]:
+    """Uma simulação falsa de quatro feeds, e a etapa 1 deles."""
+    (pasta / "logs").mkdir(parents=True)
+    (pasta / "logs" / "techdigest.log.1").write_text(_log("Feed OK: 2 entrada(s) — Jornal do Vale") + "\n",
+                                                     encoding="utf-8")
+    (pasta / "logs" / "techdigest.log").write_text("\n".join([
+        _log("Feed OK: 10 entrada(s) — Jornal do Vale"),
+        _log("Feed OK: 8 entrada(s) — Valley Times (fora do prazo de 7 dia(s): 2 antiga(s), 0 sem data)"),
+        _log("Feed OK: 5 entrada(s) — Sexta Onda RSS"),
+        _log("Feed OK: 3 entrada(s) — Título Novo"),
+        "20/11 15:01:00 │ INFO     │ techdigest.pipeline │ Item descartado (texto insuficiente: 300 caracteres, "
+        "mínimo 1200): 'Curta'",
+    ]) + "\n", encoding="utf-8")
+    execucao = pasta / "execucoes" / "20261120-150000"
+    execucao.mkdir(parents=True)
+    episodio = execucao / "01_aprovado_x.json"
+    episodio.write_text(json.dumps({"fontes_citadas": ["Jornal do Vale"]}), encoding="utf-8")
+    candidatos = [
+        {"id": 1, "feed": FEED, "titulo": "N1", "texto": TEXTO_PT_BR},
+        {"id": 2, "feed": FEED, "titulo": "N2", "texto": TEXTO_PT_BR},
+        {"id": 3, "feed": VALE_TIMES, "titulo": "V1", "texto": TEXTO_EN},   # o TEXTO_EN traz "1.5 billion"
+        {"id": 4, "feed": VALE_TIMES, "titulo": "V2", "texto": TEXTO_EN},
+        {"id": 5, "feed": SEXTA, "titulo": "S1", "texto": TEXTO_EN},
+    ]
+    episodios = [
+        {"artigos": [{"id": 1}], "situacao": "aprovado", "entregue": True, "problemas_antes_da_revisao": [],
+         "problemas_depois_da_revisao": None, "arquivo": str(episodio), "titulo": "N1"},
+        {"artigos": [{"id": 2}], "situacao": "aprovado", "entregue": True, "problemas_antes_da_revisao": [PROBLEMA_16],
+         "problemas_depois_da_revisao": [], "titulo": "N2"},
+        {"artigos": [{"id": 3}], "situacao": "reprovado pelo QA (x)", "entregue": False,
+         "problemas_antes_da_revisao": [PROBLEMA_1_5], "problemas_depois_da_revisao": [PROBLEMA_1_5], "titulo": "V1"},
+        {"artigos": [{"id": 4}], "situacao": "aprovado", "entregue": True, "problemas_antes_da_revisao": [],
+         "problemas_depois_da_revisao": None, "titulo": "V2"},
+        {"artigos": [{"id": 5}], "situacao": "falhou (JanelaExcedida: grande)", "entregue": False,
+         "problemas_antes_da_revisao": None, "problemas_depois_da_revisao": None},
+    ]
+    (execucao / "amostra.json").write_text(json.dumps({"candidatos": candidatos}), encoding="utf-8")
+    (execucao / "relatorio_20261120-150000.json").write_text(json.dumps({
+        "episodios": episodios,
+        "filtrados": [{"url": "https://www.sextaonda.example/esportes/jogo"}, {"url": "https://desconhecido.example/a"}],
+        "feeds": {"total": 5, "fora": [{"url": CAIU, "erro": "HTTPError: 503", "tentativas": 4}]},
+    }), encoding="utf-8")
+    return [_linha_da_etapa1("Brasil", "Jornal do Vale", FEED),
+            _linha_da_etapa1("Europa", "Valley Times", VALE_TIMES, tf.ETAPA_2),
+            _linha_da_etapa1("China", "Sexta Onda", SEXTA, tf.ETAPA_2, "Sexta Onda RSS",
+                             "api.sextaonda.example sextaonda.example"),
+            _linha_da_etapa1("Europa", "Caiu", CAIU, tf.ETAPA_2)]
+
+
+def test_a_simulacao_casa_os_feeds_pelo_titulo_e_os_filtrados_pelos_hosts_da_etapa_1(tmp_path):
+    etapa1 = _simulacao(tmp_path / "sim")
+    feeds: dict[str, tf.DoFeed] = {}
+    sim = tf.ler_simulacao(tmp_path / "sim", etapa1, feeds)
+    assert sorted(sim.feeds) == sorted([FEED, VALE_TIMES, SEXTA, CAIU])
+    assert (sim.execucoes, sim.coletados, sim.filtrados, sim.texto_curto, sim.gerados, sim.aprovados, sim.entregues) == (
+        1, 25, 2, 1, 5, 3, 3)
+    assert sim.sem_casar == ["\"Feed OK\" de 'Título Novo': um título que a etapa 1 não anotou",
+                             "filtrado https://desconhecido.example/a: o host desconhecido.example é de nenhum feed do lote"]
+    vale, valley, sexta, caiu = feeds[FEED], feeds[VALE_TIMES], feeds[SEXTA], feeds[CAIU]
+    assert (vale.coletados, vale.gerados, vale.aprovados, vale.numero_na_primeira) == (12, 2, 2, 1)
+    assert vale.fontes_citadas == {"Jornal do Vale": 1}
+    assert vale.veredito() == (tf.APROVADO, "")
+    assert (valley.reprovados, valley.reprovados_por_numero, valley.reprovados_por_outro) == (1, 1, 0)
+    assert valley.do_formato == ["\"um vírgula cinco bilhão\" ('1.5 billion' na fonte)"]
+    assert valley.veredito() == (tf.REPROVADO, "1 de 2 aprovados (50%), menos de 80%; reprovação por número do formato "
+                                               "da fonte: \"um vírgula cinco bilhão\" ('1.5 billion' na fonte)")
+    assert (sexta.coletados, sexta.filtrados, sexta.falhas) == (5, 1, 1)
+    assert sexta.veredito() == (tf.REPROVADO, "1 item(ns) gerado(s), menos de 2")
+    assert caiu.fora == ["HTTPError: 503"] and caiu.veredito()[0] == tf.REPROVADO
+    assert "N2 (aprovado, primeira versão): \"dezesseis mil\"; a pauta traz 16.500" in vale.numeros
+
+
+def test_a_pista_do_formato_da_fonte_pede_os_mesmos_algarismos_significativos():
+    assert tf.formato_da_fonte("um vírgula cinco bilhão", [TEXTO_EN]) == "1.5 billion"
+    assert tf.formato_da_fonte("dois bilhões", [TEXTO_EN]) == ""
+    assert tf.formato_da_fonte("dezoito mil setecentos e oitenta", ["营收18.78万元"]) == "18.78万"
+
+
+def test_main_da_etapa_2_escreve_o_etapa2_md_com_a_producao(tmp_path):
+    etapa1 = _simulacao(tmp_path / "sim")
+    csv_da_etapa1 = tmp_path / "feeds" / "etapa1.csv"
+    csv_da_etapa1.parent.mkdir()
+    with open(csv_da_etapa1, "w", encoding="utf-8", newline="") as arquivo:
+        escritor = csv.DictWriter(arquivo, fieldnames=tf.CAMPOS_DO_CSV)
+        escritor.writeheader()
+        escritor.writerows(etapa1)
+    producao = tmp_path / "producao" / "20261118-211140"
+    producao.mkdir(parents=True)
+    google = "https://news.google.com/rss/search?q=brasil+when:2d&hl=pt-BR"
+    (producao / "amostra.json").write_text(json.dumps({"candidatos": [{"id": 1, "feed": google, "texto": "x"}]}),
+                                           encoding="utf-8")
+    (producao / "relatorio_20261118-211140.json").write_text(json.dumps({"episodios": [
+        {"artigos": [{"id": 1}], "situacao": "aprovado", "entregue": True}]}), encoding="utf-8")
+    assert tf.main(["--simulacao", str(tmp_path / "sim"), "--etapa1", str(csv_da_etapa1),
+                    "--producao", str(tmp_path / "producao")]) == 0
+    md = (tmp_path / "feeds" / "etapa2.md").read_text(encoding="utf-8")
+    assert "Vereditos: APROVADO 1, REPROVADO 3 (de 4)." in md
+    assert "## Problemas de número" in md and "### Valley Times" in md
+    assert "| news.google.com (brasil+when:2d) | 1 | 1 (100%) | 0 | 0 | 0 | — |" in md
+    assert "(1 execução(ões), de 18/11/2026 a 18/11/2026)" in md

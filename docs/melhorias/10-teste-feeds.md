@@ -85,3 +85,16 @@ português de Portugal, a sobreposição com o Google Notícias numa amostra fal
   `ruff check .` sem avisos; pyright com 0 erros. Prova por mutação: sem a conferência do consentimento, com uma marca só
   bastando, com a origem sempre "trafilatura" e sem gravar o JSON, um teste falha em cada caso; o script restaurado é
   igual ao original (`cmp`). Em seguida, a segunda rodada da etapa 1.
+- 20/11/2026: a etapa 2 no script (commit desta linha), escrita enquanto a segunda rodada da etapa 1 rodava. `--lotes`
+  monta os lotes dos APROVADO, AJUSTE e ETAPA 2 do `etapa1.csv` (até 10 feeds, cada categoria em lotes de tamanho igual
+  ou quase), grava `loteN.txt` (no formato do `config/feeds.txt`) e `lotes.md`, e mostra o comando do `rodada.py` de cada
+  lote, com o `RSS_FEEDS` entre aspas simples e a simulação sem áudio. `--simulacao <pastas>` lê, só para leitura, o log
+  (as linhas "Feed OK", casadas pelo título da etapa 1, e os textos curtos), os relatórios (os feeds fora, os filtrados,
+  casados pelos hosts dos links da etapa 1, e os episódios) e as amostras de cada simulação, e escreve o `etapa2.md`:
+  por feed, coletados, filtrados, gerados, aprovados, reprovados (os de número e de veículo à parte), falhas, os
+  problemas de número na primeira versão e as fontes citadas, com o veredito da proposta (2 ou mais gerados, 80% ou mais
+  aprovados, nenhuma reprovação por número do formato da fonte, pela pista dos algarismos significativos, conferida à
+  mão); `--producao <EXECUCOES_DIR>` acrescenta os mesmos números dos feeds de hoje nas execuções reais. Suíte: 920
+  passando (914 mais 6); `ruff check .` sem avisos; pyright com 0 erros. Prova por mutação: sem casar pelo título, o
+  filtrado só pelo host do feed, o log rotativo ignorado, sem a pista do formato, 80% trocado por 50%, os lotes de 10 sem
+  equilibrar e os AJUSTE fora fazem falhar de 1 a 2 testes cada; o script restaurado é igual ao original (`cmp`).
