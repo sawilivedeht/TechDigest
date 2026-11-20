@@ -8,3 +8,21 @@ https://tecnoblog.net/feed/
 https://www.hardware.com.br/feed/
 https://news.google.com/rss/search?q=pol%C3%ADtica+when:2d&hl=pt-BR&gl=BR&ceid=BR:pt-419
 https://news.google.com/rss/search?q=intelig%C3%AAncia+artificial+when:2d&hl=pt-BR&gl=BR&ceid=BR:pt-419
+# Aprovados no teste de feeds de 20/11/2026 (frente 10): política e tecnologia alternadas, o Brasil antes de Portugal e Macau
+https://apublica.org/feed/
+https://revistapesquisa.fapesp.br/feed/
+https://www.nexojornal.com.br/rss.xml
+https://meiobit.com/feed/
+https://www.aosfatos.org/noticias/feed/
+https://teletime.com.br/feed/
+https://folhadolitoral.com.br/feed/
+https://www.telesintese.com.br/feed/
+https://jblitoral.com.br/feed/
+https://www.inovacaotecnologica.com.br/boletim/rss.xml
+https://www.rtp.pt/noticias/rss/politica
+https://macmagazine.com.br/feed/
+https://eco.sapo.pt/feed/
+https://olhardigital.com.br/feed/
+https://www.jornaldenegocios.pt/rss
+https://pplware.sapo.pt/feed/
+https://pontofinal-macau.com/feed/

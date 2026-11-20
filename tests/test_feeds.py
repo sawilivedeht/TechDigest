@@ -149,10 +149,28 @@ FEEDS_DO_REPOSITORIO = (
     "https://www.hardware.com.br/feed/",
     "https://news.google.com/rss/search?q=pol%C3%ADtica+when:2d&hl=pt-BR&gl=BR&ceid=BR:pt-419",
     "https://news.google.com/rss/search?q=intelig%C3%AAncia+artificial+when:2d&hl=pt-BR&gl=BR&ceid=BR:pt-419",
+    # Os aprovados no teste de feeds de 20/11/2026 (frente 10, docs/melhorias/10-teste-feeds.md)
+    "https://apublica.org/feed/",
+    "https://revistapesquisa.fapesp.br/feed/",
+    "https://www.nexojornal.com.br/rss.xml",
+    "https://meiobit.com/feed/",
+    "https://www.aosfatos.org/noticias/feed/",
+    "https://teletime.com.br/feed/",
+    "https://folhadolitoral.com.br/feed/",
+    "https://www.telesintese.com.br/feed/",
+    "https://jblitoral.com.br/feed/",
+    "https://www.inovacaotecnologica.com.br/boletim/rss.xml",
+    "https://www.rtp.pt/noticias/rss/politica",
+    "https://macmagazine.com.br/feed/",
+    "https://eco.sapo.pt/feed/",
+    "https://olhardigital.com.br/feed/",
+    "https://www.jornaldenegocios.pt/rss",
+    "https://pplware.sapo.pt/feed/",
+    "https://pontofinal-macau.com/feed/",
 )
 
 
-def test_o_arquivo_do_repositorio_tem_os_9_feeds_na_ordem_do_boletim_duplo():
+def test_o_arquivo_do_repositorio_tem_os_26_feeds_na_ordem_do_boletim_duplo():
     """A lista em vigor, literal e na ordem: a ordem alimenta a intercalação do boletim duplo (collectors/rss.py).
 
     Atualize esta tupla junto com qualquer troca de feed em config/feeds.txt (incluir, tirar, reordenar ou corrigir uma
@@ -161,6 +179,6 @@ def test_o_arquivo_do_repositorio_tem_os_9_feeds_na_ordem_do_boletim_duplo():
     assert config.CAMINHO_DOS_FEEDS == RAIZ / "config" / "feeds.txt"
     feeds = config.ler_feeds()
     assert feeds == FEEDS_DO_REPOSITORIO
-    assert len(feeds) == 9 and len(set(feeds)) == 9
+    assert len(feeds) == 26 and len(set(feeds)) == 26
     assert all(f.startswith("https://") for f in feeds)
     assert config.Settings().feeds == list(FEEDS_DO_REPOSITORIO)      # sem RSS_FEEDS (o conftest o tira), vale o arquivo

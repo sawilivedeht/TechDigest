@@ -153,3 +153,13 @@ português de Portugal, a sobreposição com o Google Notícias numa amostra fal
   `ruff check .` sem avisos; pyright com 0 erros. Pronta para integração: a `master` continua em `8a250b6`, então o
   rebase não muda nada. A troca do `config/feeds.txt`, com o `FEEDS_DO_REPOSITORIO`, fica para um commit à parte,
   depois do ok do dono.
+- 20/11/2026: com o ok do dono, a troca dos feeds (commit desta linha). Os 17 APROVADO entram no `config/feeds.txt`
+  depois dos 9 de antes, que não mudam, na ordem do bloco do relatório final, com uma linha de comentário antes deles:
+  são 26 feeds, 12 de política e 14 de tecnologia. O `FEEDS_DO_REPOSITORIO` de `tests/test_feeds.py` segue a lista, e o
+  teste passa a conferir 26. As linhas novas são idênticas às do bloco do relatório (`diff`). Suíte: 921 passando;
+  `ruff check .` sem avisos; pyright com 0 erros. Prova por mutação: com o Jornal de Negócios e o Pplware trocados de
+  lugar no arquivo, o teste do arquivo do repositório falha; o arquivo restaurado é igual ao original (`cmp`). Com
+  `MAX_NEWS=20`, os 6 últimos (MacMagazine, ECO, Olhar Digital, Jornal de Negócios, Pplware e Ponto Final) só entram
+  quando um de cima não tem item novo, até a cota por categoria (pendência). Os AJUSTE e os REPROVADO ficam em
+  `config/feeds_candidatos.txt`. Um novo teste da etapa 1 reprova os 17 por URL repetida, já que eles agora estão no
+  `config/feeds.txt`.
