@@ -280,7 +280,8 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
 - 19/11/2026: etapa: encerrada. O "Em aberto" de 11/11 está vazio: (b) e (d) foram feitos pelo `fechamento.sh` em
   18/11 (fim às 20:46), e (c) foi feito em 17/11.
   - O que o script fez:
-    - a `master` e a `trabalho` foram para `17b4390` por avanço rápido;
+    - a `master` e a `trabalho` foram para `17b4390` por avanço rápido, com as frentes 1 a 9 (a 8 fechada sem
+      código);
     - a `.venv` da produção passou a ser a do uv (edge-tts 7.3.1), e o `diff` das versões deu só as 4 linhas esperadas;
     - 806 testes passaram na `testes` e na pasta principal;
     - `MemoryMax=21474836480` na `ollama.service`;
@@ -313,15 +314,18 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
       `-rodada`, `-schema` e `-tipos`) saíram com `git worktree remove`, cada uma com `git status` limpo antes. Juntas
       tinham 2.339 MiB, só de `.venv`, caches e o link `data/agrupamento`, desfeito com `unlink` antes da remoção;
     - as 9 branches `melhoria/*` saíram com `git branch -d`, sem nenhuma recusa;
-    - saíram também as rodadas `rodada_aceite_20261110_a` e `_b`, as `falas/` de `pausas_20261108/C`, `D`, `E` e `F`
-      (uns 9 KiB) e a `.venv.pip-20261108` da `techdigest-testes` (167 MiB).
-  - Continuam: as worktrees `techdigest-testes` (branch `testes`) e `techdigest-fase4` (branch `trabalho`), a
-    `.venv.pip-20261118` da `techdigest-fase4` (apagada em 20/11, registro abaixo) e as branches `agrupamento-fase1` a
-    `agrupamento-fase4`.
+    - saíram também as rodadas `rodada_aceite_20261110_a` e `_b` (uns 5 KiB), as `falas/` de `pausas_20261108/C`,
+      `D`, `E` e `F` (uns 3 KiB) e a `.venv.pip-20261108` da `techdigest-testes` (167 MiB). As `falas/` só tinham os
+      44 JSON de cortes: as 81 WAV de conferência (83 MiB) saíram em 08/11, na frente 1 (`01-audio.md`), e com elas a
+      pasta `pausas_20261108` tinha 95 MiB; hoje tem 15 MiB;
+    - em 20/11, a pedido do dono, a `.venv.pip-20261118` da `techdigest-fase4` (168 MiB), depois de conferir que a
+      `.venv` de lá é a do uv e que os 806 testes passam nela. Não sobrou `.venv` do pip no projeto, e o estado de
+      produção do `CLAUDE.md` diz isso desde o `6d68014`.
+  - Continuam: as worktrees `techdigest-testes` (branch `testes`) e `techdigest-fase4` (branch `trabalho`) e as
+    branches `agrupamento-fase1` a `agrupamento-fase4`.
   - Depois da limpeza, 806 testes passam na `testes`.
-  - A frente 0 não tem pendências. O que resta é uma decisão do dono, fora da frente: ligar o timer
-    (`docs/producao.md`, "Com o timer").
-- 20/11/2026: a `.venv.pip-20261118` da `techdigest-fase4` saiu, a pedido do dono (168 MiB).
-  - Antes, conferi que a `.venv` de lá é a do uv e que os 806 testes passam nela. O `git status` da worktree segue limpo.
-  - Não sobrou `.venv` do pip no projeto. O estado de produção do `CLAUDE.md` passa a dizer isso.
-  - A frente 0 continua sem pendências; o timer segue como decisão do dono.
+  - Melhorias futuras, fora da frente, que continuam registradas: a lacuna C10 (registro de 09/11, acima), o
+    `token repeat limit` do Ollama (registro de 10/11) e o `NoAudioReceived` do Edge-TTS, sem nova tentativa por
+    decisão do dono de 08/11 (2 no teste conjunto de 11/11, nenhum na execução real de 18/11).
+  - A frente 0 não tem pendências. Do dono, fora da frente: ligar o timer (`docs/producao.md`, seção "Com o timer");
+    sugestão: antes, a lacuna C10.
