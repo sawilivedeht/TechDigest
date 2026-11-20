@@ -316,7 +316,12 @@ corrigir", e espere a aprovação. Nada de push. A master só recebe o commit de
     - saíram também as rodadas `rodada_aceite_20261110_a` e `_b`, as `falas/` de `pausas_20261108/C`, `D`, `E` e `F`
       (uns 9 KiB) e a `.venv.pip-20261108` da `techdigest-testes` (167 MiB).
   - Continuam: as worktrees `techdigest-testes` (branch `testes`) e `techdigest-fase4` (branch `trabalho`), a
-    `.venv.pip-20261118` da `techdigest-fase4` e as branches `agrupamento-fase1` a `agrupamento-fase4`.
+    `.venv.pip-20261118` da `techdigest-fase4` (apagada em 20/11, registro abaixo) e as branches `agrupamento-fase1` a
+    `agrupamento-fase4`.
   - Depois da limpeza, 806 testes passam na `testes`.
   - A frente 0 não tem pendências. O que resta é uma decisão do dono, fora da frente: ligar o timer
     (`docs/producao.md`, "Com o timer").
+- 20/11/2026: a `.venv.pip-20261118` da `techdigest-fase4` saiu, a pedido do dono (168 MiB).
+  - Antes, conferi que a `.venv` de lá é a do uv e que os 806 testes passam nela. O `git status` da worktree segue limpo.
+  - Não sobrou `.venv` do pip no projeto. O estado de produção do `CLAUDE.md` passa a dizer isso.
+  - A frente 0 continua sem pendências; o timer segue como decisão do dono.
