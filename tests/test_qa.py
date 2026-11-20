@@ -1009,6 +1009,35 @@ def test_sem_qualificador_o_numero_dito_e_o_da_fonte_pelo_qa_do_summarizer(fala,
     assert (_qa(_com_fala(fala), ["G1"], UM_LADO, SEM_RESSALVAS, [fonte]) == []) is passa
 
 
+# O decimal falado antes de uma escala (20/11/2026). Antes, a parte depois da "vírgula" era lida com a escala junto
+# ("seis bilhões"), o decimal desistia e o número saía em dois: 3 e 6.000.000.000, e o segundo, sem fonte, reprovava o
+# episódio que dizia certo. Medido antes (data/agrupamento/escala_decimal_20261120/): a forma não aparece nos 411
+# episódios gravados nem nas pautas deles.
+@pytest.mark.parametrize("texto, esperado", [
+    ("o porto movimentou três vírgula seis bilhões", [(3_600_000_000, False)]),
+    ("três vírgula seis mil pessoas", [(3_600, False)]),
+    ("vinte e dois vírgula cinco milhões", [(22_500_000, False)]),
+    ("um vírgula dois trilhão", [(1_200_000_000_000, False)]),
+    ("zero vírgula cinco milhão", [(500_000, False)]),
+    ("3 vírgula 6 bilhões", [(3_600_000_000, False)]),
+    ("três vírgula, seis bilhões", [(3, False), (6_000_000_000, False)]),   # com pontuação, são dois números
+    ("um vírgula oito por cento", [(1.8, True)]),                           # sem escala, como antes
+])
+def test_decimal_falado_antes_da_escala_vale_pelo_numero_inteiro(texto, esperado):
+    assert [(n.valor, n.percentual) for n in numeros.numeros(texto)] == [(pytest.approx(v), p) for v, p in esperado]
+
+
+@pytest.mark.parametrize("fala, fonte, passa", [
+    ("O porto movimentou três vírgula seis bilhões de reais.", "O porto movimentou R$ 3,6 bilhões.", True),
+    ("O porto movimentou três vírgula sete bilhões de reais.", "O porto movimentou R$ 3,6 bilhões.", False),
+    ("Foram quarenta e quatro vírgula oito milhões de acessos.", "Foram 44,8 milhões de acessos.", True),
+    ("Foram quarenta e quatro vírgula oito milhões de acessos.", "Foram 44.800.000 acessos.", True),
+])
+def test_decimal_falado_antes_da_escala_pelo_qa_do_summarizer(fala, fonte, passa):
+    from techdigest.ai.summarizer import _qa
+    assert (_qa(_com_fala(fala), ["G1"], UM_LADO, SEM_RESSALVAS, [fonte]) == []) is passa
+
+
 # Intervalos (07/11): a escala, ou o "por cento", dita no último número vale para os dois.
 TEXTOS_DOS_INTERVALOS = ["A rival estima entre US$ 15 bilhões e US$ 16 bilhões no período, a fábrica entrega de 30 a 50 milhões "
                          "de peças e a inflação fica entre 15% e 20% no ano."]

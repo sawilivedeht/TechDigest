@@ -177,7 +177,10 @@ def _decimal_falado(lidos: list[Token], j: int, texto: str) -> tuple[int, float 
         if proximo.norm in ("um", "uma"):                # depois de "vírgula", "um" é algarismo, não artigo
             fim, parte = j + 2, 1
         else:
-            fim, parte, _ = _ler_por_extenso(lidos, j + 1, texto)
+            fim, parte, escala_da_parte = _ler_por_extenso(lidos, j + 1, texto)
+            if (parte is not None and escala_da_parte > 1 and lidos[fim - 1].norm in _ESCALAS
+                    and parte == int(parte / escala_da_parte) * escala_da_parte):
+                fim, parte = fim - 1, parte / escala_da_parte   # "seis bilhões": o decimal é 6, e a escala fica para depois
         if parte is None or parte != int(parte) or parte >= 1000:
             return j, None
         casas = str(int(parte))
@@ -198,7 +201,7 @@ def numeros(texto: str) -> list[Numero]:
     "1.200" vale 1200, "67,50" vale 67,5, "3,2 milhões" vale 3.200.000, "dois milhões e meio" vale
     2.500.000, "duzentos e setenta e um por cento" vale 271 (percentual), "cinquenta e oito vírgula
     oito por cento" vale 58,8 (percentual), "zero vírgula vinte e cinco" vale 0,25, "um ponto setenta e dois"
-    vale 1,72 e "um terço" vale 1/3. Ordinais por extenso e "um"/"uma"
+    vale 1,72, "três vírgula seis bilhões" vale 3.600.000.000 e "um terço" vale 1/3. Ordinais por extenso e "um"/"uma"
     sozinhos não contam. O "e meio" conta depois de milhão, bilhão ou trilhão e no percentual ("dois e meio por cento" e
     "um por cento e meio" valem 2,5% e 1,5%, decisão do dono de 20/11/2026); "dez e meia" é hora.
     """
@@ -225,9 +228,13 @@ def numeros(texto: str) -> list[Numero]:
         elif escala == 1 and valor == int(valor) and (depois := _e_meio(lidos, j, texto)) and _por_cento_em(lidos, depois, texto):
             valor, j = valor + 0.5, depois                                   # "dois e meio por cento": 2,5%
         if valor == int(valor):
+            sem_escala = escala == 1
             j, decimal = _decimal_falado(lidos, j, texto)
             if decimal:
                 valor, escala = valor + decimal, 1
+                if sem_escala and j < len(lidos) and lidos[j].norm in _ESCALAS and junto(texto, lidos[j - 1], lidos[j]):
+                    escala = _ESCALAS[lidos[j].norm]
+                    valor, j = valor * escala, j + 1                # "três vírgula seis bilhões": 3,6 bilhões
         if j < len(lidos) and lidos[j].norm in _TERCOS and 1 <= valor <= 2 and junto(texto, lidos[j - 1], lidos[j]):
             valor /= 3
             j += 1
