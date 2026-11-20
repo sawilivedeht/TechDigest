@@ -116,3 +116,20 @@ português de Portugal, a sobreposição com o Google Notícias numa amostra fal
   cada problema de número: na comparação com a produção, as falhas dos feeds de hoje são as do Edge-TTS de 05/11
   (`WSServerHandshakeError`), e entre os julgados pelo QA eles aprovam de 75% a 100%. Suíte: 920 passando; `ruff check .`
   sem avisos; pyright com 0 erros.
+- 20/11/2026: o dono escolheu a regra (b) para o veredito da etapa 2 (commit desta linha): contam contra o feed só as
+  falhas (o texto, como o JanelaExcedida) e as reprovações por número do formato da fonte ou por veículo; o veículo não
+  conta quando o nome do feed não bateu na etapa 1 (a correção 4, título genérico ou em ideogramas: pendência do nome
+  fixo), e as reprovações pelas regras gerais do QA ficam na tabela sem contar. APROVADO com 2 ou mais gerados, 80% ou
+  mais deles sem nada contra o feed e nenhuma reprovação por número do formato da fonte. Suíte: 921 passando (920 mais
+  1); `ruff check .` sem avisos; pyright com 0 erros. Prova por mutação: as falhas que não contam, o veículo que conta
+  sempre, a regra geral que conta e o formato que não é registrado fazem falhar um teste cada; o script restaurado é
+  igual ao original (`cmp`).
+- 20/11/2026: lote 2 (Brasil, política e Paraná, 9 feeds), rodado pelo dono (`01ca3bb`): `FIM` com status 0, 43,5 min,
+  memória disponível mínima de 16,7 GiB, a sessão parada. 115 coletados, nenhum filtrado, 3 textos curtos; 20 gerados,
+  20 aprovados e entregues. Lidos com o lote 1 pela regra (b): APROVADO 17, REPROVADO 1 (de 18). O Olhar Digital passa
+  (a reprovação dele era de palavras do roteiro). A Agência Senado fica com 1 gerado: 2 dos 3 textos curtos do lote são
+  itens dela só de áudio ("Áudio: Comissões aprovam emendas ao Orçamento de 2027", 617 caracteres; "Áudio: Congresso
+  homenageia Embratur...", 721), e o lote chegou aos 20 entregues antes de um quarto item dela; o nome dela no episódio
+  já era "Senado Federal" (AJUSTE). Os problemas de número dos dois lotes estão todos na primeira versão, corrigidos pela
+  revisão, nenhum do formato da fonte; os nomes citados confirmam os AJUSTE ("República", "Paraná", "Câmara notícias -
+  Câmara dos Deputados").

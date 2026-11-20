@@ -545,8 +545,10 @@ def test_a_simulacao_casa_os_feeds_pelo_titulo_e_os_filtrados_pelos_hosts_da_eta
     assert vale.veredito() == (tf.APROVADO, "")
     assert (valley.reprovados, valley.reprovados_por_numero, valley.reprovados_por_outro) == (1, 1, 0)
     assert valley.do_formato == ["\"um vírgula cinco bilhão\" ('1.5 billion' na fonte)"]
-    assert valley.veredito() == (tf.REPROVADO, "1 de 2 aprovados (50%), menos de 80%; reprovação por número do formato "
-                                               "da fonte: \"um vírgula cinco bilhão\" ('1.5 billion' na fonte)")
+    assert valley.reprovacoes == [(True, False)]
+    assert valley.veredito() == (tf.REPROVADO, "1 de 2 sem falha nem reprovação pela fonte (50%), menos de 80%; "
+                                               "reprovação por número do formato da fonte: \"um vírgula cinco bilhão\" "
+                                               "('1.5 billion' na fonte)")
     assert (sexta.coletados, sexta.filtrados, sexta.falhas, sexta.falhas_por_tipo) == (5, 1, 1, {"JanelaExcedida": 1})
     assert sexta.veredito() == (tf.REPROVADO, "1 item(ns) gerado(s), menos de 2")
     assert caiu.fora == ["HTTPError: 503"] and caiu.veredito()[0] == tf.REPROVADO
@@ -555,6 +557,22 @@ def test_a_simulacao_casa_os_feeds_pelo_titulo_e_os_filtrados_pelos_hosts_da_eta
                               "na fonte: '1.5 billion'",
                               "V1 (reprovado pelo QA, versão final, na fala de Helena): \"um vírgula cinco bilhão\"; "
                               "na fonte: '1.5 billion'"]
+
+
+def test_o_veredito_da_etapa_2_so_conta_contra_o_feed_o_que_depende_da_fonte():
+    # a reprovação por uma regra geral do QA (as palavras de um analista, como no Olhar Digital do lote 1) não conta
+    geral = tf.DoFeed("u", gerados=3, aprovados=2, reprovados=1, reprovados_por_outro=1, reprovacoes=[(False, False)])
+    assert (geral.contra_o_feed, geral.veredito()) == (0, (tf.APROVADO, ""))
+    # a falha (o texto: JanelaExcedida) conta
+    falha = tf.DoFeed("u", gerados=3, aprovados=2, falhas=1)
+    assert falha.veredito() == (tf.REPROVADO, "2 de 3 sem falha nem reprovação pela fonte (67%), menos de 80%")
+    # o veículo conta, menos quando o nome do feed não bateu na etapa 1 (a pendência do nome fixo)
+    veiculo = tf.DoFeed("u", gerados=3, aprovados=2, reprovados=1, reprovados_por_veiculo=1, reprovacoes=[(False, True)])
+    assert veiculo.veredito()[0] == tf.REPROVADO
+    veiculo.nome_bate = False
+    assert veiculo.veredito() == (tf.APROVADO, "")
+    # 5 gerados com 1 contra o feed: 80%, aprovado
+    assert tf.DoFeed("u", gerados=5, aprovados=4, falhas=1).veredito() == (tf.APROVADO, "")
 
 
 def test_a_pista_do_formato_da_fonte_pede_os_mesmos_algarismos_significativos():

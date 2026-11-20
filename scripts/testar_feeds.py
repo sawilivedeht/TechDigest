@@ -821,8 +821,9 @@ def cabecalho(agora: datetime.datetime, candidatos: str, atuais: tuple[str, ...]
 POR_LOTE = 10
 BANCO_DA_PRODUCAO = "/home/sytw/Projetos/techdigest/data/digest.db"
 VEREDITOS_DA_ETAPA2 = (APROVADO, AJUSTE, ETAPA_2)   # os AJUSTE também (decisão do dono de 20/11/2026)
-MIN_GERADOS = 2              # a proposta aprovada da etapa 2: 2 ou mais itens gerados,
-FRACAO_APROVADOS = 0.8       # 80% ou mais deles aprovados e nenhuma reprovação por número do formato da fonte
+MIN_GERADOS = 2                      # o veredito da etapa 2: 2 ou mais itens gerados, 80% ou mais deles sem
+FRACAO_SEM_PROBLEMA_DA_FONTE = 0.8   # nada contra o feed (DoFeed.contra_o_feed) e nenhuma reprovação por número do
+                                     # formato da fonte
 
 
 def ler_etapa1(caminho: str | Path) -> list[dict]:
@@ -918,20 +919,33 @@ class DoFeed:
     reprovados_por_numero: int = 0
     reprovados_por_veiculo: int = 0
     reprovados_por_outro: int = 0
+    reprovacoes: list[tuple[bool, bool]] = field(default_factory=list)   # por reprovado: (número do formato da fonte,
+                                                                         # problema de veículo)
+    nome_bate: bool = True             # o nome do feed bateu na etapa 1 (coluna nome_bate)
     falhas_por_tipo: collections.Counter[str] = field(default_factory=collections.Counter)   # pelo tipo do erro
     do_formato: list[str] = field(default_factory=list)       # as reprovações por número do formato da fonte
     numeros: list[str] = field(default_factory=list)          # todo problema de número, para o relatório
     fontes_citadas: collections.Counter[str] = field(default_factory=collections.Counter)
 
+    @property
+    def contra_o_feed(self) -> int:
+        """Os gerados que contam contra o feed (regra (b) do dono, 20/11/2026): as falhas (o texto, como o
+        JanelaExcedida) e as reprovações por um problema da fonte, o número do formato da fonte ou o veículo. O problema
+        de veículo não conta quando o nome do feed não bateu na etapa 1 (título genérico ou em ideogramas: vai para a
+        pendência do nome fixo, decisão de 20/11). As reprovações pelas regras gerais do QA (palavras, analistas,
+        ressalvas) não contam: com 2 ou 3 itens por feed, uma delas derrubava o feed (o Olhar Digital do lote 1)."""
+        return self.falhas + sum(1 for formato, veiculo in self.reprovacoes if formato or (veiculo and self.nome_bate))
+
     def veredito(self) -> tuple[str, str]:
-        """A proposta aprovada: 2 ou mais gerados, 80% ou mais aprovados e nenhuma reprovação por número do formato da
-        fonte. O nome do veículo não conta (vai para a pendência do nome fixo, decisão do dono de 20/11/2026)."""
+        """2 ou mais gerados, 80% ou mais deles sem nada contra o feed (`contra_o_feed`) e nenhuma reprovação por número
+        do formato da fonte."""
         if self.gerados < MIN_GERADOS:
             return REPROVADO, f"{self.gerados} item(ns) gerado(s), menos de {MIN_GERADOS}"
         motivos = []
-        if self.aprovados < FRACAO_APROVADOS * self.gerados:
-            motivos.append(f"{self.aprovados} de {self.gerados} aprovados ({self.aprovados / self.gerados:.0%}), "
-                           f"menos de {FRACAO_APROVADOS:.0%}")
+        limpos = self.gerados - self.contra_o_feed
+        if limpos < FRACAO_SEM_PROBLEMA_DA_FONTE * self.gerados:
+            motivos.append(f"{limpos} de {self.gerados} sem falha nem reprovação pela fonte ({limpos / self.gerados:.0%}), "
+                           f"menos de {FRACAO_SEM_PROBLEMA_DA_FONTE:.0%}")
         if self.do_formato:
             motivos.append("reprovação por número do formato da fonte: " + "; ".join(self.do_formato))
         return (REPROVADO, "; ".join(motivos)) if motivos else (APROVADO, "")
@@ -1039,10 +1053,13 @@ def contar_episodios(feeds: dict[str, DoFeed], execucoes: list[tuple[Path, dict,
                 f.reprovados_por_numero += bool(de_numero)
                 f.reprovados_por_veiculo += bool(de_veiculo)
                 f.reprovados_por_outro += len(final) > len(de_numero) + len(de_veiculo)
+                do_formato = False
                 for problema in de_numero:
                     dito, _, _ = _dito(problema)
                     if pista := formato_da_fonte(dito, textos):
                         f.do_formato.append(f"\"{dito}\" ({pista!r} na fonte)")
+                        do_formato = True
+                f.reprovacoes.append((do_formato, bool(de_veiculo)))
             try:
                 gravado = json.loads(Path(str(episodio.get("arquivo"))).read_text(encoding="utf-8"))
                 citadas = gravado.get("fontes_citadas") or []
@@ -1158,13 +1175,17 @@ def escrever_etapa2(simulacoes: list[DaSimulacao], feeds: dict[str, DoFeed], eta
     for url in do_lote:
         linha, f = linhas_por_url[url], feeds[url]
         f.nome, f.categoria, f.subcategoria = linha["nome"], linha["categoria"], linha["subcategoria"]
+        f.nome_bate = linha.get("nome_bate") != "não"
     contagem = collections.Counter(feeds[url].veredito()[0] for url in do_lote)
     linhas = [
         f"# Feeds candidatos: etapa 2 ({agora:%d/%m/%Y %H:%M})", "",
         f"A leitura das simulações (`scripts/testar_feeds.py --simulacao`), com a etapa 1 de `{csv_da_etapa1}`. "
-        f"Veredito: APROVADO com {MIN_GERADOS} ou mais itens gerados, {FRACAO_APROVADOS:.0%} ou mais aprovados e nenhuma "
-        "reprovação por número do formato da fonte; o nome do veículo não conta (vai para a pendência do nome fixo). A "
-        "pista do formato da fonte é um trecho da fonte, num formato que ai/numeros.py não lê, com os mesmos algarismos "
+        f"Veredito: APROVADO com {MIN_GERADOS} ou mais itens gerados, {FRACAO_SEM_PROBLEMA_DA_FONTE:.0%} ou mais deles sem "
+        "falha nem reprovação pela fonte e nenhuma reprovação por número do formato da fonte (regra (b) do dono, "
+        "20/11/2026). Contam contra o feed as falhas (o texto) e as reprovações por número do formato da fonte ou por "
+        "veículo; o veículo não conta quando o nome do feed não bateu na etapa 1 (vai para a pendência do nome fixo), e "
+        "as reprovações pelas regras gerais do QA (palavras, analistas, ressalvas) ficam na tabela sem contar. A pista do "
+        "formato da fonte é um trecho da fonte, num formato que ai/numeros.py não lê, com os mesmos algarismos "
         "significativos do número dito: confira à mão.", "",
         "## Simulações", "",
         "| Pasta | Execuções | Feeds do lote | Coletados | Filtrados | Texto curto | Gerados | Aprovados | Entregues |",
