@@ -947,6 +947,37 @@ def test_um_por_cento_sem_fonte_reprova_e_com_fonte_passa_pelo_qa_do_summarizer(
     assert _qa(_com_fala("A taxa subiu um por cento no ano."), ["G1"], UM_LADO, SEM_RESSALVAS, com_fonte) == []
 
 
+# "E meio" no percentual (decisão do dono de 20/11/2026: o valor exato). "um por cento e meio" era lido como 1%, e
+# "dois e meio por cento" como 2 sem percentual (abaixo de 10, sem cobrança): com a fonte em 1% ou 2%, o episódio que
+# dizia 1,5% ou 2,5% passava no QA, e a notícia mudava de sentido.
+@pytest.mark.parametrize("texto, esperado", [
+    ("a taxa subiu um por cento e meio", [(1.5, True)]),
+    ("a taxa subiu um e meio por cento", [(1.5, True)]),
+    ("a taxa subiu dois por cento e meio", [(2.5, True)]),
+    ("a taxa subiu dois e meio por cento", [(2.5, True)]),
+    ("a taxa subiu doze e meio por cento", [(12.5, True)]),
+    ("a taxa subiu 2 e meio por cento", [(2.5, True)]),
+    ("três milhões e meio de pessoas", [(3_500_000, False)]),            # já era lido
+    ("chegou às dez e meia", [(10, False)]),                              # hora: o "e meia" não conta
+    ("durou dois anos e meio", [(2, False)]),                             # "e meio" sem "por cento" não muda
+    ("subiu um por cento e meio milhão de vagas", [(1, True)]),           # "meio milhão" não é a metade do ponto
+])
+def test_e_meio_no_percentual_e_meio_ponto(texto, esperado):
+    assert [(n.valor, n.percentual) for n in numeros.numeros(texto)] == esperado
+
+
+@pytest.mark.parametrize("fala, fonte, passa", [
+    ("A taxa subiu um por cento e meio.", "A taxa subiu 1% no ano.", False),      # o episódio diz 1,5%; a fonte, 1%
+    ("A taxa subiu um por cento e meio.", "A taxa subiu 1,5% no ano.", True),
+    ("A taxa subiu dois e meio por cento.", "A taxa subiu 2% no ano.", False),
+    ("A taxa subiu dois e meio por cento.", "A taxa subiu 2,5% no ano.", True),
+    ("A taxa subiu doze e meio por cento.", "A taxa subiu 12,5% no ano.", True),
+])
+def test_e_meio_no_percentual_pelo_qa_do_summarizer(fala, fonte, passa):
+    from techdigest.ai.summarizer import _qa
+    assert (_qa(_com_fala(fala), ["G1"], UM_LADO, SEM_RESSALVAS, [fonte]) == []) is passa
+
+
 # Intervalos (07/11): a escala, ou o "por cento", dita no último número vale para os dois.
 TEXTOS_DOS_INTERVALOS = ["A rival estima entre US$ 15 bilhões e US$ 16 bilhões no período, a fábrica entrega de 30 a 50 milhões "
                          "de peças e a inflação fica entre 15% e 20% no ano."]

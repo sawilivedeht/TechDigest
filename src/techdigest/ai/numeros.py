@@ -111,11 +111,16 @@ def _antes_de_decimal(lidos: list[Token], j: int, texto: str) -> bool:
     return proximo.texto.isdigit() or proximo.norm in _PARCELAS
 
 
+def _por_cento_em(lidos: list[Token], k: int, texto: str) -> bool:
+    """Se os tokens `k` e `k + 1` são "por cento", colados ao token de antes, sem pontuação no meio."""
+    return (0 < k and k + 1 < len(lidos) and lidos[k].norm == "por" and lidos[k + 1].norm == "cento"
+            and junto(texto, lidos[k - 1], lidos[k]) and junto(texto, lidos[k], lidos[k + 1]))
+
+
 def _antes_de_por_cento(lidos: list[Token], j: int, texto: str) -> bool:
-    """Se os tokens a partir de `j` são "por cento", sem pontuação no meio: o "um" de "um por cento" é número (revisão de
-    código de 20/11/2026), e o de "um por dia", artigo."""
-    return (j + 1 < len(lidos) and lidos[j].norm == "por" and lidos[j + 1].norm == "cento"
-            and junto(texto, lidos[j], lidos[j + 1]))
+    """Se os tokens a partir de `j` são "por cento" ou "e meio por cento": o "um" de "um por cento" e de "um e meio por
+    cento" é número (revisão de código de 20/11/2026), e o de "um por dia", artigo."""
+    return _por_cento_em(lidos, j, texto) or bool((depois := _e_meio(lidos, j, texto)) and _por_cento_em(lidos, depois, texto))
 
 
 def _ler_por_extenso(lidos: list[Token], i: int, texto: str) -> tuple[int, float | None, int]:
@@ -197,7 +202,8 @@ def numeros(texto: str) -> list[Numero]:
     2.500.000, "duzentos e setenta e um por cento" vale 271 (percentual), "cinquenta e oito vírgula
     oito por cento" vale 58,8 (percentual), "zero vírgula vinte e cinco" vale 0,25, "um ponto setenta e dois"
     vale 1,72 e "um terço" vale 1/3. Ordinais por extenso e "um"/"uma"
-    sozinhos não contam. O "e meio" só conta depois de milhão, bilhão ou trilhão: "dez e meia" é hora.
+    sozinhos não contam. O "e meio" conta depois de milhão, bilhão ou trilhão e no percentual ("dois e meio por cento" e
+    "um por cento e meio" valem 2,5% e 1,5%, decisão do dono de 20/11/2026); "dez e meia" é hora.
     """
     lidos = tokens(texto)
     achados, i = [], 0
@@ -219,6 +225,8 @@ def numeros(texto: str) -> list[Numero]:
                 continue
         if escala >= 10**6 and (depois := _e_meio(lidos, j, texto)):
             valor, j = valor + escala / 2, depois
+        elif escala == 1 and valor == int(valor) and (depois := _e_meio(lidos, j, texto)) and _por_cento_em(lidos, depois, texto):
+            valor, j = valor + 0.5, depois                                   # "dois e meio por cento": 2,5%
         if valor == int(valor):
             j, decimal = _decimal_falado(lidos, j, texto)
             if decimal:
@@ -230,9 +238,11 @@ def numeros(texto: str) -> list[Numero]:
         sinal = re.match(r"\s*%", texto[fim:])
         if sinal:
             fim, percentual = fim + sinal.end(), True
-        elif (j + 1 < len(lidos) and lidos[j].norm == "por" and lidos[j + 1].norm == "cento"
-              and junto(texto, lidos[j - 1], lidos[j]) and junto(texto, lidos[j], lidos[j + 1])):
+        elif _por_cento_em(lidos, j, texto):
             fim, percentual, j = lidos[j + 1].fim, True, j + 2
+            if escala == 1 and valor == int(valor) and (depois := _e_meio(lidos, j, texto)) and not (
+                    depois < len(lidos) and lidos[depois].norm in _ESCALAS and junto(texto, lidos[depois - 1], lidos[depois])):
+                valor, fim, j = valor + 0.5, lidos[depois - 1].fim, depois   # "um por cento e meio": 1,5%, e não "e meio milhão"
         achados.append(Numero(round(valor, 6), percentual, texto[t.inicio:fim], t.inicio, fim, escala))
         i = j
     return _intervalos(texto, achados)
