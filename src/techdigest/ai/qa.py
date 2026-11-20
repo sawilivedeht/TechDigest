@@ -536,8 +536,8 @@ def problemas_dos_numeros(result: Episodio, textos, veiculos=()) -> list[Problem
     veículos: o número que faz parte do nome de um deles não conta ("Poder360"). O número vale em
     algarismos ou por extenso, e o arredondamento segue `numeros.tem_fonte`: com "cerca de" ou
     "aproximadamente", até 5% do número da fonte; com "quase", a fonte abaixo do dito; com "mais
-    de", acima; sem qualificador, só o inteiro que arredonda ou trunca um decimal da fonte, também
-    na escala em que o número é dito ("245 milhões" para R$ 245,5 milhões, com 10 ou mais na escala).
+    de", acima; sem qualificador, só o valor da fonte, escrito de qualquer forma ("44,8 milhões" para
+    44.800.000), sem truncar nem arredondar (valores exatos, decisão do dono de 20/11/2026).
     Número menor que 10 que não é percentual fica só no diagnóstico (`scripts/checar_fidelidade.py`).
     """
     da_pauta = valores_dos_textos(textos)

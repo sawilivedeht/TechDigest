@@ -33,9 +33,6 @@ _SEPARADORES = ("virgula", "ponto")   # o separador decimal falado: "um vírgula
 
 MENOR_NUMERO_COM_FONTE = 10   # abaixo disto, só o percentual precisa de fonte ("dois lados" é contagem de quem fala)
 TOLERANCIA = 0.05             # o quanto o número dito pode se afastar do da fonte quando vem com um qualificador
-# Dito em mil, milhões ou bilhões, o número da fonte nessa escala pode ser arredondado a partir daqui:
-# 245,5 milhões vira "245 milhões", mas 3,6 bilhões não vira "três bilhões" (ver `tem_fonte`).
-MENOR_NUMERO_NA_ESCALA = 10
 # O qualificador que vem logo antes do número e o que ele admite (ver `tem_fonte`).
 _QUALIFICADOR = re.compile(r"\b(cerca de|aproximadamente|quase|mais de)\s+$")
 
@@ -339,35 +336,23 @@ def _perto(dito: float, da_fonte: float) -> bool:
     return da_fonte != 0 and abs(da_fonte - dito) / abs(da_fonte) <= TOLERANCIA
 
 
-def _arredonda(dito: float, da_fonte: float) -> bool:
-    """Se `dito` é o inteiro que trunca ou arredonda o decimal `da_fonte`."""
-    return dito == int(dito) and da_fonte != int(da_fonte) and dito in (math.floor(da_fonte), math.floor(da_fonte + 0.5))
-
-
-def _arredonda_na_escala(n: Numero, da_fonte: float) -> bool:
-    """Se `n`, dito em mil, milhões ou bilhões, arredonda ou trunca o número da fonte nessa escala.
-
-    Compara o valor, escrito na fonte de qualquer forma: R$ 245,5 milhões e R$ 245.500.000 são 245,5 na
-    escala de "245 milhões". Só vale com o número da fonte na escala a partir de MENOR_NUMERO_NA_ESCALA.
-    """
-    if n.escala == 1 or n.percentual:
-        return False
-    na_escala = round(da_fonte / n.escala, 6)
-    return na_escala >= MENOR_NUMERO_NA_ESCALA and _arredonda(round(n.valor / n.escala, 6), na_escala)
+def _igual(dito: float, da_fonte: float) -> bool:
+    """O mesmo valor, sem o ruído do ponto flutuante: "R$ 8,55 bilhões" dá 8.550.000.000,000001."""
+    return math.isclose(dito, da_fonte, rel_tol=1e-9, abs_tol=1e-9)
 
 
 def tem_fonte(n: Numero, qualificado_por: str, valores: Valores) -> bool:
     """Se os textos sustentam o número dito.
 
-    Vale o número igual ao de um texto. Com "cerca de" ou "aproximadamente", vale o que fica a
-    até 5% de um número da fonte; com "quase", o da fonte tem de estar abaixo do dito e, com "mais
-    de", acima, sempre a até 5%. Sem qualificador, vale o inteiro que arredonda ou trunca um
-    decimal da fonte (30,7 pode ser dito 30 ou 31), e o mesmo vale na escala em que o número é dito
-    (R$ 245,5 milhões ou R$ 245.500.000 podem ser ditos "245 milhões" ou "246 milhões"), desde que
-    o número da fonte nessa escala seja 10 ou mais: 3,6 bilhões não vira "três bilhões".
+    Sem qualificador, vale só o número igual ao de um texto, escrito de qualquer forma (44,8 milhões é
+    44.800.000): o episódio dá o valor exato (decisão do dono de 20/11/2026; antes, valia também o
+    inteiro que truncava ou arredondava o decimal da fonte, e 37,72% podia ser dito "trinta e sete por
+    cento"). Com "cerca de" ou "aproximadamente", vale o que fica a até 5% de um número da fonte; com
+    "quase", o da fonte tem de estar abaixo do dito e, com "mais de", acima, sempre a até 5%: o ouvinte
+    sabe que o número é aproximado.
     """
     da_fonte = valores.de(n)
-    if n.valor in da_fonte:
+    if any(_igual(n.valor, v) for v in da_fonte):
         return True
     if qualificado_por in ("cerca de", "aproximadamente"):
         return any(_perto(n.valor, v) for v in da_fonte)
@@ -375,7 +360,7 @@ def tem_fonte(n: Numero, qualificado_por: str, valores: Valores) -> bool:
         return any(v < n.valor and _perto(n.valor, v) for v in da_fonte)
     if qualificado_por == "mais de":
         return any(v > n.valor and _perto(n.valor, v) for v in da_fonte)
-    return any(_arredonda(n.valor, v) or _arredonda_na_escala(n, v) for v in da_fonte)
+    return False
 
 
 def mais_proximo(n: Numero, valores: Valores, ate: float = 0.10) -> float | None:

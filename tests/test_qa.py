@@ -577,8 +577,10 @@ def test_percentual_que_nenhum_texto_da_pauta_traz_reprova():
     ("Quase 58% das vítimas são mulheres.", False),                                              # "quase" pede a fonte abaixo do dito
     ("Cerca de 60% das vítimas são mulheres.", True), ("Aproximadamente 56% das vítimas.", True),
     ("Cerca de 50% das vítimas são mulheres.", False),                                           # mais de 5% de distância
-    ("A China compra trinta por cento das exportações.", True),                                  # 30,7 truncado
-    ("A China compra 31% das exportações.", True),                                               # 30,7 arredondado
+    ("A China compra trinta por cento das exportações.", False),                                 # 30,7 truncado: valores exatos (20/11)
+    ("A China compra 31% das exportações.", False),                                              # 30,7 arredondado: idem
+    ("A China compra cerca de 31% das exportações.", True),                                      # com qualificador, até 5%
+    ("A China compra 30,7% das exportações.", True),
     ("A China compra 32% das exportações.", False),
     ("Mulheres são 60% das vítimas.", False),                                                    # sem qualificador, 58,8 só vira 58 ou 59
     ("Foram 12 ataques na semana.", False),                                                      # número a partir de 10 sem fonte
@@ -614,23 +616,30 @@ TEXTOS_DO_ORCAMENTO = ["O fundo estadual recebeu R$ 312,4 milhões em 2025, e o 
                        "R$ 47.800.000, e a fábrica emprega 18.700 pessoas."]
 
 
+# Até 20/11/2026 o número dito em mil, milhões ou bilhões podia truncar ou arredondar o da fonte nessa escala ("312 milhões"
+# por 312,4 milhões); desde a decisão do dono dos valores exatos, só com qualificador.
 @pytest.mark.parametrize("fala, passa", [
-    ("O fundo recebeu trezentos e doze milhões de reais.", True),     # 312,4 truncado, na escala em que o episódio fala
-    ("O fundo recebeu 312 milhões.", True),
-    ("O fundo recebeu R$ 313 milhões.", False),                       # 312,4 só vira 312
-    ("A obra custou quarenta e sete milhões.", True),                 # a fonte escreve 47.800.000: vale o valor
-    ("A obra custou 48 milhões.", True),                              # 47,8 arredondado
+    ("O fundo recebeu trezentos e doze milhões de reais.", False),    # 312,4 truncado na escala: valores exatos
+    ("O fundo recebeu 312 milhões.", False),
+    ("O fundo recebeu 312,4 milhões.", True),
+    ("O fundo recebeu cerca de 312 milhões.", True),                  # com qualificador, até 5%
+    ("O fundo recebeu R$ 313 milhões.", False),
+    ("A obra custou quarenta e sete milhões.", False),                # a fonte escreve 47.800.000
+    ("A obra custou 48 milhões.", False),                             # 47,8 arredondado
+    ("A obra custou 47,8 milhões.", True),                            # a fonte escreve 47.800.000: vale o valor
+    ("A obra custou quase 48 milhões.", True),
     ("A obra custou 46 milhões.", False),
-    ("A obra custou 47.000.000 de reais.", False),                    # em unidades, o episódio afirma o número exato
-    ("A obra custou quarenta e sete mil reais.", False),              # na escala de mil, a fonte traz 47.800
-    ("A fábrica emprega dezoito mil pessoas.", True),                 # 18,7 mil
-    ("A fábrica emprega 19 mil pessoas.", True),
-    ("O porto movimentou três bilhões.", False),                      # 3,6 na escala: abaixo de 10, a diferença seria de 17%
+    ("A obra custou 47.000.000 de reais.", False),
+    ("A obra custou quarenta e sete mil reais.", False),
+    ("A fábrica emprega dezoito mil pessoas.", False),                # 18,7 mil truncado
+    ("A fábrica emprega 19 mil pessoas.", False),
+    ("A fábrica emprega 18,7 mil pessoas.", True),
+    ("O porto movimentou três bilhões.", False),
     ("O porto movimentou quatro bilhões.", False),
     ("O porto movimentou 3,6 bilhões.", True),
     ("O porto movimentou três bilhões e meio.", False),               # 3,5 bilhões não é 3,6
 ])
-def test_numero_dito_em_milhoes_arredonda_o_da_fonte_nessa_escala(fala, passa):
+def test_numero_dito_em_milhoes_vale_pelo_valor_exato_da_fonte(fala, passa):
     assert (qa.problemas_dos_numeros(_com_fala(fala), TEXTOS_DO_ORCAMENTO) == []) is passa
 
 
@@ -974,6 +983,28 @@ def test_e_meio_no_percentual_e_meio_ponto(texto, esperado):
     ("A taxa subiu doze e meio por cento.", "A taxa subiu 12,5% no ano.", True),
 ])
 def test_e_meio_no_percentual_pelo_qa_do_summarizer(fala, fonte, passa):
+    from techdigest.ai.summarizer import _qa
+    assert (_qa(_com_fala(fala), ["G1"], UM_LADO, SEM_RESSALVAS, [fonte]) == []) is passa
+
+
+# Valores exatos (decisão do dono de 20/11/2026): sem qualificador, o número dito é o da fonte. Antes, passava o inteiro
+# que truncava ou arredondava o decimal da fonte, também na escala (37,72% dito "trinta e sete por cento", 44,8 milhões
+# dito "quarenta e quatro milhões"), o que mudava o sentido da notícia. Com "cerca de", "aproximadamente", "quase" ou "mais
+# de", o ouvinte sabe que é aproximado, e a tolerância de 5% continua.
+@pytest.mark.parametrize("fala, fonte, passa", [
+    ("Elas são trinta e sete por cento das vítimas.", "Elas são 37,72% das vítimas.", False),          # truncava
+    ("Elas são trinta e oito por cento das vítimas.", "Elas são 37,72% das vítimas.", False),          # arredondava
+    ("Elas são cerca de trinta e oito por cento das vítimas.", "Elas são 37,72% das vítimas.", True),  # com qualificador
+    ("Elas são 37,72% das vítimas.", "Elas são 37,72% das vítimas.", True),
+    ("Foram quarenta e quatro milhões de acessos.", "Foram 44,8 milhões de acessos.", False),          # truncava na escala
+    ("Foram quarenta e cinco milhões de acessos.", "Foram 44,8 milhões de acessos.", False),           # arredondava na escala
+    ("Foram quase quarenta e cinco milhões de acessos.", "Foram 44,8 milhões de acessos.", True),
+    ("Foram 44,8 milhões de acessos.", "Foram 44.800.000 acessos.", True),                             # o valor, em qualquer forma
+    ("A conta foi de cento e noventa e cinco reais.", "A conta foi de R$ 195,23.", False),
+    # o mesmo valor, sem o ruído do ponto flutuante: 8,55 × 10⁹ dá 8.550.000.000,000001
+    ("O valor foi de oito bilhões e quinhentos e cinquenta milhões.", "O valor foi de R$ 8,55 bilhões.", True),
+])
+def test_sem_qualificador_o_numero_dito_e_o_da_fonte_pelo_qa_do_summarizer(fala, fonte, passa):
     from techdigest.ai.summarizer import _qa
     assert (_qa(_com_fala(fala), ["G1"], UM_LADO, SEM_RESSALVAS, [fonte]) == []) is passa
 
