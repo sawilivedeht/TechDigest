@@ -18,7 +18,9 @@ Os critérios, e o que cada um dá:
    dos itens filtrada (esporte, ofertas), pelo link e pela categoria, ou depois da extração: aviso.
 5. Extração (`extractor.extrair`) dos `N_EXTRAIDOS` itens mais recentes que passam pelo filtro, contando o texto como o
    pipeline conta (com o resumo do feed quando a extração falha): menos de 60% com MIN_TEXTO_CHARS ou mais (3 de 5):
-   REPROVADO.
+   REPROVADO. A página de consentimento de cookies não conta como texto, qualquer que seja o tamanho: são duas ou mais
+   de `MARCAS_DE_CONSENTIMENTO` nos primeiros `INICIO_DO_CONSENTIMENTO` caracteres (decisão do dono de 20/11/2026,
+   depois que a do Golem.de, com 1949 caracteres em inglês, passou na primeira rodada).
 6. Nome do veículo: o que o episódio citaria (o título do feed, pela `rss._titulo_e_veiculo`) e a forma falada dele
    (`qa._formas_faladas`), contra a coluna "nome". Bate quando a forma do feed contém a da coluna, ou quando a da coluna
    contém a do feed e esta tem duas palavras ou mais. Não bate: AJUSTE.
@@ -33,7 +35,8 @@ Os critérios, e o que cada um dá:
 
 Veredito: REPROVADO, se algum critério reprova; senão ETAPA 2 (só entra depois da simulação); senão AJUSTE (só o nome);
 senão APROVADO. Saída em `data/agrupamento/feeds_<AAAAMMDD>/` (ou `--pasta`): `etapa1.csv`, uma linha por feed com os
-números de cada critério, e `etapa1.md`, a tabela por categoria e subcategoria.
+números de cada critério, `etapa1.md`, a tabela por categoria e subcategoria, e `etapa1_textos.json`, o começo de cada
+texto extraído, com a origem (o trafilatura ou o resumo do feed) e o que o teste fez dele, para conferir à mão.
 
 Uso:
     .venv/bin/python scripts/testar_feeds.py [--candidatos <arquivo>] [--pasta <pasta>] [--registros <EXECUCOES_DIR>]
@@ -63,7 +66,7 @@ from trafilatura.downloads import USER_AGENT as UA_DA_EXTRACAO
 
 from techdigest import config
 from techdigest.ai import qa
-from techdigest.ai.numeros import formatar, numeros
+from techdigest.ai.numeros import dobrar, formatar, numeros
 from techdigest.collectors import rss
 from techdigest.models import Article
 from techdigest.processing import extractor, filtro
@@ -77,6 +80,12 @@ MIN_ITENS = 3               # abaixo disto, aviso: o feed quase não entra na in
 N_EXTRAIDOS = 5             # os itens mais recentes que o teste extrai
 FRACAO_COM_TEXTO = 0.6      # a fração mínima dos extraídos com MIN_TEXTO_CHARS (3 de 5)
 PAUSA_S = 2.0               # entre duas requisições
+# A página de consentimento de cookies (a do Golem.de, em 20/11/2026): duas ou mais destas marcas, sem acento nem caixa
+# ("consent" pega consentimento, consenting, consentement), no começo do texto.
+MARCAS_DE_CONSENTIMENTO = ("cookie", "consent", "privacy", "privacidade", "javascript")
+INICIO_DO_CONSENTIMENTO = 500
+MIN_MARCAS_DE_CONSENTIMENTO = 2
+INICIO_NO_JSON = 300       # os caracteres de cada texto que vão para o etapa1_textos.json
 
 APROVADO, AJUSTE, ETAPA_2, REPROVADO = "APROVADO", "AJUSTE", "ETAPA 2", "REPROVADO"
 
@@ -288,6 +297,12 @@ def formatos_de_algarismo(texto: str) -> dict[str, int]:
     return {nome: len(padrao.findall(texto)) for nome, padrao in FORMATOS_DE_ALGARISMO.items()}
 
 
+def marcas_de_consentimento(texto: str) -> list[str]:
+    """As marcas de página de consentimento no começo do texto, sem acento nem caixa."""
+    inicio = dobrar(texto[:INICIO_DO_CONSENTIMENTO])
+    return [marca for marca in MARCAS_DE_CONSENTIMENTO if marca in inicio]
+
+
 # ── O nome do veículo ─────────────────────────────────────────────────────────────────────
 
 def _contem(maior: list[str], menor: list[str]) -> bool:
@@ -338,6 +353,8 @@ class Resultado:
     filtrados_depois: int = 0       # pela URL resolvida, entre os extraídos
     com_texto: int = 0
     pelo_resumo: int = 0            # dos com texto, os que vieram do resumo do feed (a extração falhou)
+    consentimento: int = 0          # dos extraídos, os que são a página de consentimento de cookies
+    amostras: list[dict] = field(default_factory=list)   # o começo de cada texto extraído, para o etapa1_textos.json
     caracteres: list[int] = field(default_factory=list)
     falhas_de_extracao: list[str] = field(default_factory=list)
     veiculo: str = ""
@@ -509,24 +526,40 @@ def testar_feed(candidato: Candidato, rede: Rede, atuais: Iterable[str]) -> Resu
             proibidas += not permite
         rede.esperar()
         r.extraidos += 1
+        amostra = {"link": artigo.url, "url_resolvida": "", "origem": "", "caracteres": 0, "situacao": "",
+                   "marcas_de_consentimento": [], "inicio": ""}
+        r.amostras.append(amostra)
         try:
             extracao = rede.extrair(artigo.url, artigo.summary)
         except Exception as e:
             r.falhas_de_extracao.append(f"{type(e).__name__}: {str(e)[:80]}")
+            amostra["situacao"] = f"falhou ({type(e).__name__})"
             continue
+        marcas = marcas_de_consentimento(extracao.texto)
+        amostra.update(url_resolvida=extracao.url_resolvida,
+                       origem="trafilatura" if extracao.extraido else "resumo do feed",
+                       caracteres=len(extracao.texto), marcas_de_consentimento=marcas,
+                       inicio=" ".join(extracao.texto[:INICIO_NO_JSON].split()))
         if extracao.url_resolvida:
             r.hosts.add(_host(extracao.url_resolvida))
         if (extracao.url_resolvida and extracao.url_resolvida != artigo.url
                 and (motivo := filtro.pela_url(extracao.url_resolvida))):
             r.filtrados_depois += 1
+            amostra["situacao"] = f"filtrado ({motivo})"
             if motivo.startswith("site de partido"):
                 r.reprovar(f"{motivo}, numa URL resolvida")
             continue
         r.caracteres.append(len(extracao.texto))
-        if len(extracao.texto) >= cfg.min_texto_chars:
+        if len(marcas) >= MIN_MARCAS_DE_CONSENTIMENTO:
+            r.consentimento += 1      # o tamanho não importa: não é a matéria
+            amostra["situacao"] = "página de consentimento"
+        elif len(extracao.texto) >= cfg.min_texto_chars:
             r.com_texto += 1
             r.pelo_resumo += not extracao.extraido
             textos.append(extracao.texto)
+            amostra["situacao"] = "texto"
+        else:
+            amostra["situacao"] = "curto"
     r.robots_materias = f"{proibidas} de {conferidas} proibidas" if conferidas else "sem robots.txt"
     if proibidas:
         r.avisos.append(f"o robots.txt proíbe {proibidas} de {conferidas} matérias para o User-Agent do trafilatura")
@@ -534,6 +567,8 @@ def testar_feed(candidato: Candidato, rede: Rede, atuais: Iterable[str]) -> Resu
         r.avisos.append(f"{r.filtrados_depois} de {r.extraidos} extraídos filtrados pela URL resolvida")
     if r.pelo_resumo:
         r.avisos.append(f"{r.pelo_resumo} texto(s) do resumo do feed (a extração falhou)")
+    if r.consentimento:
+        r.avisos.append(f"{r.consentimento} texto(s) são a página de consentimento de cookies (não contam como texto)")
     precisa = math.ceil(FRACAO_COM_TEXTO * r.considerados)
     if r.considerados and r.com_texto < precisa:
         r.reprovar(f"extração: {r.com_texto} de {r.considerados} com {cfg.min_texto_chars} caracteres ou mais "
@@ -613,8 +648,12 @@ def periodo(registros: Registros) -> str:
 
 # ── Etapa 1 inteira ───────────────────────────────────────────────────────────────────────
 
+def _mostrar(texto: str) -> None:
+    print(texto, flush=True)   # com a saída num arquivo, sem o flush o andamento só aparecia no fim
+
+
 def testar(candidatos: list[Candidato], rede: Rede, atuais: Iterable[str], registros: Registros | None,
-           mostrar: Callable[[str], None] = print) -> list[Resultado]:
+           mostrar: Callable[[str], None] = _mostrar) -> list[Resultado]:
     """Testa os candidatos um por um e junta o que depende de todos: o host repetido entre eles e o critério 9."""
     atuais = tuple(atuais)
     resultados = []
@@ -641,7 +680,7 @@ def testar(candidatos: list[Candidato], rede: Rede, atuais: Iterable[str], regis
 CAMPOS_DO_CSV = (
     "categoria", "subcategoria", "nome", "idioma_coluna", "url", "veredito", "motivo", "avisos", "acesso",
     "titulo_do_feed", "entradas", "sem_data", "antigas", "sem_link", "aproveitaveis", "filtrados_no_feed", "extraidos",
-    "filtrados_depois", "com_texto", "pelo_resumo", "mediana_caracteres", "falhas_de_extracao", "veiculo",
+    "filtrados_depois", "com_texto", "pelo_resumo", "consentimento", "mediana_caracteres", "falhas_de_extracao", "veiculo",
     "forma_falada", "nome_bate", "idioma_texto", "marcas_pt_pt", "marcas_pt_br", "casos_de_escala",
     "exemplos_de_escala", "decimal_com_ponto", "milhar_com_virgula", "milhar_com_espaco", "robots_feed",
     "robots_materias", "google_noticias", "hosts",
@@ -656,7 +695,7 @@ def linha_do_csv(r: Resultado) -> dict:
         "titulo_do_feed": r.titulo_do_feed, "entradas": r.entradas, "sem_data": r.sem_data, "antigas": r.antigas,
         "sem_link": r.sem_link, "aproveitaveis": r.aproveitaveis, "filtrados_no_feed": r.filtrados_no_feed,
         "extraidos": r.extraidos, "filtrados_depois": r.filtrados_depois, "com_texto": r.com_texto,
-        "pelo_resumo": r.pelo_resumo,
+        "pelo_resumo": r.pelo_resumo, "consentimento": r.consentimento,
         "mediana_caracteres": int(statistics.median(r.caracteres)) if r.caracteres else "",
         "falhas_de_extracao": "; ".join(r.falhas_de_extracao), "veiculo": r.veiculo,
         "forma_falada": " ".join(forma_falada(r.veiculo)) if r.veiculo else "",
@@ -699,6 +738,8 @@ def _extracao(r: Resultado) -> str:
         texto += f", mediana {int(statistics.median(r.caracteres))} car."
     if r.pelo_resumo:
         texto += f", {r.pelo_resumo} pelo resumo"
+    if r.consentimento:
+        texto += f", {r.consentimento} consentimento"
     return texto
 
 
@@ -747,6 +788,13 @@ def escrever_md(resultados: list[Resultado], caminho: Path, cabecalho: list[str]
     caminho.write_text("\n".join(linhas).rstrip() + "\n", encoding="utf-8")
 
 
+def escrever_textos(resultados: list[Resultado], caminho: Path) -> None:
+    """O começo de cada texto extraído, por feed, para conferir à mão o que o critério 5 contou."""
+    caminho.write_text(json.dumps(
+        [{"nome": r.candidato.nome, "url": r.candidato.url, "veredito": r.veredito, "textos": r.amostras}
+         for r in resultados], ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def cabecalho(agora: datetime.datetime, candidatos: str, atuais: tuple[str, ...], registros: Registros | None,
               pausa_s: float) -> list[str]:
     cfg = rss.settings
@@ -758,7 +806,8 @@ def cabecalho(agora: datetime.datetime, candidatos: str, atuais: tuple[str, ...]
         f"MIN_TEXTO_CHARS={cfg.min_texto_chars}, FEED_TIMEOUT_S={cfg.feed_timeout_s}, FEED_ESPERA_S={cfg.feed_espera_s}; "
         f"MAX_NEWS={cfg.max_news} e MAX_RUNTIME_MIN={cfg.max_runtime_min} só valem na etapa 2.",
         f"- Critérios do script: menos de {MIN_ITENS} itens é aviso; extração dos {N_EXTRAIDOS} mais recentes que passam "
-        f"pelo filtro, com {FRACAO_COM_TEXTO:.0%} deles com texto; pausa de {pausa_s:g} s entre requisições.",
+        f"pelo filtro, com {FRACAO_COM_TEXTO:.0%} deles com texto (a página de consentimento não conta); pausa de "
+        f"{pausa_s:g} s entre requisições.",
         f"- User-Agent do feed (coleta): `{UA_DA_COLETA}`; das matérias (trafilatura): `{UA_DA_EXTRACAO}`.",
         f"- Feeds de hoje (`config/feeds.txt`): {len(atuais)}, nos hosts "
         f"{', '.join(sorted({_host(u) for u in atuais}))}.",
@@ -787,7 +836,8 @@ def main(argv: list[str] | None = None) -> int:
     resultados = testar(candidatos, Rede(pausa_s=args.pausa), atuais, registros)
     escrever_csv(resultados, pasta / "etapa1.csv")
     escrever_md(resultados, pasta / "etapa1.md", cabecalho(agora, args.candidatos, atuais, registros, args.pausa))
-    print(f"\n{pasta / 'etapa1.md'}\n{pasta / 'etapa1.csv'}")
+    escrever_textos(resultados, pasta / "etapa1_textos.json")
+    print(f"\n{pasta / 'etapa1.md'}\n{pasta / 'etapa1.csv'}\n{pasta / 'etapa1_textos.json'}")
     return 0
 
 

@@ -29,6 +29,9 @@ TEXTO_PT_PT = ("O utilizador da plataforma está a usar o telemóvel para aceder
 TEXTO_EN = ("The company said that the new service will be available to users in the next year, and the board has "
             "approved a plan that is worth 1.5 billion dollars for the expansion of the network in the region. ") * 7
 TEXTO_ZH = "公司今天发布了新的手机，营收18.78万元，市值3亿元，用户可以在网上购买这款产品，价格与去年相同。" * 30
+# A página de consentimento de cookies, como a do Golem.de de 20/11/2026, com mais de 1200 caracteres.
+TEXTO_CONSENTIMENTO = ("Visit Jornal do Vale as usual with advertising and tracking, by consenting to the use of all "
+                       "cookies. Details can be found in the Privacy Center. ") + "Lorem ipsum dolor sit amet. " * 60
 
 
 def _rss(titulo: str = "Jornal do Vale", itens: list[dict] | None = None) -> bytes:
@@ -249,6 +252,33 @@ def test_extrai_os_5_mais_recentes_que_passam_pelo_filtro():
     assert r.filtrados_no_feed == 1
 
 
+def test_pagina_de_consentimento_nao_conta_como_texto_mesmo_longa():
+    consentimento = {f"https://jornaldovale.example/noticia-{k}": TEXTO_CONSENTIMENTO for k in range(3)}
+    r = _testar(Falsa(_rss(itens=_itens()), textos=consentimento))
+    assert r.veredito == tf.REPROVADO
+    assert r.motivo == ("extração: 2 de 5 com 1200 caracteres ou mais (mínimo 3; paywall, bloqueio ou página em "
+                        "JavaScript)")
+    assert "3 texto(s) são a página de consentimento de cookies (não contam como texto)" in r.avisos
+    assert [a["situacao"] for a in r.amostras] == ["página de consentimento"] * 3 + ["texto"] * 2
+    assert r.amostras[0]["marcas_de_consentimento"] == ["cookie", "consent", "privacy"]
+
+
+def test_uma_marca_so_no_comeco_nao_faz_pagina_de_consentimento():
+    texto = "A nova lei de privacidade muda as regras para os dados dos usuários. " + TEXTO_PT_BR
+    r = _testar(Falsa(_rss(itens=_itens()), texto=texto))
+    assert (r.veredito, r.consentimento, r.com_texto) == (tf.APROVADO, 0, 5)
+
+
+def test_as_amostras_guardam_a_origem_e_o_que_o_teste_fez_de_cada_texto():
+    textos = {"https://jornaldovale.example/noticia-0": "",                       # cai no resumo do feed
+              "https://jornaldovale.example/noticia-1": "Só a manchete."}
+    r = _testar(Falsa(_rss(itens=_itens()), textos=textos))
+    primeira, segunda, terceira = r.amostras[:3]
+    assert (primeira["origem"], primeira["situacao"], primeira["inicio"]) == ("resumo do feed", "curto", "Resumo curto.")
+    assert (segunda["origem"], segunda["situacao"], segunda["caracteres"]) == ("trafilatura", "curto", 14)
+    assert terceira["situacao"] == "texto" and terceira["inicio"] == " ".join(TEXTO_PT_BR[:300].split())
+
+
 # ── Os avisos ──
 
 def test_menos_de_3_itens_e_aviso_e_a_extracao_vale_sobre_o_que_ha():
@@ -381,3 +411,6 @@ def test_main_grava_o_csv_e_o_md_por_categoria(tmp_path, monkeypatch, capsys):
     assert linhas[0].startswith("categoria,subcategoria,nome,idioma_coluna,url,veredito")
     assert len(linhas) == 3
     assert "[1/2] Jornal do Vale" in capsys.readouterr().out
+    textos = json.loads((tmp_path / "saida" / "etapa1_textos.json").read_text(encoding="utf-8"))
+    assert [t["nome"] for t in textos] == ["Jornal do Vale", "Valley Times"]
+    assert [a["situacao"] for a in textos[0]["textos"]] == ["texto"] * 5

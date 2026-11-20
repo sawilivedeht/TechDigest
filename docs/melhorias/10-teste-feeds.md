@@ -72,3 +72,16 @@ português de Portugal, a sobreposição com o Google Notícias numa amostra fal
   resolvida tirado, a palavra genérica contida aceita e a escala chinesa tirada fazem falhar de 1 a 2 testes cada; a
   contagem do link do Google Notícias não resolvido passava nos testes e ganhou uma asserção sobre os hosts lidos, que
   agora falha. A etapa 1 ainda não rodou: espera o `.env` copiado pelo dono.
+- 20/11/2026: primeira rodada da etapa 1 (`607eab4`, 13:55 a 14:13, com o `.env` da produção copiado pelo dono: 7 dias,
+  15 por feed, 1200 caracteres): APROVADO 12, AJUSTE 6, ETAPA 2 29, REPROVADO 14. Os arquivos estão em
+  `data/agrupamento/feeds_20261120/primeira_rodada/`. Conferidos à mão: o texto do Golem.de (ETAPA 2 só pelo idioma,
+  "texto em en") é a página de consentimento de cookies, com 1949 caracteres, que passava no critério 5; o Nexo tem os 5
+  textos do resumo do feed (o trafilatura falha), com o HTML escapado duas vezes que `rss._texto_puro` deixa como texto
+  (`<media:content url=...>`): pendência no coletor.
+- 20/11/2026: o dono aprovou (a) e (b) (commit desta linha): (a) o andamento sai na hora (`flush`), o começo de cada
+  texto extraído vai para o `etapa1_textos.json`, com a origem e o que o teste fez dele, e a página de consentimento (duas
+  ou mais de cookie, consent, privacy, privacidade e javascript nos primeiros 500 caracteres, sem acento nem caixa) não
+  conta como texto, qualquer que seja o tamanho; (b) os AJUSTE também vão para a etapa 2. Suíte: 914 passando (911 mais 3);
+  `ruff check .` sem avisos; pyright com 0 erros. Prova por mutação: sem a conferência do consentimento, com uma marca só
+  bastando, com a origem sempre "trafilatura" e sem gravar o JSON, um teste falha em cada caso; o script restaurado é
+  igual ao original (`cmp`). Em seguida, a segunda rodada da etapa 1.
