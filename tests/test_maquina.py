@@ -6,6 +6,8 @@ import pytest
 from techdigest.ai import gpu, maquina
 from techdigest.ai.maquina import ExecucaoInterrompida, ProviderVigiado
 
+MODELO_NA_GPU_DE_VERDADE = gpu.modelo_na_gpu   # a fixture `maquina_tranquila` a troca; os testes da conferência a devolvem
+
 
 class ClienteFalso:
     """O cliente do Ollama: `ps()` diz o que está carregado, ou falha como um servidor fora do ar."""
@@ -164,3 +166,78 @@ def test_a_contagem_da_parte_fixa_passa_pelas_travas_como_uma_chamada(monkeypatc
     assert provider.chamadas == 1
     with pytest.raises(AttributeError):                  # o provider que não conta tokens
         ProviderVigiado(ProviderFalso(), local=False).contar_tokens_fixos("sistema")
+
+
+# A conferência depois da carga com o modelo_na_gpu de verdade (revisão de código de 20/11/2026): o /api/ps ou o
+# descarregar que falham ali não podem sair como um erro comum, que o pipeline trata como falha de um item só.
+
+CARGA_TODA_NA_CPU = (     # o trecho do log do ollama serve com o modelo principal carregado todo na CPU
+    'time=2026-10-14T19:55:26.007-03:00 level=INFO source=llama_server.go:1054 msg="loading model via llama-server" '
+    "model=/home/sytw/.ollama/models/blobs/sha256-a8bd\n"
+    "llama_model_loader: loaded meta data with 56 key-value pairs and 658 tensors from "
+    "/home/sytw/.ollama/models/blobs/sha256-a8bd (version GGUF V3 (latest))\n"
+    "load_tensors: offloaded 0/31 layers to GPU\n"
+    "load_tensors:   CPU_Mapped model buffer size = 16262.24 MiB\n"
+)
+
+
+class ClienteQueFalha(ClienteFalso):
+    """O cliente do Ollama que responde ao /api/ps antes da chamada e falha depois dela (`ps_falha_depois`), ou que
+    falha ao descarregar o modelo (`generate` com keep_alive=0, `descarregar_falha`)."""
+
+    def __init__(self, ps_falha_depois=False, descarregar_falha=False):
+        super().__init__()
+        self.ps_falha_depois, self.descarregar_falha = ps_falha_depois, descarregar_falha
+        self.pedidos_ps, self.descargas = 0, 0
+
+    def ps(self):
+        self.pedidos_ps += 1
+        if self.ps_falha_depois and self.pedidos_ps > 1:
+            raise ConnectionError("o servidor caiu depois da carga")
+        return super().ps()
+
+    def generate(self, **opcoes):
+        self.descargas += 1
+        if self.descarregar_falha:
+            raise ConnectionError("a conexão caiu ao descarregar")
+
+
+def _vigia_com_a_conferencia_de_verdade(monkeypatch, tmp_path, cliente):
+    monkeypatch.setattr(maquina.gpu, "modelo_na_gpu", MODELO_NA_GPU_DE_VERDADE)
+    log = tmp_path / "ollama_serve.log"
+    log.write_text(CARGA_TODA_NA_CPU, encoding="utf-8")
+    provider = ProviderFalso(cliente=cliente)
+    return provider, ProviderVigiado(provider, log_ollama=str(log), local=True)
+
+
+def test_o_api_ps_que_falha_depois_da_carga_para_a_execucao(monkeypatch, tmp_path):
+    cliente = ClienteQueFalha(ps_falha_depois=True)
+    provider, vigia = _vigia_com_a_conferencia_de_verdade(monkeypatch, tmp_path, cliente)
+    with pytest.raises(ExecucaoInterrompida, match=r"depois da primeira chamada: a conferência da GPU não concluiu: "
+                                                   r"o /api/ps falhou \(ConnectionError: o servidor caiu depois da carga\)"):
+        vigia.chat_json("sistema", "entrada")
+    assert provider.chamadas == 1 and cliente.pedidos_ps == 2
+
+
+def test_o_descarregar_que_falha_depois_da_carga_na_cpu_para_a_execucao(monkeypatch, tmp_path):
+    cliente = ClienteQueFalha(descarregar_falha=True)
+    provider, vigia = _vigia_com_a_conferencia_de_verdade(monkeypatch, tmp_path, cliente)
+    with pytest.raises(ExecucaoInterrompida, match=r"depois da primeira chamada: a conferência da GPU não concluiu: "
+                                                   r"o descarregar do modelo falhou \(ConnectionError: a conexão caiu ao descarregar\)"):
+        vigia.chat_json("sistema", "entrada")
+    assert provider.chamadas == 1 and cliente.descargas == 1
+
+
+def test_com_o_descarregar_falhando_a_execucao_para_no_primeiro_item_e_nao_gera_o_seguinte_na_cpu(monkeypatch, tmp_path):
+    # o caso que a revisão apontou: o modelo fica na CPU, o /api/ps continua respondendo e, sem a parada, cada item
+    # seguinte gerava inteiro na CPU e falhava de novo, até acabar o orçamento de tempo
+    cliente = ClienteQueFalha(descarregar_falha=True)
+    provider, vigia = _vigia_com_a_conferencia_de_verdade(monkeypatch, tmp_path, cliente)
+    resultados, parada = [], None
+    try:
+        for _ in range(2):                                     # dois itens, como o laço do pipeline
+            resultados.append(_pular_item_com_except_exception(vigia))
+    except ExecucaoInterrompida as e:
+        parada = e
+    assert (resultados, provider.chamadas, parada is not None) == ([], 1, True)
+    assert "o descarregar do modelo falhou" in str(parada)
