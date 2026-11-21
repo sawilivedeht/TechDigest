@@ -261,7 +261,8 @@ def detectar_idioma(textos: Iterable[str]) -> Idioma:
 _ESCALAS_DESCONHECIDAS = "|".join((
     r"thousands?", r"millions?", r"billions?", r"trillions?", r"bn",   # inglês ("millions" também é francês;
                                                                        # "Million" e "Billion", alemão)
-    r"mil\s+milh(?:ão|ões)", r"bili(?:ão|ões)",                         # português de Portugal (10⁹ e 10¹²)
+    r"bili(?:ão|ões)",                                                  # português de Portugal (10¹²; o "mil milhões",
+                                                                        # 10⁹, ai/numeros.py lê desde 21/11/2026)
     r"Millionen", r"Milliarden?", r"Billionen", r"Mio\.", r"Mrd\.",     # alemão
     r"milliards?",                                                      # francês
     r"mil\s+mill(?:ón|ones)", r"mill(?:ón|ones)", r"bill(?:ón|ones)",   # espanhol

@@ -1038,6 +1038,62 @@ def test_decimal_falado_antes_da_escala_pelo_qa_do_summarizer(fala, fonte, passa
     assert (_qa(_com_fala(fala), ["G1"], UM_LADO, SEM_RESSALVAS, [fonte]) == []) is passa
 
 
+# "Mil milhões", como Portugal escreve o bilhão (decisão do dono de 21/11/2026). Antes, o "milhões" depois do "mil" se
+# perdia em algarismos ("81,3 mil milhões" valia 81.300) ou somava um milhão por extenso ("dois mil milhões" valia
+# 1.002.000), e o episódio que convertia certo para "81,3 bilhões" ficava sem fonte: na execução contínua de 21/11, um item
+# do Jornal de Negócios foi reprovado assim, e um do ECO, duas vezes, até ser abandonado. Medido antes
+# (data/agrupamento/mil_milhoes_20261121/): nos 656 episódios gravados, 3 reprovados passam a aprovados e nenhum aprovado
+# passa a reprovado.
+@pytest.mark.parametrize("texto, esperado", [
+    ("ao angariar 81,3 mil milhões de dólares", [81_300_000_000]),
+    ("3 mil milhões de euros", [3_000_000_000]),
+    ("1.582 mil milhões", [1_582_000_000_000]),
+    ("mil milhões de euros", [1_000_000_000]),
+    ("dois mil milhões", [2_000_000_000]),
+    ("cento e vinte mil milhões de euros", [120_000_000_000]),
+    ("três vírgula seis mil milhões", [3_600_000_000]),
+    ("dois mil milhões e meio", [2_500_000_000]),
+    ("entre 10 e 12 mil milhões", [10_000_000_000, 12_000_000_000]),          # o intervalo leva a escala dupla
+    ("entre dez e doze mil milhões", [10_000_000_000, 12_000_000_000]),
+    ("dez mil milhões, vinte mil milhões", [10_000_000_000, 20_000_000_000]),  # a vírgula separa dois números
+    ("dois mil milhões, trezentos milhões", [2_300_000_000]),                  # a parte menor continua (29/10)
+    # O que não muda: o "mil" sem "milhões" logo depois, e os bilhões do Brasil.
+    ("5 mil pessoas", [5_000]),
+    ("mil e quinhentos", [1_500]),
+    ("dois milhões e trezentos mil", [2_300_000]),
+    ("dez mil, vinte mil", [10_000, 20_000]),
+    ("mil, milhões de vezes", [1_000]),                                         # com pontuação no meio, não é a escala
+    ("milhares de milhões de pessoas", []),
+    ("81,3 bilhões", [81_300_000_000]),
+])
+def test_mil_milhoes_e_uma_escala_so_como_portugal_escreve_o_bilhao(texto, esperado):
+    assert [n.valor for n in numeros.numeros(texto)] == [pytest.approx(v) for v in esperado]
+
+
+FONTE_EM_MIL_MILHOES = "A empresa angariou 81,3 mil milhões de dólares na oferta, e o fundo tem 7,4 mil milhões."
+
+
+@pytest.mark.parametrize("fala, passa", [
+    ("A empresa arrecadou 81,3 bilhões de dólares.", True),
+    ("A empresa arrecadou oitenta e um vírgula três bilhões de dólares.", True),
+    ("A empresa arrecadou 81,3 mil milhões de dólares.", True),     # repetir a forma de Portugal também vale
+    ("O fundo tem sete vírgula quatro bilhões.", True),
+    ("A empresa arrecadou cerca de 81 bilhões de dólares.", True),  # com qualificador, até 5%
+    ("A empresa arrecadou 81 bilhões de dólares.", False),          # sem qualificador, o valor exato (20/11)
+    ("A empresa arrecadou 81,3 mil dólares.", False),               # antes passava: a fonte valia 81.300
+])
+def test_mil_milhoes_da_fonte_sustenta_os_bilhoes_do_episodio(fala, passa):
+    assert (qa.problemas_dos_numeros(_com_fala(fala), [FONTE_EM_MIL_MILHOES]) == []) is passa
+
+
+@pytest.mark.parametrize("fonte, passa", [
+    ("O banco emprestou 2 bilhões de euros.", True),
+    ("O banco emprestou 1.002.000 euros.", False),   # o valor que a leitura antiga dava a "dois mil milhões"
+])
+def test_mil_milhoes_por_extenso_na_fala_vale_dois_bilhoes(fonte, passa):
+    assert (qa.problemas_dos_numeros(_com_fala("O banco emprestou dois mil milhões de euros."), [fonte]) == []) is passa
+
+
 # Intervalos (07/11): a escala, ou o "por cento", dita no último número vale para os dois.
 TEXTOS_DOS_INTERVALOS = ["A rival estima entre US$ 15 bilhões e US$ 16 bilhões no período, a fábrica entrega de 30 a 50 milhões "
                          "de peças e a inflação fica entre 15% e 20% no ano."]

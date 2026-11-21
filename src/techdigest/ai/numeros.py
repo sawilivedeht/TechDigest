@@ -82,6 +82,16 @@ class Numero:
     escala: int = 1   # a escala em que é dito: 10**6 em "245 milhões" e "duzentos milhões"; 1 em "mil e quinhentos"
 
 
+def _escala_em(lidos: list[Token], j: int, texto: str) -> tuple[int, int]:
+    """A escala que começa no token `j` e o índice depois dela; (0, j) se ali não há escala. "Mil milhões", como Portugal
+    escreve o bilhão, é uma escala só, 10**9 (decisão do dono de 21/11/2026): "81,3 mil milhões" vale 81.300.000.000."""
+    if j >= len(lidos) or lidos[j].norm not in _ESCALAS:
+        return 0, j
+    if lidos[j].norm == "mil" and j + 1 < len(lidos) and lidos[j + 1].norm == "milhoes" and junto(texto, lidos[j], lidos[j + 1]):
+        return 10**9, j + 2
+    return _ESCALAS[lidos[j].norm], j + 1
+
+
 def _continua(texto: str, a: Token, b: Token) -> bool:
     """Se `b` continua o número por extenso que vai até `a`: só espaço entre os dois, ou uma vírgula depois da escala,
     antes de uma parcela menor que ela ("nove mil, quinhentas e quarenta e quatro" vale 9.544; decisão de 29/10/2026)."""
@@ -132,8 +142,8 @@ def _ler_por_extenso(lidos: list[Token], i: int, texto: str) -> tuple[int, float
         if j > i and not junto(texto, lidos[j - 1], t):
             if not _continua(texto, lidos[j - 1], t):
                 break
-            virgula = (j, total, atual, escala, _ESCALAS[lidos[j - 1].norm])
-        if virgula and t.norm in _ESCALAS and _ESCALAS[t.norm] >= virgula[4]:
+            virgula = (j, total, atual, escala, escala)   # a escala lida logo antes da vírgula ("mil milhões" vale 10**9)
+        if virgula and _escala_em(lidos, j, texto)[0] >= virgula[4]:
             j, total, atual, escala = virgula[:4]   # "dez mil, vinte mil": a vírgula separava dois números
             break
         if t.norm == "e" and j > i:
@@ -144,9 +154,9 @@ def _ler_por_extenso(lidos: list[Token], i: int, texto: str) -> tuple[int, float
             atual += parcela
             j += 2
         elif t.norm in _ESCALAS and (j > i or t.norm == "mil"):
-            total += (atual or 1) * _ESCALAS[t.norm]
-            atual, escala = 0, _ESCALAS[t.norm]
-            j += 1
+            escala, j = _escala_em(lidos, j, texto)          # "cento e vinte mil milhões": 120 × 10**9
+            total += (atual or 1) * escala
+            atual = 0
         elif t.norm in _PARCELAS and (j == i or (atual == 0 and total)):   # sem "e", só depois de mil ou milhão
             if j == i and t.norm in ("um", "uma") and not (
                     j + 1 < len(lidos) and junto(texto, t, lidos[j + 1])
@@ -180,7 +190,8 @@ def _decimal_falado(lidos: list[Token], j: int, texto: str) -> tuple[int, float 
             fim, parte, escala_da_parte = _ler_por_extenso(lidos, j + 1, texto)
             if (parte is not None and escala_da_parte > 1 and lidos[fim - 1].norm in _ESCALAS
                     and parte == int(parte / escala_da_parte) * escala_da_parte):
-                fim, parte = fim - 1, parte / escala_da_parte   # "seis bilhões": o decimal é 6, e a escala fica para depois
+                tamanho = 2 if escala_da_parte == 10**9 and lidos[fim - 1].norm == "milhoes" else 1   # "mil milhões"
+                fim, parte = fim - tamanho, parte / escala_da_parte   # "seis bilhões": o decimal é 6, e a escala fica para depois
         if parte is None or parte != int(parte) or parte >= 1000:
             return j, None
         casas = str(int(parte))
@@ -201,7 +212,8 @@ def numeros(texto: str) -> list[Numero]:
     "1.200" vale 1200, "67,50" vale 67,5, "3,2 milhões" vale 3.200.000, "dois milhões e meio" vale
     2.500.000, "duzentos e setenta e um por cento" vale 271 (percentual), "cinquenta e oito vírgula
     oito por cento" vale 58,8 (percentual), "zero vírgula vinte e cinco" vale 0,25, "um ponto setenta e dois"
-    vale 1,72, "três vírgula seis bilhões" vale 3.600.000.000 e "um terço" vale 1/3. Ordinais por extenso e "um"/"uma"
+    vale 1,72, "três vírgula seis bilhões" vale 3.600.000.000, "81,3 mil milhões" (como Portugal escreve o bilhão,
+    decisão do dono de 21/11/2026) vale 81.300.000.000 e "um terço" vale 1/3. Ordinais por extenso e "um"/"uma"
     sozinhos não contam. O "e meio" conta depois de milhão, bilhão ou trilhão e no percentual ("dois e meio por cento" e
     "um por cento e meio" valem 2,5% e 1,5%, decisão do dono de 20/11/2026); "dez e meia" é hora.
     """
@@ -211,10 +223,9 @@ def numeros(texto: str) -> list[Numero]:
         t = lidos[i]
         if t.numerico:
             j, valor, escala = i + 1, float(t.texto.replace(".", "").replace(",", ".")), 1
-            if j < len(lidos) and lidos[j].norm in _ESCALAS and junto(texto, t, lidos[j]):
-                escala = _ESCALAS[lidos[j].norm]
+            if j < len(lidos) and junto(texto, t, lidos[j]) and _escala_em(lidos, j, texto)[0]:
+                escala, j = _escala_em(lidos, j, texto)          # "81,3 mil milhões": 81,3 × 10**9
                 valor *= escala
-                j += 1
         elif t.norm == "zero" and i + 1 < len(lidos) and junto(texto, t, lidos[i + 1]) \
                 and _antes_de_decimal(lidos, i + 1, texto):
             j, valor, escala = i + 1, 0, 1            # "zero vírgula vinte e cinco"; "zero" sozinho não conta
@@ -232,9 +243,9 @@ def numeros(texto: str) -> list[Numero]:
             j, decimal = _decimal_falado(lidos, j, texto)
             if decimal:
                 valor, escala = valor + decimal, 1
-                if sem_escala and j < len(lidos) and lidos[j].norm in _ESCALAS and junto(texto, lidos[j - 1], lidos[j]):
-                    escala = _ESCALAS[lidos[j].norm]
-                    valor, j = valor * escala, j + 1                # "três vírgula seis bilhões": 3,6 bilhões
+                if sem_escala and j < len(lidos) and junto(texto, lidos[j - 1], lidos[j]) and _escala_em(lidos, j, texto)[0]:
+                    escala, j = _escala_em(lidos, j, texto)
+                    valor *= escala                                  # "três vírgula seis bilhões": 3,6 bilhões
         if j < len(lidos) and lidos[j].norm in _TERCOS and 1 <= valor <= 2 and junto(texto, lidos[j - 1], lidos[j]):
             valor /= 3
             j += 1
