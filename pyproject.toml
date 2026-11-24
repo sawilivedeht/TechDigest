@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "techdigest"
 version = "0.1.0"
-description = "Pipeline diário de curadoria de notícias de tecnologia e politica brasileira com IA"
+description = "Pipeline diário de curadoria de notícias de tecnologia e política brasileira com IA"
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
